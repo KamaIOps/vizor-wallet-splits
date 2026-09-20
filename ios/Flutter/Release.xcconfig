@@ -1,3 +1,15 @@
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
 #include "Generated.xcconfig"
 VIZOR_DEEPLINK_HOST = link.vizor.cash
+
+// One architecture for the simulator, because `lipo -verify_arch` takes one.
+//
+// Flutter's "Thin Binary" phase runs `lipo <binary> -verify_arch $ARCHS`, and
+// lipo accepts exactly one architecture there. With the default
+// `arm64 x86_64` it exits 1 with "requires exactly one input file", which
+// Flutter reports as `does not contain architectures "arm64 x86_64"` — a
+// message about the wrong thing, since each architecture verifies on its own.
+//
+// A simulator on Apple Silicon runs arm64, so nothing is lost by naming it.
+ARCHS[sdk=iphonesimulator*] = arm64
+EXCLUDED_ARCHS[sdk=iphonesimulator*] = x86_64

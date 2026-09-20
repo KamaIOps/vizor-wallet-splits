@@ -37,6 +37,17 @@ dependencies:
   cupertino_icons: ^1.0.8
   rust_lib_zcash_wallet:
     path: rust_builder
+  # Shared bills. `splitz_host` is wallet-generic — it names no wallet and
+  # takes what it needs as interfaces — and `vizor_splitz` is the screens over
+  # it. The meeting point is lib/src/features/splits/splits_wallet_adapter.dart.
+  splitz_host:
+    path: ../Splitz-Protocol/splitz_host
+  vizor_splitz:
+    path: ../vizor-splitz-ui
+  # The protocol itself, for the lane that builds a bill directly.
+  splitz_core:
+    path: ../Splitz-Protocol/dart
+
   flutter_rust_bridge: 2.11.1
   flutter_riverpod: ^3.3.1
   go_router: ^17.1.0
