@@ -302,6 +302,25 @@ Future<ProposalResult> proposeSend({
   memo: memo,
 );
 
+/// Propose a transfer fulfilling a ZIP 321 payment request URI.
+///
+/// The request may name several recipients, all paid by one transaction, so a
+/// payer settling debts to five people signs once and pays one fee. Everything
+/// after the proposal is the ordinary send path.
+Future<ProposalResult> proposeSendMulti({
+  required String dbPath,
+  required String network,
+  required String accountUuid,
+  required String sendFlowId,
+  required String paymentUri,
+}) => RustLib.instance.api.crateApiSyncProposeSendMulti(
+  dbPath: dbPath,
+  network: network,
+  accountUuid: accountUuid,
+  sendFlowId: sendFlowId,
+  paymentUri: paymentUri,
+);
+
 /// Estimate the fee for a transfer without storing a proposal.
 Future<BigInt> estimateFee({
   required String dbPath,

@@ -781,6 +781,7 @@ fn retry_store_then_pending_migration_policy_rebuild_message(
     pending_migration_policy_rebuild_message(db_path, network, run_id, chain_tip_height)
 }
 
+/// Propose a transfer to a single recipient.
 pub(crate) fn propose_send(
     db_path: &str,
     network: WalletNetwork,
@@ -824,6 +825,38 @@ pub(crate) fn propose_send_for_purpose(
             memo_str,
         },
         purpose,
+    )
+}
+
+/// Propose a transfer fulfilling a ZIP 321 payment request URI.
+///
+/// Unlike [`propose_send`], the request may name several recipients: ZIP 321
+/// indexes additional payments as `address.1`, `amount.1`, `memo.1` and so on.
+/// All of them are paid by a single transaction, so settling debts to five
+/// people costs one signature, one fee and one on-chain event instead of five.
+///
+/// Everything after the request is built — input selection, the transaction
+/// version downgrade retry, migration-aware spend policy, input locking and the
+/// proposal store — is the ordinary send path, so confirmation, signing and
+/// broadcast need no special case for a multi-recipient proposal.
+pub(crate) fn propose_send_multi(
+    db_path: &str,
+    network: WalletNetwork,
+    account_uuid: &str,
+    send_flow_id: &str,
+    payment_uri: &str,
+) -> Result<ProposalResult, String> {
+    // Parse once up front so a malformed request fails before the write lock is
+    // taken, rather than from inside the proposal retry.
+    validate_multi_payment_uri(payment_uri)?;
+
+    propose_send_with_request(
+        db_path,
+        network,
+        account_uuid,
+        send_flow_id,
+        SendRequest::PaymentUri(payment_uri),
+        SendPurpose::Ordinary,
     )
 }
 
@@ -1028,6 +1061,8 @@ enum SendRequest<'a> {
         memo_str: Option<&'a str>,
     },
     PaymentLinkBatch(&'a [(String, u64)]),
+    /// A ZIP 321 payment request, which may name several recipients.
+    PaymentUri(&'a str),
 }
 
 impl SendRequest<'_> {
@@ -1039,6 +1074,7 @@ impl SendRequest<'_> {
                 memo_str,
             } => build_send_request(to_address, amount_zatoshi, memo_str),
             Self::PaymentLinkBatch(payments) => build_payment_link_batch_request(payments),
+            Self::PaymentUri(payment_uri) => build_send_request_from_uri(payment_uri),
         }
     }
 }
@@ -3836,6 +3872,32 @@ fn build_ledger_shielding_round(
         )
         .map_err(|e| format!("Ledger shield proposal failed: {e}"))?;
     Ok((proposal, selected))
+}
+
+fn build_send_request_from_uri(payment_uri: &str) -> Result<TransactionRequest, String> {
+    TransactionRequest::from_uri(payment_uri).map_err(|e| format!("Bad payment request: {e:?}"))
+}
+
+/// Rejects payment requests that parse but cannot be settled.
+///
+/// ZIP 321 permits a payment with no amount — the payer chooses one — which is
+/// meaningless for a settlement and would otherwise propose a zero-value
+/// output. Every recipient must be given an amount.
+fn validate_multi_payment_uri(payment_uri: &str) -> Result<(), String> {
+    let request = build_send_request_from_uri(payment_uri)?;
+
+    if request.payments().is_empty() {
+        return Err("Payment request names no recipients".to_string());
+    }
+    for (index, payment) in request.payments() {
+        if payment.amount().is_none() {
+            return Err(format!(
+                "Payment {index} in the request has no amount; \
+                 every recipient must be given one"
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn build_send_request(

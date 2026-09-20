@@ -1187,6 +1187,35 @@ pub fn propose_send(
     })
 }
 
+/// Propose a transfer fulfilling a ZIP 321 payment request URI.
+///
+/// The request may name several recipients, all paid by one transaction, so a
+/// payer settling debts to five people signs once and pays one fee. Everything
+/// after the proposal is the ordinary send path.
+pub fn propose_send_multi(
+    db_path: String,
+    network: String,
+    account_uuid: String,
+    send_flow_id: String,
+    payment_uri: String,
+) -> Result<ProposalResult, String> {
+    catch(|| {
+        let network = parse_network_and_migrate(&db_path, &network)?;
+        let r = wallet_sync::propose_send_multi(
+            &db_path,
+            network,
+            &account_uuid,
+            &send_flow_id,
+            &payment_uri,
+        )?;
+        Ok(ProposalResult {
+            proposal_id: r.proposal_id,
+            needs_sapling_params: r.needs_sapling_params,
+            fee_zatoshi: r.fee_zatoshi,
+        })
+    })
+}
+
 /// Estimate the fee for a transfer without storing a proposal.
 pub fn estimate_fee(
     db_path: String,

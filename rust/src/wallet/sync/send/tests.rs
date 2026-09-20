@@ -4307,3 +4307,82 @@ fn gift_card_batch_ledger_limits_orchard_actions() {
          Try fewer cards or a smaller amount per card."
     );
 }
+
+// --- ZIP 321 requests naming several recipients -----------------------------
+//
+// The addresses are taken from the splitz conformance corpus
+// (`vectors/zip321.json`), which pins them against librustzcash's own `zip321`
+// crate, so a change in address parsing shows up here as a parse failure
+// rather than as a test that quietly stopped covering anything.
+
+const RECIPIENT_A: &str = "u13j3q8q8f9hx2nx0w9l52dqksy4png7fgm0lqjh8ahn9enyvz5z9xnwzdcdjmpf756s2y88rnyr9px4f4k9w03sl6fr4vwsqcvg8ggfjx";
+const RECIPIENT_B: &str = "u16cynw2u6nshm44gjv9vy9dvav6zvvksphexzjs3tjke8mr3p942er0pu8held7zy7wpjxzqgkpdrjzd72h7pwf34df8a0xcv0su3acx7";
+
+#[test]
+fn a_request_naming_two_recipients_builds_two_payments() {
+    let uri = format!(
+        "zcash:{RECIPIENT_A}?amount=0.0878323&address.1={RECIPIENT_B}&amount.1=0.5"
+    );
+    let request = build_send_request_from_uri(&uri).expect("a well-formed request");
+
+    // One transaction, two outputs: this is the whole reason the multi path
+    // exists, so it is asserted rather than assumed.
+    assert_eq!(request.payments().len(), 2);
+    validate_multi_payment_uri(&uri).expect("both recipients carry an amount");
+}
+
+#[test]
+fn a_single_recipient_request_is_still_a_request() {
+    let uri = format!("zcash:{RECIPIENT_A}?amount=0.0878323");
+    assert_eq!(
+        build_send_request_from_uri(&uri)
+            .expect("a well-formed request")
+            .payments()
+            .len(),
+        1
+    );
+    validate_multi_payment_uri(&uri).expect("its one recipient carries an amount");
+}
+
+#[test]
+fn a_recipient_with_no_amount_is_refused() {
+    // ZIP 321 permits it — the payer chooses — which is meaningless for a
+    // settlement and would propose a zero-value output. This is the witness
+    // for that guard: the input that reaches it, and the refusal it gives.
+    let uri = format!("zcash:{RECIPIENT_A}?amount=0.0878323&address.1={RECIPIENT_B}");
+    let error = validate_multi_payment_uri(&uri).expect_err("the second has no amount");
+    assert!(
+        error.contains("has no amount"),
+        "refused for the wrong reason: {error}"
+    );
+
+    // And the request itself parses, so the refusal is this guard's and not
+    // the parser's.
+    assert_eq!(
+        build_send_request_from_uri(&uri)
+            .expect("it parses")
+            .payments()
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn a_request_naming_nobody_is_refused() {
+    let uri = format!("zcash:{RECIPIENT_A}");
+    // A bare address with no amount is one payment with no amount, so it is
+    // refused for that — the empty case cannot be spelled in ZIP 321.
+    assert!(validate_multi_payment_uri(&uri).is_err());
+}
+
+#[test]
+fn something_that_is_not_a_payment_request_is_refused_as_one() {
+    for text in ["", "not a uri", "https://example.com", "zcash:not-an-address"] {
+        let error = validate_multi_payment_uri(text)
+            .expect_err("nothing here is a payment request");
+        assert!(
+            error.starts_with("Bad payment request"),
+            "{text:?} refused with: {error}"
+        );
+    }
+}
