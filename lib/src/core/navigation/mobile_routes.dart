@@ -61,6 +61,7 @@ import '../layout/mobile/app_mobile_shell.dart';
 import '../layout/mobile/app_mobile_tab_bar.dart';
 import '../widgets/app_icon.dart';
 import 'payload_page_key.dart';
+import '../../features/splits/splits_entry_screen.dart';
 
 /// The mobile route tree: the shared entry/onboarding routes, a
 /// stateful tab shell (home / swap / activity / settings), and
@@ -135,6 +136,16 @@ List<RouteBase> buildMobileRoutes({required List<RouteBase> entryRoutes}) {
           accountUuid: state.extra is String ? state.extra as String : null,
           showBackupIntro: true,
         ),
+      ),
+    ),
+    // Split bills. A full-screen push over the shell, like the settings
+    // details above: the feature has its own navigation and the tab bar would
+    // sit under screens that do not belong to a tab.
+    GoRoute(
+      path: '/splits',
+      pageBuilder: (context, state) => CupertinoPage(
+        key: state.pageKey,
+        child: const SplitsEntryScreen(),
       ),
     ),
     GoRoute(
