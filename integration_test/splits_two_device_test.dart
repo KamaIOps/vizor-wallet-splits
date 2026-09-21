@@ -2,20 +2,32 @@
 ///
 /// `splitz_host`'s rehearsal proves the protocol converges. This proves the
 /// wallet is wired to it: the store the app writes to, the keychain it keeps
-/// bill keys in, and the relay `splits_relay.dart` builds from
-/// `SPLITS_RELAY_URL`. Each phase runs on its own simulator with a fresh
-/// install, so a device holds nothing until it pulls — the bill lives on the
-/// relay, and the invite carries the key that opens it.
+/// bill keys in, the payout address it publishes, and the relay
+/// `splits_relay.dart` builds from `SPLITS_RELAY_URL`.
+///
+/// **The two devices run at the same time and never speak directly.** Each
+/// holds its own install for the whole run, so its identity and its account id
+/// stand still; everything either one learns about the other arrives by
+/// syncing the bill. Each step therefore waits for the other device's entry
+/// rather than assuming it, which is what makes this a test of the relay and
+/// not of one device's own store.
+///
+/// One bill, in order: A opens it and publishes an invite; B joins; A puts an
+/// expense on it; B puts a second one on it; B settles what the netted bill
+/// says it owes; A confirms the money arrived; both sides see a bill that owes
+/// nobody.
 ///
 ///     python3 <splitz>/tools/relay/server.py --port 39300
 ///     flutter test integration_test/splits_two_device_test.dart -d <A> \
-///       --dart-define=SPLITS_PHASE=create \
+///       --dart-define=SPLITS_PHASE=a \
 ///       --dart-define=SPLITS_RELAY_URL=http://127.0.0.1:39300
-///     # then, with the invite the create phase printed:
+///     # concurrently, with the invite device A printed:
 ///     flutter test integration_test/splits_two_device_test.dart -d <B> \
-///       --dart-define=SPLITS_PHASE=join \
+///       --dart-define=SPLITS_PHASE=b \
 ///       --dart-define=SPLITS_INVITE=<invite> \
 ///       --dart-define=SPLITS_RELAY_URL=http://127.0.0.1:39300
+///
+/// `scripts/e2e/splits-two-device.sh` runs both and carries the invite across.
 library;
 
 import 'dart:io';
@@ -25,6 +37,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:splitz_core/host.dart' as splitz;
+import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:splitz_host/io.dart';
 import 'package:vizor_splitz/vizor_splitz.dart';
 import 'package:zcash_wallet/app.dart';
@@ -32,11 +45,27 @@ import 'package:zcash_wallet/src/core/storage/wallet_paths.dart';
 import 'package:zcash_wallet/src/features/splits/splits_relay.dart';
 import 'package:zcash_wallet/src/features/splits/splits_wallet_adapter.dart';
 import 'package:zcash_wallet/src/providers/account_provider.dart';
+import 'package:zcash_wallet/src/providers/rpc_endpoint_provider.dart';
+import 'package:zcash_wallet/src/rust/api/wallet.dart' as rust_wallet;
 
 import 'support/mobile_regtest_flow.dart';
 
 const _phase = String.fromEnvironment('SPLITS_PHASE');
 const _invite = String.fromEnvironment('SPLITS_INVITE');
+
+/// What A pays, in minor units of the bill's currency (§2.1).
+const _anaSpent = 9000;
+
+/// What B pays.
+const _benSpent = 3000;
+
+/// 90.00 and 30.00 split evenly across two people leaves B owing 30.00.
+const _benOwes = (_anaSpent - _benSpent) ~/ 2;
+
+/// A device on the other end of the relay may be building a wallet, so the
+/// first wait is long; the rest are short because by then it is only a sync.
+const _firstWait = Duration(minutes: 6);
+const _wait = Duration(minutes: 3);
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -45,7 +74,7 @@ void main() {
     await initializeZcashWalletRuntime();
   });
 
-  testWidgets('phase $_phase', (tester) async {
+  testWidgets('device $_phase', (tester) async {
     tolerateRenderOverflows();
     final defaultHandler = FlutterError.onError;
     FlutterError.onError = (details) {
@@ -54,9 +83,9 @@ void main() {
     };
 
     expect(
-      const ['create', 'join'].contains(_phase),
+      const ['a', 'b'].contains(_phase),
       isTrue,
-      reason: 'SPLITS_PHASE is create or join',
+      reason: 'SPLITS_PHASE names a device: a or b',
     );
     expect(
       splitsRelayUrl,
@@ -71,18 +100,38 @@ void main() {
       tester.element(find.byType(Scaffold).first),
     );
     final account = container.read(accountProvider).value!;
+    final accountUuid = account.activeAccountUuid!;
 
     // The same pieces `splits_entry_screen.dart` gives the controller: the
-    // app's own storage, its keychain, and the relay it builds.
+    // app's own storage, its keychain, the payout address it publishes, and
+    // the relay it builds. The viewing key is what carries this account's
+    // identity across a reinstall, and it is read the way the screen reads it.
+    String? viewingKey;
+    try {
+      viewingKey = await rust_wallet.getAccountUfvk(
+        dbPath: await getWalletDbPath(),
+        network: container.read(rpcEndpointProvider).networkName,
+        accountUuid: accountUuid,
+      );
+    } on Object {
+      viewingKey = null;
+    }
+    expect(account.activeAddress, isNotNull,
+        reason: 'a participant with no payout address cannot be settled to');
+
     // Beside the wallet database, exactly where the entry screen puts it.
     final directory = Directory(
       '${File(await getWalletDbPath()).parent.path}/splits',
     );
     final wallet = VizorSplitsWallet(
-      accountUuid: account.activeAccountUuid!,
-      unifiedFullViewingKey: null,
+      accountUuid: accountUuid,
+      unifiedFullViewingKey: viewingKey,
       sender: WalletSplitsSender(
-        payToAddress: null,
+        payToAddress: account.activeAddress,
+        // §9.2's cash lane settles this bill: a transaction between two
+        // simulators is a separate lane with a funded chain behind it, and
+        // what is under test here is that a payment and its confirmation
+        // cross the relay.
         send: (uri) async => throw StateError('this lane sends nothing'),
       ),
     );
@@ -93,38 +142,242 @@ void main() {
       relay: splitsRelay(),
     );
     await controller.load();
+    final me = controller.me;
 
-    if (_phase == 'create') {
-      await controller.createBill(name: 'Dinner', currency: 'USD');
-      final bill = controller.bills.single;
-      await controller.syncBill(bill.id);
-      final invite = await controller.inviteFor(bill.id);
-      // The sequencer reads this line and hands it to the join phase. The
-      // invite carries the bill id and the key; the log comes from the relay.
-      logE2e('INVITE $invite');
-      expect(invite, startsWith('splitz://join'),
-          reason: '§11.1 renders an invite as a link, not a payload');
-      return;
+    if (_phase == 'a') {
+      await _deviceA(tester, controller, me);
+    } else {
+      await _deviceB(tester, controller, me);
     }
+  }, timeout: const Timeout(Duration(minutes: 30)));
+}
 
-    // --- join --------------------------------------------------------------
-    expect(_invite, isNotEmpty, reason: 'the join phase needs the invite');
-    expect(controller.bills, isEmpty,
-        reason: 'a fresh install holds no bill until it pulls');
+/// Opens the bill, puts an expense on it, and confirms the money arrived.
+Future<void> _deviceA(
+  WidgetTester tester,
+  SplitsController controller,
+  String me,
+) async {
+  final billId = (await controller.createBill(
+    name: 'Dinner',
+    currency: 'USD',
+    displayName: 'Ana',
+  ))!;
+  await controller.syncBill(billId);
+  final invite = await controller.inviteFor(billId);
+  expect(invite, startsWith('splitz://join'),
+      reason: '§11.1 renders an invite as a link, not a payload');
+  // The sequencer reads this line and starts device B with it. The invite
+  // carries the bill id and the key; the log comes from the relay.
+  logE2e('INVITE $invite');
 
-    final scanned = splitz.readScan(_invite);
-    expect(scanned, isA<splitz.ScannedInvite>());
-    final invite = (scanned as splitz.ScannedInvite).invite;
+  // 1 · B joins. Its participant id is the wallet account id it was assigned
+  //     on its own device, so it is read off the bill rather than guessed.
+  await _syncUntil(
+    tester,
+    controller,
+    billId,
+    (view) => view.bill.participants.length == 2,
+    description: 'device B to join',
+    timeout: _firstWait,
+  );
+  final them = _billOn(controller, billId)
+      .bill
+      .participants
+      .map((p) => p.id)
+      .firstWhere((id) => id != me);
+  logE2e('device B joined as $them');
 
-    await controller.acceptKey(invite.billId, invite.key);
-    final result = await controller.syncBill(invite.billId);
-    expect(result, isNotNull, reason: 'the relay answered');
+  // 2 · The expense A covered, and the rate that makes the bill settleable.
+  await controller.addExpense(
+    billId: billId,
+    paidBy: me,
+    amountMinorUnits: _anaSpent,
+    among: [me, them],
+    description: 'Dinner',
+  );
+  await controller.setRate(
+    billId: billId,
+    currency: 'USD',
+    minorUnitsPerZec: 3000,
+    source: 'lane',
+  );
+  await controller.syncBill(billId);
+  logE2e('put $_anaSpent on the bill, and a rate');
 
+  // 3 · B's own expense arrives over the relay, netted against A's.
+  await _syncUntil(
+    tester,
+    controller,
+    billId,
+    (view) => view.bill.expenses.any((e) => e.paidBy == them),
+    description: "device B's expense",
+  );
+  logE2e('device B put $_benSpent on the bill');
+
+  // 4 · B settles, and the record of it crosses the relay. A record is a
+  //     claim (§10.5): nothing has moved on this bill until A says so.
+  await _syncUntil(
+    tester,
+    controller,
+    billId,
+    (view) => view.bill.payments.any((p) => p.to == me),
+    description: "device B's payment",
+  );
+  final payment =
+      _billOn(controller, billId).bill.payments.singleWhere((p) => p.to == me);
+  expect(payment.amount, _benOwes,
+      reason: 'the netted bill leaves B owing $_benOwes');
+  expect(payment.from, them);
+
+  // 5 · Only the payee may say a payment arrived, and this device is it.
+  await controller.confirmPayment(
+    billId: billId,
+    paymentId: payment.id,
+    method: 'recipientConfirmed',
+  );
+  await controller.syncBill(billId);
+  logE2e('confirmed ${payment.id}');
+
+  final end = _billOn(controller, billId);
+  expect(end.setAside, isEmpty, reason: 'nothing either device wrote is refused');
+  expect(end.bill.confirmedPayments, contains(payment.id));
+  expect(protocol.netBalances(end.bill)[me], 0);
+  expect(protocol.netBalances(end.bill)[them], 0);
+  logE2e('the bill owes nobody');
+}
+
+/// Joins the bill, puts a second expense on it, and settles what it owes.
+Future<void> _deviceB(
+  WidgetTester tester,
+  SplitsController controller,
+  String me,
+) async {
+  expect(_invite, isNotEmpty, reason: 'device B is started with the invite');
+  expect(controller.bills, isEmpty,
+      reason: 'a fresh install holds no bill until it pulls');
+
+  final scanned = splitz.readScan(_invite);
+  expect(scanned, isA<splitz.ScannedInvite>());
+  final invite = (scanned as splitz.ScannedInvite).invite;
+  final billId = invite.billId;
+
+  await controller.acceptKey(billId, invite.key);
+  expect(await controller.syncBill(billId), isNotNull,
+      reason: 'the relay answered');
+  await controller.load();
+  expect(controller.bills.map((b) => b.id), contains(billId),
+      reason: 'the relay holds the bill device A opened, and this device '
+          'holds nothing it did not pull');
+  final pulled = _billOn(controller, billId);
+  expect(pulled.bill.name, 'Dinner',
+      reason: 'the bill the other device opened arrived over the relay');
+  logE2e('pulled "${pulled.bill.name}"');
+
+  // 1 · A join is what carries a display name and a payout address, and
+  //     without one there is nobody to settle to.
+  await controller.join(billId, displayName: 'Ben');
+  await controller.syncBill(billId);
+
+  // 2 · A's expense and the rate, both over the relay.
+  await _syncUntil(
+    tester,
+    controller,
+    billId,
+    (view) => view.bill.expenses.isNotEmpty && view.bill.rate != null,
+    description: "device A's expense and rate",
+    timeout: _firstWait,
+  );
+  final them = _billOn(controller, billId)
+      .bill
+      .participants
+      .map((p) => p.id)
+      .firstWhere((id) => id != me);
+  logE2e('device A put $_anaSpent on the bill');
+
+  // 3 · This device's own expense. The bill is netted before it is priced,
+  //     so what is settled is the difference and not the two gross amounts.
+  await controller.addExpense(
+    billId: billId,
+    paidBy: me,
+    amountMinorUnits: _benSpent,
+    among: [me, them],
+    description: 'Taxi',
+  );
+  await controller.syncBill(billId);
+
+  // 4 · What this device owes, from the protocol rather than from this lane.
+  final owed = (await controller.obligation(billId))!;
+  expect(owed.settlements.single.to, them);
+  expect(owed.settlements.single.amount, _benOwes,
+      reason: '($_anaSpent - $_benSpent) / 2 = $_benOwes, netted then priced');
+  expect(owed.unpayable, isEmpty,
+      reason: 'device A published a payout address when it joined');
+
+  // 5 · §9.2's cash lane: the money moves outside this protocol, and the only
+  //     evidence it ever has is the payee's confirmation (§10.5).
+  await controller.recordCash(
+    billId: billId,
+    to: them,
+    amountMinorUnits: _benOwes,
+    note: 'settled at the table',
+  );
+  await controller.syncBill(billId);
+  logE2e('recorded $_benOwes to $them');
+
+  // A payer is not asked to pay a debt twice, and is not told it is settled
+  // either: it is in flight until the payee vouches for it.
+  final claimed = (await controller.obligation(billId))!;
+  expect(claimed.settlements, isEmpty);
+  expect(claimed.awaiting.single.to, them);
+  expect(claimed.awaiting.single.paid, _benOwes);
+
+  // 6 · The confirmation crosses the relay, and only then does the debt clear.
+  await _syncUntil(
+    tester,
+    controller,
+    billId,
+    (view) => view.bill.confirmedPayments.isNotEmpty,
+    description: "device A's confirmation",
+  );
+
+  final end = _billOn(controller, billId);
+  expect(end.setAside, isEmpty, reason: 'nothing either device wrote is refused');
+  expect(protocol.netBalances(end.bill)[me], 0);
+  expect(protocol.netBalances(end.bill)[them], 0);
+  expect((await controller.obligation(billId))!.awaiting, isEmpty,
+      reason: 'once the payee has vouched, the bill owes nobody');
+  logE2e('the bill owes nobody');
+}
+
+BillView _billOn(SplitsController controller, String billId) =>
+    controller.bills.singleWhere((b) => b.id == billId);
+
+/// Syncs until [done] holds of the bill, or fails saying what never arrived.
+///
+/// Every wait in this lane is a wait on the other device, so the loop pushes
+/// as well as pulls: a device that only pulled would wait for an entry the
+/// other one is waiting to be asked for.
+Future<void> _syncUntil(
+  WidgetTester tester,
+  SplitsController controller,
+  String billId,
+  bool Function(BillView view) done, {
+  required String description,
+  Duration timeout = _wait,
+}) async {
+  final end = DateTime.now().add(timeout);
+  var polls = 0;
+  while (DateTime.now().isBefore(end)) {
+    await controller.syncBill(billId);
     await controller.load();
-    final bill = controller.bills.singleWhere((b) => b.id == invite.billId);
-    logE2e('pulled "${bill.bill.name}" with '
-        '${bill.bill.participants.length} participant(s)');
-    expect(bill.bill.name, 'Dinner',
-        reason: 'the bill the other device opened arrived over the relay');
-  });
+    final view = controller.bills.where((b) => b.id == billId).firstOrNull;
+    if (view != null && done(view)) return;
+    await tester.pump(const Duration(milliseconds: 200));
+    await Future<void>.delayed(const Duration(seconds: 2));
+    if (++polls % 15 == 0) {
+      logE2e('still waiting for $description');
+    }
+  }
+  fail('Timed out waiting for $description.');
 }
