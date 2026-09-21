@@ -15,6 +15,7 @@ import 'package:vizor_splitz/vizor_splitz.dart';
 
 import '../../core/network/network_http_client.dart';
 
+import 'testnet_accounts.dart';
 import 'splits_prices.dart';
 import 'splits_scanner.dart';
 import 'splits_swaps.dart';
@@ -51,6 +52,9 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
     // no driver named this does nothing, which is every shipped build.
     if (account?.activeAccountUuid == null) {
       final imported = await importDevAccounts(
+        // The testnet set: the one this repository describes. A mainnet run
+        // names its own table, which does not live here.
+        accounts: testnetAccounts,
         readAccounts: () => ref.read(accountProvider).value,
         readNotifier: () => ref.read(accountProvider.notifier),
       );
