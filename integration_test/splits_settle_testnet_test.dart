@@ -61,12 +61,17 @@ const bool broadcast = bool.fromEnvironment('SPLITS_BROADCAST');
 
 /// Who pays, and who is paid.
 ///
+/// All four wallets: one payer and three payees, so the request carries three
+/// recipients and the whole bill settles in **one** transaction. That is the
+/// claim netting exists to make, and two recipients does not test it — two is
+/// the shape a wallet that cannot batch would also produce.
+///
 /// The payer is the wallet that holds ZEC, because a payer with an empty
 /// balance cannot answer the one question this lane exists to ask. Every
 /// account carries a birthday height, so the wallet scans from July rather
 /// than from Sapling activation; a recipient needs no sync at all to be paid.
 const String payerName = 'TAZ-1';
-const List<String> payeeNames = ['TAZ-2', 'TAZ-3'];
+const List<String> payeeNames = ['TAZ-2', 'TAZ-3', 'TAZ-4'];
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
