@@ -15,9 +15,25 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-root="$(cd "$here/../.." && pwd)"
+# Overridable so a frozen copy can be run from anywhere. Bash reads a script
+# incrementally from a file offset, so editing this file while a run is in
+# flight corrupts that run — copy it, set VIZOR_ROOT, and run the copy.
+root="${VIZOR_ROOT:-$(cd "$here/../.." && pwd)}"
 protocol="${SPLITZ_PROTOCOL:-$HOME/Splitz-Protocol}"
 network="${SPLITS_NETWORK:-regtest}"
+
+# A wallet survives a reinstall. `flutter test` replaces the app bundle, but the
+# iOS keychain is not part of it, so a device that ran before boots straight to
+# /unlock and the create-wallet flow never sees its first screen. Every device
+# starts from nothing, which means terminating, uninstalling and resetting the
+# keychain — the last of those is the part a reinstall does not do.
+APP_BUNDLE_ID="${APP_BUNDLE_ID:-com.keplr.vizor}"
+wipe_device() {
+  local udid="$1"
+  xcrun simctl terminate "$udid" "$APP_BUNDLE_ID" >/dev/null 2>&1 || true
+  xcrun simctl uninstall "$udid" "$APP_BUNDLE_ID" >/dev/null 2>&1 || true
+  xcrun simctl keychain "$udid" reset >/dev/null 2>&1 || true
+}
 
 named_simulator() {
   xcrun simctl list devices available |
@@ -48,6 +64,8 @@ echo "relay: $relay"
 
 xcrun simctl boot "$UDID_A" 2>/dev/null || true
 xcrun simctl boot "$UDID_B" 2>/dev/null || true
+wipe_device "$UDID_A"
+wipe_device "$UDID_B"
 
 work="$(mktemp -d)"
 a_log="$work/a.log"
@@ -57,9 +75,13 @@ b_status="$work/b.status"
 a_pid=""
 b_pid=""
 
+# Killing the wrapper does not kill the work: `fvm flutter test` spawns a dart
+# VM and a frontend server that outlive it and get reparented. Each device runs
+# in its own process group so the group can be killed, and the group is what is
+# signalled.
 cleanup() {
-  [ -n "$a_pid" ] && kill "$a_pid" 2>/dev/null || true
-  [ -n "$b_pid" ] && kill "$b_pid" 2>/dev/null || true
+  [ -n "$a_pid" ] && { kill -- "-$a_pid" 2>/dev/null || kill "$a_pid" 2>/dev/null; } || true
+  [ -n "$b_pid" ] && { kill -- "-$b_pid" 2>/dev/null || kill "$b_pid" 2>/dev/null; } || true
   [ -n "$own_relay" ] && kill "$own_relay" 2>/dev/null || true
   return 0
 }
@@ -69,6 +91,7 @@ device() {
   local name="$1" udid="$2" log="$3" status="$4"
   shift 4
   (
+    set -m
     set +e
     (cd "$root" && fvm flutter test integration_test/splits_two_device_test.dart \
       -d "$udid" \
@@ -106,6 +129,11 @@ if [ -z "$invite" ]; then
 fi
 echo "invite: $invite"
 
+# Device B starts only now, and that ordering is load-bearing: `--dart-define`
+# is compiled in and both runs build into the one `build/` directory, so two
+# builds at once would leave both devices running whichever finished last.
+# Device A has to be running to have printed the invite, so its binary is
+# already installed on its own simulator and B may build over the artifact.
 echo "── device b on $UDID_B ──────────────────────────"
 device b "$UDID_B" "$b_log" "$b_status" --dart-define="SPLITS_INVITE=$invite"
 b_pid=$!
