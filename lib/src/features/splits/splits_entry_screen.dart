@@ -17,6 +17,7 @@ import '../../core/network/network_http_client.dart';
 
 import 'testnet_accounts.dart';
 import 'splits_prices.dart';
+import 'splits_relay.dart';
 import 'splits_scanner.dart';
 import 'splits_swaps.dart';
 
@@ -110,10 +111,14 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
       // The keychain, not the bill store: a bill key in ordinary storage is a
       // bill key anything that can read the sandbox can use.
       keys: SplitsKeys(store: wallet.secrets),
-      // No relay configured in this build, so a bill stays on this device and
-      // travels by code. Saying so is the point — the alternative is a sync
-      // indicator that never resolves.
-      relay: const UnconfiguredSplitsRelay(),
+      // A build given no relay keeps its bills on this device and moves them
+      // by code. Saying so is the point — the alternative is a sync indicator
+      // that never resolves. A development run names one and the same bill
+      // reaches several devices; the requests go through the wallet's own
+      // client, so on a build routing through Tor they go over Tor and fail
+      // closed rather than being the one path that quietly leaves in the
+      // clear.
+      relay: splitsRelay(),
       // The wallet's own feed, so the price a bill is fixed at is the price
       // every other screen shows. It answers for USD alone; any other
       // currency stays unpriced until somebody types a figure.
