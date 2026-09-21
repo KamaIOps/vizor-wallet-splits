@@ -291,12 +291,13 @@ void main() {
     // person paid says the money arrived. Each recipient gets its own record
     // id — one transaction paying three people is three records, and two
     // under one id would let one payee's word settle another's debt — with
-    // the transaction in `reference`, which is what `onChain` reads.
+    // the transaction in `reference`, which is what `onChain` reads. The id
+    // is the protocol's to derive, not this lane's.
     final txid = outcome.txid!;
     for (final settlement in owed.settlements) {
       entries.add(splitz.recordPayment(
         host: host,
-        paymentId: '$txid:${settlement.to}',
+        paymentId: splitz.paymentIdForSend(txid, settlement.to),
         to: settlement.to,
         amount: settlement.amount,
         reference: txid,
