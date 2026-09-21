@@ -283,6 +283,61 @@ void main() {
     expect(outcome.txid, isNotNull);
     logE2e('settled: sent ${outcome.txid}');
     expect(billId, isNotEmpty);
+
+    // --- §10.5: sending is not settling ----------------------------------
+    //
+    // The money is on the chain, and the bill knows nothing about it. A
+    // `recordPayment` is the payer's claim; it moves no balance until the
+    // person paid says the money arrived. Each recipient gets its own record
+    // id — one transaction paying three people is three records, and two
+    // under one id would let one payee's word settle another's debt — with
+    // the transaction in `reference`, which is what `onChain` reads.
+    final txid = outcome.txid!;
+    for (final settlement in owed.settlements) {
+      entries.add(splitz.recordPayment(
+        host: host,
+        paymentId: '$txid:${settlement.to}',
+        to: settlement.to,
+        amount: settlement.amount,
+        reference: txid,
+      ));
+    }
+
+    final recorded = splitz.BillLog(host, entries: entries).fold();
+    expect(recorded.setAside, isEmpty,
+        reason: 'one id per recipient, so nothing is refused');
+    expect(recorded.bill.payments.length, payeeNames.length);
+    final claimed = splitz.obligationFor(host, recorded)!;
+    expect(claimed.settlements, isEmpty,
+        reason: 'a payer is not asked to pay a debt twice');
+    expect(claimed.awaiting.map((a) => a.to).toSet(),
+        owed.settlements.map((s) => s.to).toSet(),
+        reason: 'every payment is in flight until its payee vouches for it');
+    logE2e('recorded: ${claimed.awaiting.length} awaiting confirmation');
+
+    // Each payee confirms the payment their own bill shows them. A payee
+    // reads the id off the bill rather than assuming the transaction's.
+    for (final name in payeeNames) {
+      final payeeId = ids[name]!;
+      final theirs =
+          recorded.bill.payments.singleWhere((p) => p.to == payeeId);
+      entries.add(splitz.confirmPayment(
+        host: WalletBillHost(_As(wallet, name, addresses[name]!)),
+        paymentId: theirs.id,
+        method: 'recipientConfirmed',
+      ));
+    }
+
+    final closed = splitz.BillLog(host, entries: entries).fold();
+    expect(closed.setAside, isEmpty,
+        reason: 'each payee confirmed a payment addressed to them');
+    expect(closed.bill.confirmedPayments.length, payeeNames.length);
+    final after = splitz.obligationFor(host, closed);
+    expect(after?.settlements ?? const [], isEmpty);
+    expect(after?.awaiting ?? const [], isEmpty,
+        reason: 'once every payee has vouched, the bill owes nobody');
+    logE2e('confirmed: the bill is closed, '
+        '${closed.bill.confirmedPayments.length} payments vouched for');
   });
 }
 
