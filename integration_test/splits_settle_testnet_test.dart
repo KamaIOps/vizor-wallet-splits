@@ -4,6 +4,13 @@
 /// as often as it is useful, and the wallets it spends from are minted by
 /// `tools/testnet/mint` and funded from a faucet.
 ///
+/// **The network name is `test`, not `testnet`.**
+/// `normalizeZcashNetworkName` in `lib/src/core/config/network_config.dart`
+/// matches `test` and `regtest` and sends everything else to `main`, so a
+/// misspelling here does not fail — it runs the lane against mainnet with
+/// testnet birthdays, and the only symptom is a sync error about the
+/// lightwalletd tip being behind the wallet's.
+///
 /// **Nothing is broadcast unless `SPLITS_BROADCAST=1`.** Without it the lane
 /// builds the bill, prices it, renders the payment request and stops, which
 /// asserts every claim except "the money moved".
@@ -20,7 +27,8 @@
 ///     python3 <splitz>/splitz_host/tool/seed-driver.py <seed-file> --port 39200
 ///     flutter test integration_test/splits_settle_testnet_test.dart -d <device> \
 ///       --dart-define=VIZOR_FORM_FACTOR=mobile \
-///       --dart-define=ZCASH_DEFAULT_NETWORK=testnet \
+///       --dart-define=ZCASH_DEFAULT_NETWORK=test \
+///       --dart-define=ZCASH_E2E_NETWORK=test \
 ///       --dart-define=SPLITS_SEED_DRIVER_URL=http://127.0.0.1:39200
 library;
 
