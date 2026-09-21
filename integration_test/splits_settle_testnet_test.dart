@@ -11,7 +11,10 @@
 /// testnet birthdays, and the only symptom is a sync error about the
 /// lightwalletd tip being behind the wallet's.
 ///
-/// **Nothing is broadcast unless `SPLITS_BROADCAST=1`.** Without it the lane
+/// **Nothing is broadcast unless `SPLITS_BROADCAST=true`.** The value must be
+/// the word `true`: `bool.fromEnvironment` reads nothing else as true, so
+/// `=1` leaves the flag off and the lane stops before the send while still
+/// reporting a pass. Without it the lane
 /// builds the bill, prices it, renders the payment request and stops, which
 /// asserts every claim except "the money moved".
 ///
@@ -43,6 +46,8 @@ import 'package:splitz_host/splitz_host.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:zcash_wallet/app.dart';
 import 'package:zcash_wallet/src/core/storage/wallet_paths.dart';
+import 'package:zcash_wallet/src/features/splits/dev_account.dart';
+import 'package:zcash_wallet/src/features/splits/regtest_accounts.dart';
 import 'package:zcash_wallet/src/features/splits/testnet_accounts.dart';
 import 'package:zcash_wallet/src/features/splits/dev_accounts_import.dart';
 import 'package:zcash_wallet/src/features/splits/splits_send.dart';
@@ -58,6 +63,11 @@ import 'support/mobile_regtest_flow.dart';
 const int maxZatoshi = 1000000;
 
 const bool broadcast = bool.fromEnvironment('SPLITS_BROADCAST');
+
+/// The wallets for the chain this run is pointed at. The phrases are the same
+/// either way; only the addresses and the birthdays differ.
+List<DevAccount> get _accounts =>
+    mobileE2eNetwork == 'regtest' ? regtestAccounts : testnetAccounts;
 
 /// Who pays, and who is paid.
 ///
@@ -101,7 +111,7 @@ void main() {
       tester.element(find.byType(Scaffold).first),
     );
     await importDevAccounts(
-      accounts: testnetAccounts,
+      accounts: _accounts,
       readAccounts: () => container.read(accountProvider).value,
       readNotifier: () => container.read(accountProvider.notifier),
     );
@@ -128,6 +138,9 @@ void main() {
       );
     }
     logE2e('payer $payerName pays ${payeeNames.join(' and ')}');
+    // Printed so a regtest run can be funded without anybody reading a seed:
+    // `scripts/regtest/fund-wallet.sh <address> 1.0` takes it from here.
+    addresses.forEach((name, address) => logE2e('  $name at $address'));
 
     await container.read(accountProvider.notifier).switchAccount(
           uuidOf(payerName),
@@ -268,7 +281,7 @@ void main() {
         '${outcome.error ?? outcome.statusMessage ?? ''}');
     expect(outcome.phase, WalletSendPhase.succeeded);
     expect(outcome.txid, isNotNull);
-    logE2e('settle mainnet: sent ${outcome.txid}');
+    logE2e('settled: sent ${outcome.txid}');
     expect(billId, isNotEmpty);
   });
 }
