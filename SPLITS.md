@@ -55,3 +55,23 @@ The network name is `test`, never `testnet`: anything unrecognised is treated
 as `main`, and the only symptom is a sync error about the server's tip. Use
 `regtest` for anything that must run unattended — it funds itself, while a
 public testnet faucet does not.
+
+## Syncing bills between phones
+
+A build syncs through the relay named by `SPLITS_RELAY_URL`, and through none
+when it is unset — bills then move only as scanned codes, which fit two people
+and one expense once payout addresses are on them. A simulator reaches a relay
+on the host's loopback; a phone needs one it can reach over HTTPS, because this
+wallet declares no cleartext exception — no `NSAppTransportSecurity` in
+`ios/Runner/Info.plist`, no `usesCleartextTraffic` or `networkSecurityConfig`
+in the Android manifest:
+
+```bash
+../Splitz-Protocol/tools/relay/public.sh     # prints the origin and the define
+fvm flutter run -d <phone> \
+  --dart-define=SPLITS_RELAY_URL=https://<origin>.trycloudflare.com
+```
+
+The origin is new each time the script starts and lives as long as it runs.
+The relay holds channel digests and ciphertext only, in memory; after a
+restart, devices re-push their logs on the next sync.
