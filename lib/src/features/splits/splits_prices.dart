@@ -6,7 +6,7 @@
 library;
 
 import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
-import 'package:vizor_splitz/vizor_splitz.dart';
+import 'package:splitz_flutter/splitz_flutter.dart';
 
 import '../../providers/zec_price_change_provider.dart';
 
