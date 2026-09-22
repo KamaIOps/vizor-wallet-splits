@@ -10,8 +10,9 @@ import '../../../core/widgets/decimal_amount_input_formatter.dart';
 
 /// Recipient address type used to choose the leading icon.
 ///
-/// The wallet always spends from the shielded pool (sapling + orchard), so
-/// the spend source does not need a separate field-level caption.
+/// The wallet always spends from the shielded pools, so the spend source does
+/// not need a separate field-level caption. Which pools those are is
+/// `WalletBalance.spendable`'s to decide, not this enum's.
 enum SendPoolRoute {
   /// No address entered yet.
   unknown,
