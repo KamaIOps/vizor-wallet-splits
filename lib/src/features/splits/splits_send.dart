@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:splitz_host/splitz_host.dart';
 
 import '../../core/storage/wallet_paths.dart';
+import 'splits_request_summary.dart';
 import '../../rust/api/sync.dart' as rust_sync;
 import '../send/services/send_flow.dart';
 import '../../providers/sync_provider.dart';
@@ -52,9 +53,9 @@ Future<WalletSendOutcome> proposeAndBroadcastSplitsBatch({
     proposalId: proposal.proposalId,
     sendFlowId: sendFlowId,
     proposalAccountUuid: accountUuid,
-    address: '${_recipientCount(paymentRequestUri)} recipients',
+    address: '${splitsRecipientCount(paymentRequestUri)} recipients',
     addressType: 'unified',
-    amountZatoshi: _totalZatoshi(paymentRequestUri),
+    amountZatoshi: splitsTotalZatoshi(paymentRequestUri),
     feeZatoshi: proposal.feeZatoshi,
     needsSaplingParams: proposal.needsSaplingParams,
   );
@@ -81,35 +82,4 @@ Future<WalletSendOutcome> proposeAndBroadcastSplitsBatch({
     SendBroadcastPhase.aborted =>
       WalletSendOutcome(phase: WalletSendPhase.failed, error: outcome.error),
   };
-}
-
-/// How many recipients [paymentRequestUri] names.
-///
-/// ZIP 321 spells the first payment's address as `address` and the rest as
-/// `address.1`, `address.2` and so on, so counting them needs no parser.
-///
-/// Display only. The transaction is built by Rust from the URI itself, so a
-/// wrong count here would show a wrong number beside a right transaction
-/// rather than send the wrong money.
-int _recipientCount(String paymentRequestUri) =>
-    RegExp(r'[?&]address(\.\d+)?=').allMatches(paymentRequestUri).length + 1;
-
-/// What [paymentRequestUri] asks for in total, in zatoshi.
-///
-/// Display only, as [_recipientCount] is. Amounts in ZIP 321 are decimal ZEC;
-/// they are read here as integers scaled by 10^8 rather than through a double,
-/// because a double cannot hold every zatoshi of a large figure exactly.
-BigInt _totalZatoshi(String paymentRequestUri) {
-  var total = BigInt.zero;
-  for (final match
-      in RegExp(r'[?&]amount(?:\.\d+)?=([0-9.]+)').allMatches(paymentRequestUri)) {
-    final parts = match.group(1)!.split('.');
-    final whole = BigInt.tryParse(parts[0].isEmpty ? '0' : parts[0]);
-    final fraction = parts.length > 1
-        ? BigInt.tryParse(parts[1].padRight(8, '0').substring(0, 8))
-        : BigInt.zero;
-    if (whole == null || fraction == null) continue;
-    total += whole * BigInt.from(100000000) + fraction;
-  }
-  return total;
 }
