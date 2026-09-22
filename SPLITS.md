@@ -8,7 +8,7 @@ one**, under names spelled exactly as below:
 <parent>/
   Vizor-Wallet/        this repository
   Splitz-Protocol/     the protocol and the wallet plumbing
-  vizor-splitz-ui/     the splits screens
+  splitz-flutter/      the splits screens
 ```
 
 The three dependencies that require it:
@@ -17,7 +17,7 @@ The three dependencies that require it:
 |---|---|
 | `splitz_host` | `../Splitz-Protocol/splitz_host` |
 | `splitz_core` | `../Splitz-Protocol/dart` |
-| `vizor_splitz` | `../vizor-splitz-ui` |
+| `splitz_flutter` | `../splitz-flutter` |
 
 `flutter pub get` fails with an unresolved path dependency if any of the three
 is missing or sits elsewhere. A parent directory holding only this repository

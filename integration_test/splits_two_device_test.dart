@@ -36,7 +36,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:splitz_core/host.dart' as splitz;
 import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:splitz_host/io.dart';
-import 'package:vizor_splitz/vizor_splitz.dart';
+import 'package:splitz_flutter/splitz_flutter.dart';
 import 'package:zcash_wallet/app.dart';
 import 'package:zcash_wallet/src/core/storage/wallet_paths.dart';
 import 'package:zcash_wallet/src/features/splits/splits_relay.dart';

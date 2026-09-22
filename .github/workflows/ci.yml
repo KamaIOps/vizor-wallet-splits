@@ -38,7 +38,7 @@ jobs:
 
       # Sibling checkouts, spelled exactly as pubspec.yaml reaches them:
       # ../Splitz-Protocol/splitz_host, ../Splitz-Protocol/dart and
-      # ../vizor-splitz-ui.
+      # ../splitz-flutter.
       - uses: actions/checkout@v4
         with:
           repository: KamaIOps/Splitz-Protocol
@@ -46,8 +46,8 @@ jobs:
           token: ${{ secrets.SPLITS_REPOS_TOKEN }}
       - uses: actions/checkout@v4
         with:
-          repository: KamaIOps/vizor-splitz-ui
-          path: vizor-splitz-ui
+          repository: KamaIOps/splitz-flutter
+          path: splitz-flutter
           token: ${{ secrets.SPLITS_REPOS_TOKEN }}
 
       # Pinned to the version `.fvmrc` names. A newer Flutter reformats and
