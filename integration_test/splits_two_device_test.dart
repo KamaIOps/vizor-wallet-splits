@@ -21,13 +21,10 @@
 ///     flutter test integration_test/splits_two_device_test.dart -d <A> \
 ///       --dart-define=SPLITS_PHASE=a \
 ///       --dart-define=SPLITS_RELAY_URL=http://127.0.0.1:39300
-///     # concurrently, with the invite device A printed:
-///     flutter test integration_test/splits_two_device_test.dart -d <B> \
-///       --dart-define=SPLITS_PHASE=b \
-///       --dart-define=SPLITS_INVITE=<invite> \
-///       --dart-define=SPLITS_RELAY_URL=http://127.0.0.1:39300
 ///
-/// `scripts/e2e/splits-two-device.sh` runs both and carries the invite across.
+/// `scripts/e2e/splits-two-device.sh` runs both. Which device each one is, and
+/// the invite B joins by, come from the coordinator at runtime, so both are
+/// launched with the same defines and built once.
 library;
 
 import 'dart:io';
@@ -49,9 +46,11 @@ import 'package:zcash_wallet/src/providers/rpc_endpoint_provider.dart';
 import 'package:zcash_wallet/src/rust/api/wallet.dart' as rust_wallet;
 
 import 'support/mobile_regtest_flow.dart';
+import 'support/splits_coordinator.dart';
 
-const _phase = String.fromEnvironment('SPLITS_PHASE');
-const _invite = String.fromEnvironment('SPLITS_INVITE');
+/// What a device is told when it is run by hand, without a coordinator.
+const _phaseDefine = String.fromEnvironment('SPLITS_PHASE');
+const _inviteDefine = String.fromEnvironment('SPLITS_INVITE');
 
 /// What A pays, in minor units of the bill's currency (§2.1).
 const _anaSpent = 9000;
@@ -74,7 +73,7 @@ void main() {
     await initializeZcashWalletRuntime();
   });
 
-  testWidgets('device $_phase', (tester) async {
+  testWidgets('device', (tester) async {
     tolerateRenderOverflows();
     final defaultHandler = FlutterError.onError;
     FlutterError.onError = (details) {
@@ -82,11 +81,6 @@ void main() {
       defaultHandler?.call(details);
     };
 
-    expect(
-      const ['a', 'b'].contains(_phase),
-      isTrue,
-      reason: 'SPLITS_PHASE names a device: a or b',
-    );
     expect(
       splitsRelayUrl,
       isNotEmpty,
@@ -144,7 +138,12 @@ void main() {
     await controller.load();
     final me = controller.me;
 
-    if (_phase == 'a') {
+    // Which device this is, asked of the coordinator rather than compiled in.
+    final phase = await claimRole(fallback: _phaseDefine);
+    expect(const ['a', 'b'].contains(phase), isTrue,
+        reason: 'the coordinator names device a or device b');
+
+    if (phase == 'a') {
       await _deviceA(tester, controller, me);
     } else {
       await _deviceB(tester, controller, me);
@@ -170,6 +169,7 @@ Future<void> _deviceA(
   // The sequencer reads this line and starts device B with it. The invite
   // carries the bill id and the key; the log comes from the relay.
   logE2e('INVITE $invite');
+  await publish('invite', invite);
 
   // 1 · B joins. Its participant id is the wallet account id it was assigned
   //     on its own device, so it is read off the bill rather than guessed.
@@ -253,11 +253,13 @@ Future<void> _deviceB(
   SplitsController controller,
   String me,
 ) async {
-  expect(_invite, isNotEmpty, reason: 'device B is started with the invite');
+  final published = await awaitValue('invite',
+      timeout: const Duration(minutes: 20), fallback: _inviteDefine);
+  expect(published, isNotEmpty, reason: 'device a published an invite');
   expect(controller.bills, isEmpty,
       reason: 'a fresh install holds no bill until it pulls');
 
-  final scanned = splitz.readScan(_invite);
+  final scanned = splitz.readScan(published);
   expect(scanned, isA<splitz.ScannedInvite>());
   final invite = (scanned as splitz.ScannedInvite).invite;
   final billId = invite.billId;

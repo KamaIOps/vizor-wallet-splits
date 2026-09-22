@@ -48,6 +48,19 @@ if [ -z "$UDID_A" ] || [ -z "$UDID_B" ]; then
   exit 2
 fi
 
+# One coordinator beside the relay. It hands out the roles the devices used to
+# be compiled with, and carries the invite, so both are launched with identical
+# defines — one build, and they start together.
+coord_port="${SPLITS_COORD_PORT:-39400}"
+coordinator="http://127.0.0.1:$coord_port"
+python3 "$root/scripts/e2e/splits-coordinator.py" --port "$coord_port" \
+  --roles a,b &
+own_coord=$!
+for _ in $(seq 40); do
+  curl -sf "$coordinator/health" >/dev/null && break
+  sleep 0.25
+done
+
 relay="${SPLITS_RELAY:-}"
 own_relay=""
 if [ -z "$relay" ]; then
@@ -83,6 +96,7 @@ cleanup() {
   [ -n "$a_pid" ] && { kill -- "-$a_pid" 2>/dev/null || kill "$a_pid" 2>/dev/null; } || true
   [ -n "$b_pid" ] && { kill -- "-$b_pid" 2>/dev/null || kill "$b_pid" 2>/dev/null; } || true
   [ -n "$own_relay" ] && kill "$own_relay" 2>/dev/null || true
+  [ -n "${own_coord:-}" ] && kill "$own_coord" 2>/dev/null || true
   return 0
 }
 trap cleanup EXIT
@@ -98,44 +112,42 @@ device() {
       --dart-define=VIZOR_FORM_FACTOR=mobile \
       --dart-define=ZCASH_DEFAULT_NETWORK="$network" \
       --dart-define=ZCASH_E2E_NETWORK="$network" \
-      --dart-define=SPLITS_PHASE="$name" \
+      --dart-define=SPLITS_COORDINATOR="$coordinator" \
       --dart-define=SPLITS_RELAY_URL="$relay" \
       "$@") >"$log" 2>&1
     echo $? >"$status"
   ) &
 }
 
-echo "── device a on $UDID_A ──────────────────────────"
+# Waits for a device's app to be up on its simulator.
+#
+# Both devices are launched with the same defines and so are one binary, but
+# two processes writing this project's single `build/` directory can still
+# corrupt each other's artifacts. The second starts once the first is running,
+# which costs one build instead of two.
+await_running() {
+  local log="$1" status="$2" seconds="$3"
+  for _ in $(seq "$seconds"); do
+    grep -q 'creating wallet' "$log" 2>/dev/null && return 0
+    if [ -f "$status" ]; then
+      echo "the first device exited before its app started" >&2
+      tail -60 "$log" >&2
+      return 1
+    fi
+    sleep 1
+  done
+  echo "the first device never started its app" >&2
+  tail -60 "$log" >&2
+  return 1
+}
+
+echo "── device on $UDID_A (builds) ───────────────────"
 device a "$UDID_A" "$a_log" "$a_status"
 a_pid=$!
+await_running "$a_log" "$a_status" 1800
 
-# A prints the invite once the bill is on the relay. Until then there is
-# nothing for B to join.
-invite=""
-for _ in $(seq 1200); do
-  invite="$(sed -n 's/.*INVITE \(splitz:\/\/[^ ]*\).*/\1/p' "$a_log" 2>/dev/null | head -1)"
-  [ -n "$invite" ] && break
-  if [ -f "$a_status" ]; then
-    echo "device a exited before printing an invite" >&2
-    cat "$a_log" >&2
-    exit 1
-  fi
-  sleep 1
-done
-if [ -z "$invite" ]; then
-  echo "device a printed no invite" >&2
-  tail -60 "$a_log" >&2
-  exit 1
-fi
-echo "invite: $invite"
-
-# Device B starts only now, and that ordering is load-bearing: `--dart-define`
-# is compiled in and both runs build into the one `build/` directory, so two
-# builds at once would leave both devices running whichever finished last.
-# Device A has to be running to have printed the invite, so its binary is
-# already installed on its own simulator and B may build over the artifact.
-echo "── device b on $UDID_B ──────────────────────────"
-device b "$UDID_B" "$b_log" "$b_status" --dart-define="SPLITS_INVITE=$invite"
+echo "── device on $UDID_B ────────────────────────────"
+device b "$UDID_B" "$b_log" "$b_status"
 b_pid=$!
 
 wait "$a_pid" "$b_pid" 2>/dev/null || true
