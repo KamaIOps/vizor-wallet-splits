@@ -113,4 +113,41 @@ void main() {
       }
     });
   });
+
+  group('shared-bill invites', () {
+    const invite =
+        'splitz://join?v=1&b=abc_DEF-123&k=AAAAAAAAAAAAAAAAAAAAAA&n=Dinner';
+
+    test('an invite reaches its own lane, byte for byte', () {
+      final target = classifyIncomingLink('  $invite\n');
+      expect(target, isA<IncomingSplitsInviteLink>());
+      expect((target as IncomingSplitsInviteLink).raw, invite);
+    });
+
+    test('a malformed invite still reaches the reader that can explain it', () {
+      // A non-numeric port is a URI `Uri.tryParse` rejects outright; §11.1
+      // forbids a port too, and only the protocol's reader says so.
+      const broken = 'splitz://join:x?v=1&b=abc&k=AAAA';
+      expect(Uri.tryParse(broken), isNull);
+      expect(classifyIncomingLink(broken), isA<IncomingSplitsInviteLink>());
+    });
+
+    test('an invite is never mistaken for a payment request', () {
+      expect(
+        classifyIncomingLink('zcash:u1abc?amount=1'),
+        isA<IncomingPaymentRequestLink>(),
+      );
+      expect(
+        classifyIncomingLink(invite),
+        isNot(isA<IncomingPaymentRequestLink>()),
+      );
+    });
+
+    test('the Vizor origin still wins over a splitz-looking path', () {
+      expect(
+        classifyIncomingLink('https://$host/splitz://join?v=1'),
+        isA<IncomingLinkUnknown>(),
+      );
+    });
+  });
 }

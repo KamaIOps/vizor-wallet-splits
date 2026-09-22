@@ -365,13 +365,18 @@ class MainActivity : FlutterFragmentActivity() {
 
     /**
      * Whether [data] is a link this app takes in: a ZIP-321 `zcash:` payment
-     * link, or a verified HTTPS link on the deeplink host with no userinfo and
-     * no explicit port. One predicate for both kinds, so the two intent-filters
-     * in the manifest and this capture never disagree about what is accepted.
+     * link, a `splitz://join` shared-bill invite, or a verified HTTPS link on
+     * the deeplink host with no userinfo and no explicit port. One predicate
+     * for every kind, so the intent-filters in the manifest and this capture
+     * never disagree about what is accepted. Dart's reader decides whether an
+     * invite is well formed; this only routes it.
      */
     private fun acceptsIncomingUri(data: Uri): Boolean {
         val scheme = data.scheme ?: return false
         if ("zcash".equals(scheme, ignoreCase = true)) return true
+        if ("splitz".equals(scheme, ignoreCase = true)) {
+            return "join".equals(data.host, ignoreCase = true)
+        }
         return "https".equals(scheme, ignoreCase = true) &&
             DEEPLINK_HOST.equals(data.host, ignoreCase = true) &&
             data.userInfo == null &&
@@ -422,7 +427,8 @@ class MainActivity : FlutterFragmentActivity() {
     /**
      * Whether this link may be written to disk. A ZIP-321 `zcash:` request
      * carries no bearer secret; an https deeplink can carry a Gift Card claim
-     * mnemonic in its fragment and never leaves memory.
+     * mnemonic in its fragment, and a `splitz:` invite carries a bill key, so
+     * neither leaves memory.
      */
     private fun isSecretFreeIncomingUri(uri: String): Boolean {
         val scheme = runCatching { Uri.parse(uri).scheme }.getOrNull() ?: return false
