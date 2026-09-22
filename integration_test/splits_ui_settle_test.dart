@@ -20,7 +20,9 @@
 ///       --dart-define=SPLITS_PHASE=payer \
 ///       --dart-define=SPLITS_RELAY_URL=http://127.0.0.1:39300
 ///
-/// `scripts/e2e/splits-ui-settle.sh` runs both and carries the invite across.
+/// `scripts/e2e/splits-ui-settle.sh` runs both. Which device each one is, and
+/// the bill code the payee joins by, come from the coordinator at runtime, so
+/// both are launched with the same defines and built once.
 library;
 
 import 'dart:io';
@@ -34,9 +36,11 @@ import 'package:zcash_wallet/app.dart';
 import 'package:zcash_wallet/src/features/splits/splits_relay.dart';
 
 import 'support/mobile_regtest_flow.dart';
+import 'support/splits_coordinator.dart';
 
-const _phase = String.fromEnvironment('SPLITS_PHASE');
-const _invite = String.fromEnvironment('SPLITS_INVITE');
+/// What a device is told when it is run by hand, without a coordinator.
+const _phaseDefine = String.fromEnvironment('SPLITS_PHASE');
+const _inviteDefine = String.fromEnvironment('SPLITS_INVITE');
 const _lane = String.fromEnvironment('SPLITS_LANE', defaultValue: 'cash');
 
 void main() {
@@ -46,7 +50,7 @@ void main() {
     await initializeZcashWalletRuntime();
   });
 
-  testWidgets('device $_phase, $_lane lane', (tester) async {
+  testWidgets('device, $_lane lane', (tester) async {
     tolerateRenderOverflows();
     final defaultHandler = FlutterError.onError;
     FlutterError.onError = (details) {
@@ -54,8 +58,10 @@ void main() {
       defaultHandler?.call(details);
     };
 
-    expect(const ['payer', 'payee'].contains(_phase), isTrue,
-        reason: 'SPLITS_PHASE is payer or payee');
+    // Which device this is, asked of the coordinator rather than compiled in.
+    final phase = await claimRole(fallback: _phaseDefine);
+    expect(const ['payer', 'payee'].contains(phase), isTrue,
+        reason: 'the coordinator names the payer or the payee');
     expect(const ['cash', 'swap'].contains(_lane), isTrue,
         reason: 'SPLITS_LANE is cash or swap');
     expect(splitsRelayUrl, isNotEmpty, reason: 'this lane needs a relay');
@@ -66,7 +72,7 @@ void main() {
     GoRouter.of(tester.element(find.byType(Scaffold).first)).push('/splits');
     await tester.pumpAndSettle(const Duration(seconds: 10));
 
-    if (_phase == 'payer') {
+    if (phase == 'payer') {
       await _payer(tester);
     } else {
       await _payee(tester);
@@ -100,6 +106,7 @@ Future<void> _payer(WidgetTester tester) async {
       .firstWhere((c) => c.startsWith('splitz1:'),
           orElse: () => throw StateError('the share screen showed no bill code'));
   logE2e('BILLCODE $code');
+  await publish('invite', code);
   await _back(tester);
 
   // 1 · The payee joins from its own device, declares its lane, and puts what
@@ -165,6 +172,7 @@ Future<void> _payer(WidgetTester tester) async {
     } else {
       logE2e('swap screen quoted, and offers the ZEC leg to send');
     }
+    await publish('done', 'the payer has read the bill');
     return;
   }
 
@@ -191,18 +199,21 @@ Future<void> _payer(WidgetTester tester) async {
     timeout: const Duration(minutes: 20),
   );
   logE2e('the bill owes nobody');
+  await publish('done', 'the payer has read the bill');
 }
 
 /// Joins by code, declares a lane, spends, and vouches for what arrives.
 Future<void> _payee(WidgetTester tester) async {
-  expect(_invite, isNotEmpty, reason: 'the payee is started with the bill code');
+  final invite = await awaitValue('invite',
+      timeout: const Duration(minutes: 20), fallback: _inviteDefine);
+  expect(invite, isNotEmpty, reason: 'the payer published a bill code');
 
   // 1 · Joining is reading a code, on the screen that reads codes. A whole
   //     bill opens straight onto itself; §11.2's invite would only take the
   //     key and leave the bill to arrive some other way.
   await tester.tap(find.byTooltip('Scan a bill'));
   await _settle(tester);
-  await _typeIntoField(tester, 'Code', _invite);
+  await _typeIntoField(tester, 'Code', invite);
   await _tapText(tester, 'Read it');
   await _settle(tester);
   await pumpUntil(tester, () => tester.any(find.text('Apart')),
@@ -249,15 +260,40 @@ Future<void> _payee(WidgetTester tester) async {
   await _tapText(tester, 'Add an expense');
   await _typeInto(tester, 'What for', 'Covered');
   await tester.enterText(find.byKey(const Key('splits_amount')), '60');
-  await tester.pump();
+  await _settle(tester);
   await _tapText(tester, 'Add it');
   await _settle(tester);
+  // Tapping a button that is disabled, or one whose form refuses what is in
+  // it, throws nothing and leaves the screen where it was. The amount field
+  // going away is what says the expense was written; without that check the
+  // lane syncs a bill it never changed, and the failure lands twenty-five
+  // minutes later on the other device, naming the wrong thing.
+  await pumpUntil(
+    tester,
+    () => !tester.any(find.byKey(const Key('splits_amount'))),
+    description: 'the add-expense screen to close on a written expense',
+    timeout: const Duration(minutes: 1),
+  );
   await _sync(tester);
   logE2e('put 60.00 on the bill');
 
   if (_lane == 'swap') {
     logE2e('swap lane: the payer stops at the provider, nothing to vouch for');
-    return;
+    // Nothing to vouch for is not nothing to do. An expense is written locally
+    // and reaches the relay on a sync, so a device that returns here is torn
+    // down with its last entry still on it: the relay never receives the
+    // expense and the payer waits out its timeout on a bill that is missing
+    // the one thing it is waiting for. Stay up, and keep syncing, until the
+    // payer says it has read it.
+    final end = DateTime.now().add(const Duration(minutes: 20));
+    while (DateTime.now().isBefore(end)) {
+      if (await peek('done') != null) {
+        logE2e('the payer has read the bill');
+        return;
+      }
+      await _sync(tester);
+    }
+    fail('the payer never said it had read the bill');
   }
 
   // 5 · §10.5: only the payee may say the money arrived, and the control that
@@ -289,13 +325,17 @@ Future<void> _sync(WidgetTester tester) async {
   // Only pop while there is something to pop. `pageBack` looks for a back
   // button and fails outright when there is none, which is what a lane that
   // is already on the bill screen would hit.
-  for (var back = 0; back < 3 && !tester.any(control); back++) {
+  // Popped until the control appears rather than a fixed number of times: a
+  // step that opened two screens to look at something leaves two to unwind,
+  // and a budget that is one short reads as "there is no bill screen".
+  for (var back = 0; back < 8 && !tester.any(control); back++) {
     if (!_canGoBack(tester)) break;
     await tester.pageBack();
     await _settle(tester);
   }
   expect(control, findsOneWidget,
-      reason: 'the bill screen, which is the only screen that can sync');
+      reason: 'the bill screen, which is the only screen that can sync. '
+          'This screen shows: ${_visibleText(tester).join(' | ')}');
   await tester.tap(control);
   await _settle(tester);
   await pumpUntil(tester, () => !tester.any(find.text('Syncing…')),
@@ -335,7 +375,11 @@ Future<void> _syncThenLookOn(
       await tester.pump(const Duration(milliseconds: 200));
     }
     if (tester.any(target)) return;
-    await _back(tester);
+    // Not popped here. `open()` taps a control that may be off screen, and a
+    // tap that did not land navigates nowhere — a pop then takes the bill
+    // screen itself, and the next wait is standing on the bill list with
+    // nothing left to sync. The unwinding belongs to `_sync`, which pops only
+    // while the sync control is absent and so cannot pop past it.
     await Future<void>.delayed(const Duration(seconds: 2));
     if (++polls % 10 == 0) logE2e('still waiting for $description');
   }
@@ -492,3 +536,12 @@ Future<void> _back(WidgetTester tester) async {
 bool _canGoBack(WidgetTester tester) =>
     tester.any(find.byType(CupertinoNavigationBarBackButton)) ||
     tester.any(find.byType(BackButton));
+
+/// The short pieces of text on screen, for a failure that has to say where it
+/// is. A finder reports what it did not find; it cannot say what was there.
+List<String> _visibleText(WidgetTester tester) => tester
+    .widgetList<Text>(find.byType(Text))
+    .map((t) => t.data ?? '')
+    .where((t) => t.isNotEmpty && t.length < 40)
+    .take(12)
+    .toList();

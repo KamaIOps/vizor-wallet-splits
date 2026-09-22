@@ -15,7 +15,7 @@ It also carries the values a lane used to scrape out of stdout — the bill code
 an address — so the sequencer no longer greps a log to decide what to do next.
 
     POST /claim            -> {"role": "payer"}    in arrival order
-    PUT  /kv/<key>  <body> -> 204
+    PUT  /kv/<key>  <body> -> 204, or 411 without a content-length
     GET  /kv/<key>         -> the body, or 404 until it is there
 
 Loopback only: the simulators reach the host on 127.0.0.1, which is how they
@@ -58,7 +58,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self):
         if not self.path.startswith("/kv/"):
             return self._send(404)
-        length = int(self.headers.get("content-length", 0))
+        raw = self.headers.get("content-length")
+        if raw is None:
+            # This reader takes exactly the number of bytes the header names,
+            # so a chunked body would be stored as nothing at all — and a key
+            # holding an empty value answers 200 to every device waiting on
+            # it, which reads as a value that arrived.
+            return self._send(411, b"send a content-length")
+        length = int(raw)
         with LOCK:
             STORE[self.path[4:]] = self.rfile.read(length)
         self._send(204)
