@@ -1,0 +1,64 @@
+# The analyzer and the host tests, on every push to the splits branch.
+#
+# The integration lanes are not here: they drive real screens and need a
+# booted simulator, which a hosted runner does not have. What runs here is
+# what runs without a device, and that boundary is the whole point — a lane
+# that cannot run on a runner is stated in SPLITS.md rather than pretended.
+#
+# The feature resolves three dependencies by relative path, so all three
+# repositories are checked out as siblings under the workspace. The other two
+# are private, which `GITHUB_TOKEN` cannot reach: it is scoped to this
+# repository alone. `SPLITS_REPOS_TOKEN` is a personal access token with read
+# access to both.
+#
+# `dart format` is deliberately absent. This tree does not currently satisfy
+# either formatter, so the check would fail on arrival and say nothing about
+# the change that triggered it.
+name: ci
+
+on:
+  push:
+    branches: [splits-clean]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  analyze-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: Vizor-Wallet
+
+      # Sibling checkouts, spelled exactly as pubspec.yaml reaches them:
+      # ../Splitz-Protocol/splitz_host, ../Splitz-Protocol/dart and
+      # ../vizor-splitz-ui.
+      - uses: actions/checkout@v4
+        with:
+          repository: KamaIOps/Splitz-Protocol
+          path: Splitz-Protocol
+          token: ${{ secrets.SPLITS_REPOS_TOKEN }}
+      - uses: actions/checkout@v4
+        with:
+          repository: KamaIOps/vizor-splitz-ui
+          path: vizor-splitz-ui
+          token: ${{ secrets.SPLITS_REPOS_TOKEN }}
+
+      # Pinned to the version `.fvmrc` names. A newer Flutter reformats and
+      # re-lints, so an unpinned runner disagrees with every machine here.
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.6
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+        working-directory: Vizor-Wallet
+
+      - run: flutter analyze
+        working-directory: Vizor-Wallet
+
+      # No native library is built: the bridge reports itself uninitialised
+      # and the host tests account for that, so cargo never runs here.
+      - run: flutter test
+        working-directory: Vizor-Wallet
