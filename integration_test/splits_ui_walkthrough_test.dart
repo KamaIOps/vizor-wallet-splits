@@ -257,8 +257,13 @@ Future<void> _tapText(WidgetTester tester, String text) async {
 }
 
 Future<void> _tapKey(WidgetTester tester, String key) async {
+  // A keyboard still opening moves the fold, so it finishes first; then the
+  // control is scrolled fully into view before the tap.
+  await _settle(tester);
   await pumpUntil(tester, () => tester.any(find.byKey(Key(key))),
       description: 'the control $key');
+  await tester.ensureVisible(find.byKey(Key(key)).last);
+  await _settle(tester);
   await tester.tap(find.byKey(Key(key)).last);
   await _settle(tester);
 }
