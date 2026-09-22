@@ -70,6 +70,15 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="zcash"/>
             </intent-filter>
+            <!-- Shared-bill invites: splitz://join?... (SPEC §11.1). Carried
+                 on the same channel as zcash: links and never persisted:
+                 an invite holds the bill's key. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="splitz" android:host="join"/>
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
