@@ -67,11 +67,18 @@ wallet declares no cleartext exception — no `NSAppTransportSecurity` in
 in the Android manifest:
 
 ```bash
-../Splitz-Protocol/tools/relay/public.sh     # prints the origin and the define
+../Splitz-Protocol/tools/relay/funnel.sh     # prints the origin and the define
 fvm flutter run -d <phone> \
-  --dart-define=SPLITS_RELAY_URL=https://<origin>.trycloudflare.com
+  --dart-define=SPLITS_RELAY_URL=https://<machine>.<tailnet>.ts.net
 ```
 
-The origin is new each time the script starts and lives as long as it runs.
-The relay holds channel digests and ciphertext only, in memory; after a
-restart, devices re-push their logs on the next sync.
+`funnel.sh` serves the relay through Tailscale Funnel at this machine's tailnet
+name, so the origin is the same on every start and a phone is built once. It
+keeps what the relay holds in a state file, so a restart loses nothing. It
+needs the Tailscale app on this machine, logged in; the phones need nothing.
+
+Without Tailscale, `public.sh` does the same through a Cloudflare quick
+tunnel. Its origin (`https://<origin>.trycloudflare.com`) is new each time the
+script starts, so a restart means rebuilding every phone, and it holds bills
+in memory only: after a restart, devices re-push their logs on the next sync.
+The relay holds channel digests and ciphertext only, either way.
