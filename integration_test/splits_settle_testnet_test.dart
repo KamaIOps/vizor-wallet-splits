@@ -157,13 +157,31 @@ void main() {
         accountUuid: uuidOf(payerName),
       );
       spendable = balance.orchard + balance.sapling;
-      logE2e('$payerName spendable: $spendable zatoshi');
-      if (spendable > BigInt.from(maxZatoshi * 3)) break;
+      // Funds alone are not enough to spend them. A transaction is anchored to
+      // the scanned tip, so one built while the wallet is still catching up
+      // carries a stale anchor and the network refuses it — the wallet reports
+      // `pendingBroadcast` with no transaction id and retries until the
+      // expiry, which reads as a send that simply did not happen.
+      final progress = await rust_sync.getSyncStatus(
+        dbPath: dbPath,
+        network: network,
+      );
+      final behind = progress.chainTipHeight - progress.scannedHeight;
+      logE2e('$payerName spendable: $spendable zatoshi, '
+          '${progress.scannedHeight}/${progress.chainTipHeight} '
+          '($behind behind)');
+      if (spendable > BigInt.from(maxZatoshi * 3) && progress.isComplete) {
+        break;
+      }
       for (var i = 0; i < 100; i++) {
         await tester.pump(const Duration(milliseconds: 100));
       }
     }
-    if (spendable <= BigInt.from(maxZatoshi * 3)) {
+    final finalProgress = await rust_sync.getSyncStatus(
+      dbPath: dbPath,
+      network: network,
+    );
+    if (spendable <= BigInt.from(maxZatoshi * 3) || !finalProgress.isComplete) {
       logE2e('$payerName has not synced enough to pay; stopping before a send');
       return;
     }
