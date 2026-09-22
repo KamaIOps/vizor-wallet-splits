@@ -27,13 +27,6 @@ import '../../providers/account_provider.dart';
 const String seedDriverUrl =
     String.fromEnvironment('SPLITS_SEED_DRIVER_URL');
 
-/// Imports every development wallet the driver serves, skipping any this
-/// device already holds.
-///
-/// Returns how many were imported. Does nothing at all when no driver was
-/// named, and reports rather than throws when one was named and is not there:
-/// a run that quietly started with no accounts fails later, somewhere that
-/// names the wrong thing.
 /// A floor under every development wallet's birthday, or null for none.
 ///
 /// The wallet scans from the earliest birthday any of its accounts carries, so
@@ -48,6 +41,11 @@ const int devBirthdayFloor =
     int.fromEnvironment('SPLITS_DEV_BIRTHDAY_FLOOR', defaultValue: 0);
 
 /// Imports [accounts] from the driver, and returns how many arrived.
+///
+/// Skips any wallet this device already holds. Does nothing at all when no
+/// driver was named, and reports rather than throws when one was named and is
+/// not there: a run that quietly started with no accounts fails later,
+/// somewhere that names the wrong thing.
 ///
 /// The table is an argument rather than a constant so this works for any set:
 /// the testnet wallets in `testnet_accounts.dart`, or a mainnet set that stays
