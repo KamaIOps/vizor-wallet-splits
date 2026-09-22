@@ -68,6 +68,7 @@ void main() {
         reason: 'an equal split asks for no figures');
     await _tapText(tester, 'Add it');
     await _settle(tester);
+    await _expenseWritten(tester);
     await _reveal(tester, find.text('Dinner'), 'the equal-split expense');
     expect(find.text('Dinner'), findsWidgets);
     logE2e('equal: 30.00 added');
@@ -91,6 +92,7 @@ void main() {
         reason: '12.00 and 18.00 come to the 30.00 the form was given');
     await _tapText(tester, 'Add it');
     await _settle(tester);
+    await _expenseWritten(tester);
     await _reveal(tester, find.text('Exactly'), 'the exact-split expense');
     expect(find.text('Exactly'), findsWidgets);
     logE2e('exact: 12.00 and 18.00');
@@ -164,6 +166,7 @@ void main() {
 
     await _tapText(tester, 'Add it');
     await _settle(tester);
+    await _expenseWritten(tester);
     await _reveal(tester, find.text('Itemised'), 'the itemised expense');
     expect(find.text('Itemised'), findsWidgets);
     logE2e('itemised: two items, one each, and an apportioned extra');
@@ -173,6 +176,24 @@ void main() {
 }
 
 /// Adds an expense under [chip], typing one figure per person sharing it.
+/// Waits for the add-expense screen to close, which is what says the expense
+/// was written.
+///
+/// Tapping a button that is disabled, or one whose form refuses what is in it,
+/// throws nothing and leaves the screen where it was. Searching for the
+/// expense's own name afterwards does not settle it: that name is still in the
+/// "What for" field it was typed into, so the assertion passes on a bill that
+/// never changed, and the failure lands on the other device naming the wrong
+/// thing.
+Future<void> _expenseWritten(WidgetTester tester) async {
+  await pumpUntil(
+    tester,
+    () => !tester.any(find.byKey(const Key('splits_amount'))),
+    description: 'the add-expense screen to close on a written expense',
+    timeout: const Duration(minutes: 1),
+  );
+}
+
 Future<void> _addWithFigures(
   WidgetTester tester,
   String what,
@@ -197,6 +218,7 @@ Future<void> _addWithFigures(
   expect(find.byKey(const Key('splits_split_refusal')), findsNothing);
   await _tapText(tester, 'Add it');
   await _settle(tester);
+  await _expenseWritten(tester);
   await _reveal(tester, find.text(what), 'the expense "$what" on the bill');
   expect(find.text(what), findsWidgets);
 }

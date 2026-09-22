@@ -89,6 +89,7 @@ void main() {
     );
     await tester.tap(find.text('Add it'));
     await tester.pumpAndSettle();
+    await _expenseWritten(tester);
 
     expect(find.text('Pizza'), findsOneWidget);
     expect(find.text('90.00 EUR'), findsOneWidget);
@@ -110,4 +111,21 @@ void main() {
     expect(find.textContaining('no price on it yet'), findsNothing);
     logE2e('split bills: done');
   });
+}
+
+/// Waits for the add-expense screen to close, which is what says the expense
+/// was written.
+///
+/// Tapping a button that is disabled, or one whose form refuses what is in it,
+/// throws nothing and leaves the screen where it was. Searching for the
+/// expense's own name afterwards does not settle it: that name is still in the
+/// "What for" field it was typed into, so the assertion passes on a bill that
+/// never changed.
+Future<void> _expenseWritten(WidgetTester tester) async {
+  await pumpUntil(
+    tester,
+    () => !tester.any(find.byKey(const Key('splits_amount'))),
+    description: 'the add-expense screen to close on a written expense',
+    timeout: const Duration(minutes: 1),
+  );
 }
