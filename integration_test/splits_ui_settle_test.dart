@@ -91,11 +91,11 @@ Future<void> _payer(WidgetTester tester) async {
   // The whole bill as a code, taken off the share screen the way a person
   // takes it.
   //
-  // The invite alone will not do. `scan_bill_screen.dart` accepts an invite's
-  // key and says plainly that the bill itself still has to arrive — it does
-  // not navigate and it does not sync, because an invite carries no entries.
-  // The bill's own code carries them, and is what opens it on the other
-  // phone. This bill is two people and one expense, well inside §11.2's cap.
+  // The bill's own code rather than the invite: an invite carries no entries,
+  // so `scan_bill_screen.dart` can open the bill from one only by fetching
+  // the log from a relay. The code carries the log itself and opens the bill
+  // with or without one. This bill is two people and one expense, well
+  // inside §11.2's cap.
   await tester.tap(find.byTooltip('Share'));
   await _settle(tester);
   await _reveal(tester, find.text('Bill code'),

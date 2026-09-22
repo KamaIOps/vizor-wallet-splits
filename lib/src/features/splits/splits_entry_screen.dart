@@ -19,6 +19,8 @@ import 'testnet_accounts.dart';
 import 'splits_prices.dart';
 import 'splits_relay.dart';
 import 'splits_scanner.dart';
+import 'splits_invite_intake.dart';
+import 'splits_share.dart';
 import 'splits_swaps.dart';
 
 import '../../core/storage/wallet_paths.dart';
@@ -39,6 +41,10 @@ class SplitsEntryScreen extends ConsumerStatefulWidget {
 class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
   SplitsController? _controller;
   String? _error;
+  final _navigator = GlobalKey<SplitsNavigatorState>();
+
+  /// The invite a link parked before the controller existed, read once.
+  String? _openingInvite;
 
   @override
   void initState() {
@@ -130,7 +136,17 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
     );
     await controller.load();
     if (!mounted) return;
-    setState(() => _controller = controller);
+    setState(() {
+      _controller = controller;
+      _openingInvite = ref.read(splitsInviteIntakeProvider.notifier).take();
+    });
+    // A link that landed after the read above but before the navigator
+    // existed found nothing to hand it to; the navigator exists now.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final arrived = ref.read(splitsInviteIntakeProvider.notifier).take();
+      if (arrived != null) _navigator.currentState?.openCode(arrived);
+    });
   }
 
   @override
@@ -141,6 +157,13 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // A link opened while these screens are already up: read it in place.
+    ref.listen<String?>(splitsInviteIntakeProvider, (_, next) {
+      final navigator = _navigator.currentState;
+      if (next == null || navigator == null) return;
+      final invite = ref.read(splitsInviteIntakeProvider.notifier).take();
+      if (invite != null) navigator.openCode(invite);
+    });
     final error = _error;
     if (error != null) {
       return Scaffold(
@@ -159,10 +182,15 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
     // as one route here, so its own screens must push onto a navigator that
     // sits under its scope.
     return SplitsNavigator(
+      key: _navigator,
       controller: controller,
+      initialCode: _openingInvite,
       // The wallet's own scanner. Without it the screens still work from a
       // paste; with it they read the same strings from a camera.
       scan: scanSplitsCode,
+      // The platform's share sheet, so a code reaches a message as well as a
+      // camera or a clipboard.
+      share: shareSplitsCode,
     );
   }
 }

@@ -1,10 +1,11 @@
 /// The single classifier for everything the native runners hand to Dart on
 /// `com.zcash.wallet/payment_uri`.
 ///
-/// Two products arrive on one pipe: ZIP-321 `zcash:` payment requests (all
-/// five platforms) and Vizor Gift Card `https://` deeplinks (Android and iOS —
-/// the desktop runners never register a handler for them). One classifier, one
-/// subscription, so a link can only ever be handled by one of them.
+/// Three products arrive on one pipe: ZIP-321 `zcash:` payment requests (all
+/// five platforms), Vizor Gift Card `https://` deeplinks, and shared-bill
+/// `splitz://join` invites (Android and iOS — the desktop runners register a
+/// handler for neither). One classifier, one subscription, so a link can only
+/// ever be handled by one of them.
 ///
 /// **The host check runs before the scheme check, and that order is load
 /// bearing.** A Gift Card link's fragment carries a 24-word mnemonic. Sending
@@ -42,6 +43,15 @@ final class IncomingGiftCardLink extends IncomingLinkTarget {
   final Uri uri;
 }
 
+/// A shared-bill invite (`splitz://join?…`, SPEC §11.1). [raw] is the trimmed
+/// link, unparsed: the protocol's own reader decides whether it is an invite,
+/// and a key-bearing string reaches nothing else on the way.
+final class IncomingSplitsInviteLink extends IncomingLinkTarget {
+  const IncomingSplitsInviteLink(this.raw);
+
+  final String raw;
+}
+
 /// The bare Vizor deeplink origin — "open the app", nothing more.
 final class IncomingVizorHomeLink extends IncomingLinkTarget {
   const IncomingVizorHomeLink();
@@ -53,6 +63,7 @@ final class IncomingLinkUnknown extends IncomingLinkTarget {
 }
 
 const _zcashScheme = 'zcash';
+const _splitzScheme = 'splitz';
 
 /// Classifies [raw] into exactly one product's intake path.
 ///
@@ -75,6 +86,9 @@ IncomingLinkTarget classifyIncomingLink(String raw) {
         }
     }
 
+    if (uri.scheme.toLowerCase() == _splitzScheme) {
+      return IncomingSplitsInviteLink(trimmed);
+    }
     if (uri.scheme.toLowerCase() == _zcashScheme) {
       return IncomingPaymentRequestLink(trimmed);
     }
@@ -82,10 +96,14 @@ IncomingLinkTarget classifyIncomingLink(String raw) {
   }
 
   // `Uri.tryParse` failing means the string is not a valid URI of any scheme,
-  // so it cannot be a Gift Card link. A malformed `zcash:` link still has to
-  // reach the payment-URI path, which is the only one that can tell the payer
-  // their link is broken.
-  return trimmed.toLowerCase().startsWith('$_zcashScheme:')
+  // so it cannot be a Gift Card link. A malformed `zcash:` or `splitz:` link
+  // still has to reach its own reader, which is the only one that can say
+  // what is wrong with it.
+  final lower = trimmed.toLowerCase();
+  if (lower.startsWith('$_splitzScheme:')) {
+    return IncomingSplitsInviteLink(trimmed);
+  }
+  return lower.startsWith('$_zcashScheme:')
       ? IncomingPaymentRequestLink(trimmed)
       : const IncomingLinkUnknown();
 }

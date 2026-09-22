@@ -110,6 +110,7 @@ import 'src/features/settings/screens/settings_uninstall_screen.dart';
 import 'src/features/settings/screens/settings_viewing_key_screen.dart';
 import 'src/features/settings/settings_platform.dart';
 import 'src/features/settings/widgets/windows_update_download_flow.dart';
+import 'src/features/splits/splits_invite_intake.dart';
 import 'src/features/wallet_link/screens/wallet_link_desktop_screen.dart';
 import 'src/features/swap/models/swap_activity_navigation.dart';
 import 'src/features/swap/screens/swap_review_screen.dart';
@@ -1831,6 +1832,8 @@ class _IncomingLinkHostState extends ConsumerState<_IncomingLinkHost> {
         _handlePaymentRequestLink(raw);
       case IncomingGiftCardLink():
         _handleGiftCardLink(rawUri);
+      case IncomingSplitsInviteLink(:final raw):
+        _handleSplitsInvite(raw);
       case IncomingVizorHomeLink():
         if (ref.read(appSecurityProvider).requiresUnlock) return;
         // Onboarding, import, and add-account keep their state only in the
@@ -1846,6 +1849,25 @@ class _IncomingLinkHostState extends ConsumerState<_IncomingLinkHost> {
         // Silent by contract — see `classifyIncomingLink`.
         return;
     }
+  }
+
+  // ---------------------------------------------------------------------
+  // Shared-bill invite lane
+  // ---------------------------------------------------------------------
+
+  /// Parks the invite and opens the bills screens, which read it.
+  ///
+  /// A locked wallet or one mid-onboarding keeps it parked: unlock owns the
+  /// navigation after authentication, and onboarding holds state a push would
+  /// strand. The invite is read the next time the bills screens open.
+  void _handleSplitsInvite(String raw) {
+    ref.read(splitsInviteIntakeProvider.notifier).receive(raw);
+    if (ref.read(appSecurityProvider).requiresUnlock) return;
+    final location = _currentLocation;
+    if (isOnboardingLocation(location)) return;
+    // Already open: the screen listens for the intake and reads it in place.
+    if (location == '/splits') return;
+    widget.router.push('/splits');
   }
 
   // ---------------------------------------------------------------------
