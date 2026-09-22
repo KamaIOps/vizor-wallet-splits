@@ -466,7 +466,10 @@ Future<void> _tapText(WidgetTester tester, String text) async {
 }
 
 Future<void> _tapKeyRevealed(WidgetTester tester, Key key) async {
+  await _settle(tester);
   await _reveal(tester, find.byKey(key), 'the control $key');
+  await tester.ensureVisible(find.byKey(key).last);
+  await _settle(tester);
   await tester.tap(find.byKey(key).last);
   await _settle(tester);
 }
@@ -494,7 +497,13 @@ Future<void> _reveal(WidgetTester tester, Finder target, String what) async {
 }
 
 Future<void> _tapKey(WidgetTester tester, String key) async {
+  // After typing, the keyboard is still opening, and it moves the fold: a
+  // control past it stays built but is off screen, where a tap lands on
+  // whatever is behind it. Let it finish, then bring the control into view.
+  await _settle(tester);
   await _reveal(tester, find.byKey(Key(key)), 'the control $key');
+  await tester.ensureVisible(find.byKey(Key(key)).last);
+  await _settle(tester);
   await tester.tap(find.byKey(Key(key)).last);
   await _settle(tester);
 }
