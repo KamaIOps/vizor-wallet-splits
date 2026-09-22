@@ -60,7 +60,14 @@ void tolerateRenderOverflows() {
     final exception = details.exception;
     if (exception is FlutterError &&
         exception.message.contains('RenderFlex overflowed')) {
-      logE2e('tolerated overflow: ${exception.message}');
+      // The message says how many pixels, never which widget, and that is the
+      // whole cost of tolerating it: the creator chain is the only thing that
+      // turns a logged overflow into one somebody can find.
+      final creator = (details.informationCollector?.call() ?? const [])
+          .map((n) => n.toDescription().replaceAll('\n', ' '))
+          .firstWhere((d) => d.startsWith('debugCreator'), orElse: () => '');
+      logE2e('tolerated overflow: ${exception.message}'
+          '${creator.isEmpty ? '' : '  in: $creator'}');
       return;
     }
     defaultHandler?.call(details);
