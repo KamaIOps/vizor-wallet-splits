@@ -44,7 +44,13 @@ class WalletZecPrices implements ZecPrices {
     // feed's own precision is known — rather than at every place that reads
     // it. Rounded to nearest rather than truncated: truncating would make
     // every price a shade low, and the same shade every time.
-    final cents = (usd * _minorUnits).round();
+    //
+    // The product is checked, not just the price: a finite price can scale to
+    // infinity, and `round()` throws on infinity rather than returning a
+    // figure the bound below could refuse.
+    final scaled = usd * _minorUnits;
+    if (!scaled.isFinite) return null;
+    final cents = scaled.round();
 
     // A figure that cannot be held exactly is not a price. An IEEE-754 double
     // is exact only to 2^53-1, and a bill's arithmetic is integers all the
