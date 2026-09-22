@@ -11,7 +11,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:splitz_host/io.dart';
-import 'package:vizor_splitz/vizor_splitz.dart';
+import 'package:splitz_flutter/splitz_flutter.dart';
 
 import '../../core/network/network_http_client.dart';
 
