@@ -89,6 +89,7 @@ void main() {
     await tester.pump();
     await _tapText(tester, 'Add it');
     await _settle(tester);
+    await _expenseWritten(tester);
     expect(find.textContaining('90.00'), findsWidgets,
         reason: 'the expense the form was given, in the currency it shows');
     logE2e('90.00 on the bill');
@@ -100,6 +101,7 @@ void main() {
     await tester.pump();
     await _tapText(tester, 'Add it');
     await _settle(tester);
+    await _expenseWritten(tester);
     expect(find.text('Drinks'), findsWidgets);
 
     await tester.drag(find.text('Drinks').first, const Offset(-400, 0));
@@ -214,6 +216,24 @@ void main() {
 ///
 /// The share screen is a `ListView`: "Just the invite" and the invite's own
 /// code sit below the fold, so a finder that waits for one waits forever.
+/// Waits for the add-expense screen to close, which is what says the expense
+/// was written.
+///
+/// Tapping a button that is disabled, or one whose form refuses what is in it,
+/// throws nothing and leaves the screen where it was. Searching for the
+/// expense's own name afterwards does not settle it: that name is still in the
+/// "What for" field it was typed into, so the assertion passes on a bill that
+/// never changed, and the failure lands on the other device naming the wrong
+/// thing.
+Future<void> _expenseWritten(WidgetTester tester) async {
+  await pumpUntil(
+    tester,
+    () => !tester.any(find.byKey(const Key('splits_amount'))),
+    description: 'the add-expense screen to close on a written expense',
+    timeout: const Duration(minutes: 1),
+  );
+}
+
 Future<void> _scrollToText(WidgetTester tester, String text) async {
   final target = find.text(text);
   if (tester.any(target)) return;
