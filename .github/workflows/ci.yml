@@ -1,15 +1,12 @@
-# The analyzer, on every push to the splits branch.
+# The analyzer and the splits host tests, on every push to the splits branch.
 #
-# `flutter test` is deliberately absent, and the reason is worth stating so it
-# is not "fixed" back in. Every test this repository's splits work owns lives
-# in `integration_test/` and drives real screens, so all of them need a booted
-# simulator that a hosted runner does not have. Running `flutter test` here
-# would therefore check none of this work — it would run the upstream wallet's
-# own suite, of which 80 fail on Linux for want of the native bridge, the
-# platform plugins and a Tor connection. A red lane that tests nothing we
-# wrote teaches nobody anything.
-#
-# What the device lanes are and how to run them is in SPLITS.md.
+# The whole `flutter test` suite is deliberately not run: it is mostly the
+# upstream wallet's own, of which 80 fail on Linux for want of the native
+# bridge, the platform plugins and a Tor connection, and a red lane that tests
+# nothing we wrote teaches nobody anything. What runs is the host tests this
+# branch owns — test/features/splits/ and the incoming-link classifier. The
+# lanes that drive real screens are in integration_test/ and need a booted
+# simulator a hosted runner does not have; SPLITS.md says how to run them.
 #
 # The feature resolves three dependencies by relative path, so all three
 # repositories are checked out as siblings under the workspace. The other two
@@ -61,9 +58,14 @@ jobs:
       - run: flutter pub get
         working-directory: Vizor-Wallet
 
-      # The analyzer is the whole job, and it is not a thin one: it type
-      # checks this repository against both sibling packages, so a change to
+      # Not a thin check: it type checks this repository against both
+      # sibling packages, so a change to
       # a screen's signature or to the protocol's public surface fails here
       # rather than on a device twenty minutes later.
       - run: flutter analyze
+        working-directory: Vizor-Wallet
+
+      - run: >-
+          flutter test test/features/splits
+          test/core/navigation/incoming_link_dispatch_test.dart
         working-directory: Vizor-Wallet
