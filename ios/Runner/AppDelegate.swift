@@ -966,6 +966,12 @@ final class IncomingUriChannelBridge {
     if url.scheme?.lowercased() == "zcash" {
       return true
     }
+    // A shared-bill invite, `splitz://join?...` (SPEC §11.1). Routed only;
+    // Dart's reader decides whether it is well formed. It carries the bill's
+    // key, and like every link here it is held in memory until Dart takes it.
+    if url.scheme?.lowercased() == "splitz" {
+      return url.host?.lowercased() == "join"
+    }
     guard
       url.scheme?.lowercased() == "https",
       url.host?.lowercased() == Self.deeplinkHost,
