@@ -48,7 +48,7 @@ SwapProvider splitsSwaps({required NetworkHttpClient http}) => OneClickSwaps(
       deadline: () => canonicalInstant(
         DateTime.now().toUtc().add(splitsQuoteValidity).toIso8601String(),
       ),
-      post: (url, body) => _read(
+      post: (url, body) => readSwapResponse(
         http.request(
           'POST',
           url,
@@ -56,14 +56,14 @@ SwapProvider splitsSwaps({required NetworkHttpClient http}) => OneClickSwaps(
           bodyBytes: utf8.encode(body),
         ),
       ),
-      get: (url) => _read(http.request('GET', url)),
+      get: (url) => readSwapResponse(http.request('GET', url)),
     );
 
 /// The body of a response, refusing a status the provider uses to say no.
 ///
 /// A 4xx or 5xx carries a body too, and decoding it as a quote would read an
 /// error object as a price. The status is checked before the bytes are.
-Future<String> _read(Future<NetworkHttpResponse> pending) async {
+Future<String> readSwapResponse(Future<NetworkHttpResponse> pending) async {
   final response = await pending;
   final body = utf8.decode(response.bodyBytes, allowMalformed: true);
   if (response.statusCode >= 400) {
