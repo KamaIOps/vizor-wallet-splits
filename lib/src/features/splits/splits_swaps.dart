@@ -32,13 +32,13 @@ const String splitsZecAssetId = 'nep141:zec.omft.near';
 /// Identifies this wallet to the provider.
 const String splitsSwapReferral = 'vizor';
 
+/// How long this wallet asks a quote to stand for.
+const Duration splitsQuoteValidity = Duration(minutes: 10);
+
 /// The provider the splits screens use.
 ///
 /// Built over the wallet's own HTTP client, so a swap goes out the same way
 /// every other request does — one proxy configuration, one set of timeouts.
-/// How long this wallet asks a quote to stand for.
-const Duration splitsQuoteValidity = Duration(minutes: 10);
-
 SwapProvider splitsSwaps({required NetworkHttpClient http}) => OneClickSwaps(
       origin: Uri.parse(splitsSwapOrigin),
       zecAssetId: splitsZecAssetId,
@@ -62,16 +62,42 @@ SwapProvider splitsSwaps({required NetworkHttpClient http}) => OneClickSwaps(
 /// The body of a response, refusing a status the provider uses to say no.
 ///
 /// A 4xx or 5xx carries a body too, and decoding it as a quote would read an
-/// error object as a price. The status is checked before the bytes are.
+/// error object as a price. The status is checked before the bytes are; the
+/// provider's own `message`, when it sends one, goes into the refusal, since
+/// it names what to change ("slippageTolerance should not be empty").
 Future<String> readSwapResponse(Future<NetworkHttpResponse> pending) async {
   final response = await pending;
   final body = utf8.decode(response.bodyBytes, allowMalformed: true);
   if (response.statusCode >= 400) {
+    final said = _providerMessage(body);
     throw SwapException(
-      'The swap provider answered ${response.statusCode}',
+      'The swap provider answered ${response.statusCode}'
+      '${said == null ? '' : ': $said'}',
       // 5xx may work on a retry; a 4xx is a refusal on the merits.
       isTransient: response.statusCode >= 500,
     );
   }
   return body;
+}
+
+/// The `message` of an error body, or null when there is none to read.
+///
+/// A string, or a list of strings joined; cut at 200 characters so a verbose
+/// provider cannot fill the screen.
+String? _providerMessage(String body) {
+  Object? decoded;
+  try {
+    decoded = jsonDecode(body);
+  } on FormatException {
+    return null;
+  }
+  if (decoded is! Map) return null;
+  final raw = decoded['message'];
+  final text = switch (raw) {
+    String s => s,
+    List l => l.whereType<String>().join('; '),
+    _ => '',
+  }.trim();
+  if (text.isEmpty) return null;
+  return text.length <= 200 ? text : '${text.substring(0, 200)}…';
 }

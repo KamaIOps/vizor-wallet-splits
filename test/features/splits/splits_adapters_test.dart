@@ -45,6 +45,23 @@ void main() {
       );
     });
 
+    test('a refusal carries the reason the provider gave', () async {
+      await expectLater(
+        readSwapResponse(_answer(
+            400,
+            '{"message":"slippageTolerance should not be empty",'
+            '"statusCode":400}')),
+        throwsA(isA<SwapException>().having((e) => e.message, 'message',
+            'The swap provider answered 400: slippageTolerance should not be empty')),
+      );
+      // No message, or a body that is not JSON, leaves the status alone.
+      await expectLater(
+        readSwapResponse(_answer(400, 'no')),
+        throwsA(isA<SwapException>().having(
+            (e) => e.message, 'message', 'The swap provider answered 400')),
+      );
+    });
+
     test('a 500 is transient, so a retry is allowed', () async {
       await expectLater(
         readSwapResponse(_answer(503, 'upstream down')),
