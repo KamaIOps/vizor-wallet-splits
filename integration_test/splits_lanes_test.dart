@@ -24,7 +24,6 @@
 /// funding across.
 library;
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -46,17 +45,9 @@ import 'package:zcash_wallet/src/rust/api/sync.dart' as rust_sync;
 import 'package:zcash_wallet/src/rust/api/wallet.dart' as rust_wallet;
 
 import 'support/mobile_regtest_flow.dart';
+import 'support/splits_coordinator.dart';
 
-/// Where this device asks which device it is.
-///
-/// `--dart-define` is compile-time, so a lane that gives each device its own
-/// phase needs its own binary per device — and two builds at once in this
-/// project's single `build/` directory leave both devices running whichever
-/// finished last. Claiming the role at runtime means every device is launched
-/// with the same defines, built once, and started together.
-///
-/// `SPLITS_PHASE` still works, for running one device by hand.
-const _coordinator = String.fromEnvironment('SPLITS_COORDINATOR');
+/// What a device is told when it is run by hand, without a coordinator.
 const _phaseDefine = String.fromEnvironment('SPLITS_PHASE');
 const _inviteDefine = String.fromEnvironment('SPLITS_INVITE');
 
@@ -83,64 +74,6 @@ const _lanes = {
   'cash': 'cash',
 };
 
-// --- the coordinator, on loopback beside the relay --------------------------
-
-Future<String> _claimRole() async {
-  if (_coordinator.isEmpty) return _phaseDefine;
-  final client = HttpClient();
-  try {
-    final request =
-        await client.postUrl(Uri.parse('$_coordinator/claim'));
-    final response = await request.close();
-    final body = await response.transform(const Utf8Decoder()).join();
-    if (response.statusCode != 200) {
-      throw StateError('the coordinator gave out no role: $body');
-    }
-    return (jsonDecode(body) as Map<String, dynamic>)['role'] as String;
-  } finally {
-    client.close();
-  }
-}
-
-Future<void> _publish(String key, String value) async {
-  if (_coordinator.isEmpty) return;
-  final client = HttpClient();
-  try {
-    final request = await client.putUrl(Uri.parse('$_coordinator/kv/$key'));
-    request.add(utf8.encode(value));
-    await request.close();
-  } finally {
-    client.close();
-  }
-}
-
-/// Waits for another device to publish [key].
-///
-/// 404 is "not yet" and is polled; anything else is a fault worth stopping
-/// for. A lane that treated every failure as "not yet" would wait out its
-/// whole timeout against a coordinator that was never running.
-Future<String> _await(String key, {required Duration timeout}) async {
-  if (_coordinator.isEmpty) return _inviteDefine;
-  final end = DateTime.now().add(timeout);
-  final client = HttpClient();
-  try {
-    while (DateTime.now().isBefore(end)) {
-      final request = await client.getUrl(Uri.parse('$_coordinator/kv/$key'));
-      final response = await request.close();
-      final body = await response.transform(const Utf8Decoder()).join();
-      if (response.statusCode == 200) return body;
-      if (response.statusCode != 404) {
-        throw StateError('the coordinator answered $key with '
-            '${response.statusCode}: $body');
-      }
-      await Future<void>.delayed(const Duration(seconds: 1));
-    }
-  } finally {
-    client.close();
-  }
-  throw StateError('nobody published $key within $timeout');
-}
-
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -157,7 +90,7 @@ void main() {
     };
 
     // Which device this is, asked of the coordinator rather than compiled in.
-    final phase = await _claimRole();
+    final phase = await claimRole(fallback: _phaseDefine);
     expect(
       const ['payer', 'zec', 'usdc', 'cash'].contains(phase),
       isTrue,
@@ -193,7 +126,7 @@ void main() {
     // The sequencer funds the payer's address before the bill is opened. Only
     // the payer needs coins; the others need an address to be paid at. It is
     // published rather than printed, so nothing has to scrape a log for it.
-    if (phase == 'payer') await _publish('address', address!);
+    if (phase == 'payer') await publish('address', address!);
     logE2e('ADDRESS $address');
 
     final directory = Directory(
@@ -271,7 +204,7 @@ Future<void> _payer(
   );
   await controller.syncBill(billId);
   final invite = await controller.inviteFor(billId);
-  await _publish('invite', invite);
+  await publish('invite', invite);
   logE2e('INVITE $invite');
 
   // 1 · All three join, declare their lane, and put what they covered on the
@@ -393,7 +326,8 @@ Future<void> _payee(
   // The payer publishes the invite once the bill is on the relay; until then
   // there is nothing to join.
   final invite0 =
-      await _await('invite', timeout: const Duration(minutes: 20));
+      await awaitValue('invite',
+          timeout: const Duration(minutes: 20), fallback: _inviteDefine);
   expect(invite0, isNotEmpty, reason: 'the payer published an invite');
   final scanned = splitz.readScan(invite0);
   final invite = (scanned as splitz.ScannedInvite).invite;
