@@ -184,7 +184,7 @@ Future<void> _payer(
         network: network,
         accountUuid: accountUuid,
       );
-      return b.orchard + b.sapling > BigInt.from(_maxZatoshi);
+      return b.spendable > BigInt.from(_maxZatoshi);
     },
     description: 'the faucet payment to arrive and confirm',
     timeout: _firstWait,

@@ -156,7 +156,10 @@ void main() {
         network: network,
         accountUuid: uuidOf(payerName),
       );
-      spendable = balance.orchard + balance.sapling;
+      // `spendable` is the wallet's own sum of every shielded pool it can
+      // spend from — Sapling, Orchard, Ironwood. Adding two of them by hand
+      // silently reports zero for a wallet whose value sits in the third.
+      spendable = balance.spendable;
       // Funds alone are not enough to spend them. A transaction is anchored to
       // the scanned tip, so one built while the wallet is still catching up
       // carries a stale anchor and the network refuses it — the wallet reports
@@ -270,7 +273,8 @@ void main() {
         network: network,
         accountUuid: uuidOf(name),
       );
-      logE2e('payee $name holds: orchard ${b.orchard} sapling ${b.sapling}');
+      logE2e('payee $name holds: ${b.spendable} spendable (sapling ${b.sapling} '
+          'orchard ${b.orchard} ironwood ${b.ironwood})');
     }
     expect(zatoshi, lessThanOrEqualTo(maxZatoshi),
         reason: 'over the cap this lane is allowed to send');
