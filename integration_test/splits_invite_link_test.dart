@@ -93,7 +93,21 @@ void main() {
     );
     logE2e('INVITE $invite');
 
-    // The driver opens the link now. Pump until the bill screen names it.
+    // The driver opens the link now. It shows the invite and waits for a tap:
+    // opening a link is not agreeing to join.
+    final join = find.byKey(const Key('splits_scan_read'));
+    final shownBy = DateTime.now().add(const Duration(minutes: 3));
+    while (!tester.any(join) && DateTime.now().isBefore(shownBy)) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+    expect(find.textContaining('An invite to'), findsOneWidget,
+        reason: 'the opened link shows the invite before joining');
+    expect(find.byType(BillScreen), findsNothing);
+    logE2e('SHOWN');
+    await tester.tap(join);
+
+    // Pump until the bill screen names it.
     final title = find.text('Invite link lane');
     final deadline = DateTime.now().add(const Duration(minutes: 3));
     while (!tester.any(find.byType(BillScreen)) &&

@@ -177,7 +177,8 @@ Future<void> _payer(WidgetTester tester) async {
   }
 
   // 4 · Cash has nothing to send, so it goes straight to the record.
-  expect(find.textContaining('Record a payment to'), findsOneWidget);
+  expect(find.text('Record a payment'), findsOneWidget);
+  expect(find.byKey(const Key('splits_record_to')), findsOneWidget);
   await _tapKey(tester, 'splits_record_cash');
   await _typeText(tester, 'splits_record_note', 'handed over at the table');
   await _tapKey(tester, 'splits_record_save');
