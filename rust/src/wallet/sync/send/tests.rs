@@ -4386,3 +4386,53 @@ fn something_that_is_not_a_payment_request_is_refused_as_one() {
         );
     }
 }
+
+#[test]
+fn a_broadcast_that_panics_reports_its_stored_transactions_as_pending() {
+    let txids = [TxId::from_bytes([7; 32]), TxId::from_bytes([9; 32])];
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let result = runtime.block_on(broadcast_guarded(
+        async { panic!("transport went away") },
+        &txids,
+        "test",
+    ));
+    assert_eq!(result.status, CreatedBroadcastResult::PENDING_BROADCAST);
+    assert_eq!(result.broadcasted_count, 0);
+    assert_eq!(result.total_count, 2);
+    assert_eq!(
+        result.txids,
+        format!(
+            "{},{}",
+            TxId::from_bytes([7; 32]),
+            TxId::from_bytes([9; 32])
+        )
+    );
+    assert!(result.message.unwrap().contains("transport went away"));
+
+    let executed = runtime
+        .block_on(broadcast_guarded(async { panic!("again") }, &txids, "test"))
+        .into_execute_result();
+    assert_eq!(executed.status, "pending_broadcast");
+}
+
+#[test]
+fn a_broadcast_that_returns_is_passed_through() {
+    let txids = [TxId::from_bytes([7; 32])];
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let result = runtime.block_on(broadcast_guarded(
+        async {
+            CreatedBroadcastResult {
+                broadcast_failure_kind: None,
+                txids: "x".into(),
+                status: CreatedBroadcastResult::BROADCASTED,
+                broadcasted_count: 1,
+                total_count: 1,
+                message: None,
+            }
+        },
+        &txids,
+        "test",
+    ));
+    assert_eq!(result.status, CreatedBroadcastResult::BROADCASTED);
+    assert_eq!(result.txids, "x");
+}

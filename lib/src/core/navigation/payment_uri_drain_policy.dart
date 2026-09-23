@@ -270,10 +270,10 @@ PaymentUriDrainDecision decidePaymentUriDrain({
 
   // A broadcast still running on `/send/status` waits too, and for a harder
   // reason than distraction: the card's Review and Edit both `go(...)`, which
-  // unmounts the status screen, and `runSendBroadcast`'s
-  // `shouldAbort: () async => !mounted` then discards the outcome at the
-  // post-`executeProposal` checkpoint. The transaction is already on the
-  // network but the user never sees a txid or a receipt. Holding until the
+  // unmounts the status screen, and an unmounted status screen returns
+  // without showing the outcome `runSendBroadcast` hands back. The
+  // transaction is already on the network but the user never sees a txid or
+  // a receipt. Holding until the
   // send reaches a terminal phase costs nothing — the listener re-drains when
   // the flag flips, and the TTL still bounds the wait.
   if (sendIsInFlight && isSendStatusLocation(matchedLocation)) {

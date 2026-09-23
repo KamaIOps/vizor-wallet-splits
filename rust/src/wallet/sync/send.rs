@@ -6528,7 +6528,67 @@ impl CreatedBroadcastResult {
     }
 }
 
+/// Broadcasts transactions the wallet has already stored.
+///
+/// Every caller reaches this after the transactions exist, so a panic while
+/// broadcasting is reported as `pending_broadcast` with their txids rather
+/// than unwinding into an error: an error reads as "nothing was sent", and
+/// the stored transactions may still reach the network.
 async fn broadcast_created_transactions(
+    db_path: &str,
+    lightwalletd_url: &str,
+    txids: &[TxId],
+    log_label: &str,
+) -> CreatedBroadcastResult {
+    broadcast_guarded(
+        broadcast_created_transactions_unguarded(db_path, lightwalletd_url, txids, log_label),
+        txids,
+        log_label,
+    )
+    .await
+}
+
+/// Runs a broadcast of the stored `txids`, turning a panic into
+/// `pending_broadcast`.
+async fn broadcast_guarded<F>(
+    broadcast: F,
+    txids: &[TxId],
+    log_label: &str,
+) -> CreatedBroadcastResult
+where
+    F: std::future::Future<Output = CreatedBroadcastResult>,
+{
+    use futures::FutureExt;
+    match std::panic::AssertUnwindSafe(broadcast).catch_unwind().await {
+        Ok(result) => result,
+        Err(panic) => {
+            let reason = panic
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown panic".to_string());
+            log::warn!(
+                "{log_label}: broadcast panicked after the transactions were stored: {reason}"
+            );
+            CreatedBroadcastResult {
+                broadcast_failure_kind: None,
+                txids: txids
+                    .iter()
+                    .map(|id| format!("{id}"))
+                    .collect::<Vec<_>>()
+                    .join(","),
+                status: CreatedBroadcastResult::PENDING_BROADCAST,
+                broadcasted_count: 0,
+                total_count: txids.len() as u32,
+                message: Some(format!(
+                    "The transaction was created, but its broadcast stopped unexpectedly ({reason})"
+                )),
+            }
+        }
+    }
+}
+
+async fn broadcast_created_transactions_unguarded(
     db_path: &str,
     lightwalletd_url: &str,
     txids: &[TxId],
