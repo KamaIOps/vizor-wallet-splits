@@ -62,7 +62,7 @@ void main() {
     final ana = SplitsController(
       wallet: VizorSplitsWallet(
         accountUuid: 'invite-link-lane-ana',
-        unifiedFullViewingKey: null,
+        identitySecret: null,
         sender: WalletSplitsSender(
           payToAddress: null,
           send: (_) async => throw StateError('this lane sends nothing'),
