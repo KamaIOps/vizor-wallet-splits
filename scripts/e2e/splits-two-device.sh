@@ -22,31 +22,11 @@ root="${VIZOR_ROOT:-$(cd "$here/../.." && pwd)}"
 protocol="${SPLITZ_PROTOCOL:-$HOME/Splitz-Protocol}"
 network="${SPLITS_NETWORK:-regtest}"
 
-# A wallet survives a reinstall. `flutter test` replaces the app bundle, but the
-# iOS keychain is not part of it, so a device that ran before boots straight to
-# /unlock and the create-wallet flow never sees its first screen. Every device
-# starts from nothing, which means terminating, uninstalling and resetting the
-# keychain — the last of those is the part a reinstall does not do.
-APP_BUNDLE_ID="${APP_BUNDLE_ID:-com.keplr.vizor}"
-wipe_device() {
-  local udid="$1"
-  xcrun simctl terminate "$udid" "$APP_BUNDLE_ID" >/dev/null 2>&1 || true
-  xcrun simctl uninstall "$udid" "$APP_BUNDLE_ID" >/dev/null 2>&1 || true
-  xcrun simctl keychain "$udid" reset >/dev/null 2>&1 || true
-}
-
-named_simulator() {
-  xcrun simctl list devices available |
-    sed -n "s/.*$1 (\([0-9A-F-]\{36\}\)).*/\1/p" | head -1
-}
-
-UDID_A="${SPLITS_UDID_A:-$(named_simulator splits-e2e)}"
-UDID_B="${SPLITS_UDID_B:-$(named_simulator splits-e2e-b)}"
-if [ -z "$UDID_A" ] || [ -z "$UDID_B" ]; then
-  echo "need two simulators: splits-e2e and splits-e2e-b" >&2
-  echo "  xcrun simctl create splits-e2e <devicetype> <runtime>" >&2
-  exit 2
-fi
+. "$here/splits-devices.sh"
+trap splits_release_devices EXIT
+splits_select_devices 2
+UDID_A="${SPLITS_DEVICES[0]}"
+UDID_B="${SPLITS_DEVICES[1]}"
 
 # One coordinator beside the relay. It hands out the roles the devices used to
 # be compiled with, and carries the invite, so both are launched with identical
@@ -75,10 +55,8 @@ if [ -z "$relay" ]; then
 fi
 echo "relay: $relay"
 
-xcrun simctl boot "$UDID_A" 2>/dev/null || true
-xcrun simctl boot "$UDID_B" 2>/dev/null || true
-wipe_device "$UDID_A"
-wipe_device "$UDID_B"
+splits_prepare_device "$UDID_A" "${relay##*:}" "$coord_port" 9067
+splits_prepare_device "$UDID_B" "${relay##*:}" "$coord_port" 9067
 
 work="$(mktemp -d)"
 a_log="$work/a.log"
@@ -97,7 +75,7 @@ cleanup() {
   [ -n "$b_pid" ] && { kill -- "-$b_pid" 2>/dev/null || kill "$b_pid" 2>/dev/null; } || true
   [ -n "$own_relay" ] && kill "$own_relay" 2>/dev/null || true
   [ -n "${own_coord:-}" ] && kill "$own_coord" 2>/dev/null || true
-  return 0
+  splits_release_devices
 }
 trap cleanup EXIT
 

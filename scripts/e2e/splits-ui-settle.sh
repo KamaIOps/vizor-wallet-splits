@@ -20,30 +20,11 @@ root="${VIZOR_ROOT:-$(cd "$here/../.." && pwd)}"
 protocol="${SPLITZ_PROTOCOL:-$HOME/Splitz-Protocol}"
 lane="${LANE:-cash}"
 
-# A wallet survives a reinstall. `flutter test` replaces the app bundle, but the
-# iOS keychain is not part of it, so a device that ran before boots straight to
-# /unlock and the create-wallet flow never sees its first screen. Every device
-# starts from nothing, which means terminating, uninstalling and resetting the
-# keychain — the last of those is the part a reinstall does not do.
-APP_BUNDLE_ID="${APP_BUNDLE_ID:-com.keplr.vizor}"
-wipe_device() {
-  local udid="$1"
-  xcrun simctl terminate "$udid" "$APP_BUNDLE_ID" >/dev/null 2>&1 || true
-  xcrun simctl uninstall "$udid" "$APP_BUNDLE_ID" >/dev/null 2>&1 || true
-  xcrun simctl keychain "$udid" reset >/dev/null 2>&1 || true
-}
-
-named_simulator() {
-  xcrun simctl list devices available |
-    sed -n "s/.*$1 (\([0-9A-F-]\{36\}\)).*/\1/p" | head -1
-}
-
-UDID_A="${SPLITS_UDID_A:-$(named_simulator splits-e2e)}"
-UDID_B="${SPLITS_UDID_B:-$(named_simulator splits-e2e-b)}"
-if [ -z "$UDID_A" ] || [ -z "$UDID_B" ]; then
-  echo "need two simulators: splits-e2e and splits-e2e-b" >&2
-  exit 2
-fi
+. "$here/splits-devices.sh"
+trap splits_release_devices EXIT
+splits_select_devices 2
+UDID_A="${SPLITS_DEVICES[0]}"
+UDID_B="${SPLITS_DEVICES[1]}"
 
 # One coordinator beside the relay. It hands out the roles the devices used to
 # be compiled with, and carries the bill code the payee joins by, so both are
@@ -85,15 +66,14 @@ cleanup() {
   [ -n "$b_pid" ] && { kill -- "-$b_pid" 2>/dev/null || kill "$b_pid" 2>/dev/null; } || true
   [ -n "$own_relay" ] && kill "$own_relay" 2>/dev/null || true
   [ -n "${own_coord:-}" ] && kill "$own_coord" 2>/dev/null || true
-  return 0
+  splits_release_devices
 }
 trap cleanup EXIT
 
 device() {
   local name="$1" udid="$2"
   shift 2
-  xcrun simctl boot "$udid" 2>/dev/null || true
-  wipe_device "$udid"
+  splits_prepare_device "$udid" "${relay##*:}" "$coord_port" 9067
   # Monitor mode puts the job in a process group of its own, whose id is
   # its pid, so cleanup can kill the VM `flutter test` leaves behind.
   set -m
