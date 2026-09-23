@@ -76,8 +76,10 @@ trap cleanup EXIT
 # entries with it, so the create-wallet flow sees its first screen.
 "$adb" -s "$serial" uninstall "$APP_ID" >/dev/null 2>&1 || true
 
+# Monitor mode puts the job in a process group of its own, whose id is
+# its pid, so cleanup can kill the VM `flutter test` leaves behind.
+set -m
 (
-  set -m
   set +e
   (cd "$root" && fvm flutter test integration_test/splits_invite_link_test.dart \
     -d "$serial" \
@@ -86,6 +88,7 @@ trap cleanup EXIT
   echo $? >"$work/run.status"
 ) &
 test_pid=$!
+set +m
 
 invite=""
 for _ in $(seq 1800); do

@@ -94,8 +94,10 @@ device() {
   shift 2
   xcrun simctl boot "$udid" 2>/dev/null || true
   wipe_device "$udid"
+  # Monitor mode puts the job in a process group of its own, whose id is
+  # its pid, so cleanup can kill the VM `flutter test` leaves behind.
+  set -m
   (
-    set -m
     set +e
     (cd "$root" && fvm flutter test integration_test/splits_ui_settle_test.dart \
       -d "$udid" \
@@ -108,6 +110,7 @@ device() {
       "$@") >"$work/$name.log" 2>&1
     echo $? >"$work/$name.status"
   ) &
+  set +m
 }
 
 # Waits for a device's app to be up on its simulator.
