@@ -8,6 +8,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -28,6 +29,7 @@ import 'package:zcash_wallet/src/features/ledger/services/ledger_signed_operatio
 import 'package:zcash_wallet/src/features/send/services/send_flow.dart';
 import 'package:zcash_wallet/src/providers/account_provider.dart';
 import 'package:zcash_wallet/src/providers/app_security_provider.dart';
+import 'package:zcash_wallet/src/providers/rpc_endpoint_failover_provider.dart';
 import 'package:zcash_wallet/src/providers/sync_provider.dart';
 import 'package:zcash_wallet/src/providers/zec_price_change_provider.dart';
 import 'package:zcash_wallet/src/rust/api/sync.dart';
@@ -800,6 +802,79 @@ void main() {
     },
   );
 
+  group('once the wallet has created the transaction', () {
+    Future<SendBroadcastOutcome?> broadcast(
+      WidgetTester tester, {
+      Future<bool> Function()? shouldAbort,
+      List<Override> overrides = const [],
+    }) async {
+      late WidgetRef widgetRef;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appBootstrapProvider.overrideWithValue(_bootstrap(false)),
+            appSecurityProvider.overrideWith(_FakeAppSecurityNotifier.new),
+            accountProvider.overrideWith(_FakeAccountNotifier.new),
+            syncProvider.overrideWith(_FakeSyncNotifier.new),
+            ...overrides,
+          ],
+          child: MaterialApp(
+            home: Consumer(
+              builder: (_, ref, _) {
+                widgetRef = ref;
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      return tester.runAsync(
+        () => runSendBroadcast(
+          ref: widgetRef,
+          args: _reviewArgs(),
+          confirmSaplingParamsDownload: () async => true,
+          shouldAbort: shouldAbort,
+        ),
+      );
+    }
+
+    testWidgets('an abort after it does not report the send as cancelled', (
+      tester,
+    ) async {
+      rustApi.executeResult = _executeResult(status: 'broadcasted');
+      final outcome = await broadcast(
+        tester,
+        shouldAbort: () async =>
+            rustApi.macosExecuteCalls + rustApi.mnemonicExecuteCalls > 0,
+      );
+
+      expect(outcome?.phase, SendBroadcastPhase.succeeded);
+      expect(outcome?.txid, _txid);
+      expect(rustApi.discardCalls, isEmpty);
+    });
+
+    testWidgets('a failing endpoint failover does not report it as failed', (
+      tester,
+    ) async {
+      rustApi.executeResult = _executeResult(
+        status: 'failed',
+        message: 'transport error: connection refused',
+      );
+      final outcome = await broadcast(
+        tester,
+        overrides: [
+          rpcEndpointFailoverProvider.overrideWith(_ThrowingFailover.new),
+        ],
+      );
+
+      expect(outcome?.phase, SendBroadcastPhase.pendingBroadcast);
+      expect(outcome?.txid, _txid);
+      expect(outcome?.statusMessage, isNotNull);
+      expect(rustApi.discardCalls, isEmpty);
+    });
+  });
+
   testWidgets('proposal cleanup retries a transient Rust unlock failure', (
     tester,
   ) async {
@@ -1212,6 +1287,17 @@ class _FakeAddressBookRepository implements AddressBookRepository {
 
   @override
   Future<void> saveContacts(List<AddressBookContact> contacts) async {}
+}
+
+class _ThrowingFailover extends RpcEndpointFailoverNotifier {
+  @override
+  Future<bool> switchToFallbackFor(
+    Object error, {
+    RpcEndpointConfig? endpoint,
+    required String operation,
+    bool Function(Object error) shouldFallback =
+        shouldFallbackFromLightwalletdError,
+  }) async => throw StateError('failover unavailable');
 }
 
 class _FakeAppSecurityNotifier extends AppSecurityNotifier {
