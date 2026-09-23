@@ -4694,9 +4694,11 @@ fn something_that_is_not_a_payment_request_is_refused_as_one() {
 fn a_broadcast_that_panics_reports_its_stored_transactions_as_pending() {
     let txids = [TxId::from_bytes([7; 32]), TxId::from_bytes([9; 32])];
     let runtime = tokio::runtime::Runtime::new().unwrap();
+    let accepted = AtomicU32::new(0);
     let result = runtime.block_on(broadcast_guarded(
         async { panic!("transport went away") },
         &txids,
+        &accepted,
         "test",
     ));
     assert_eq!(result.status, CreatedBroadcastResult::PENDING_BROADCAST);
@@ -4713,9 +4715,34 @@ fn a_broadcast_that_panics_reports_its_stored_transactions_as_pending() {
     assert!(result.message.unwrap().contains("transport went away"));
 
     let executed = runtime
-        .block_on(broadcast_guarded(async { panic!("again") }, &txids, "test"))
+        .block_on(broadcast_guarded(
+            async { panic!("again") },
+            &txids,
+            &accepted,
+            "test",
+        ))
         .into_execute_result();
     assert_eq!(executed.status, "pending_broadcast");
+}
+
+#[test]
+fn a_broadcast_that_panics_after_one_was_accepted_reports_partial() {
+    let txids = [TxId::from_bytes([7; 32]), TxId::from_bytes([9; 32])];
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let accepted = AtomicU32::new(0);
+    let result = runtime.block_on(broadcast_guarded(
+        async {
+            accepted.fetch_add(1, Ordering::SeqCst);
+            panic!("transport went away after the first")
+        },
+        &txids,
+        &accepted,
+        "test",
+    ));
+    assert_eq!(result.status, CreatedBroadcastResult::PARTIAL_BROADCAST);
+    assert_eq!(result.broadcasted_count, 1);
+    assert_eq!(result.total_count, 2);
+    assert_eq!(result.into_execute_result().status, "partial_broadcast");
 }
 
 #[test]
@@ -4734,6 +4761,7 @@ fn a_broadcast_that_returns_is_passed_through() {
             }
         },
         &txids,
+        &AtomicU32::new(0),
         "test",
     ));
     assert_eq!(result.status, CreatedBroadcastResult::BROADCASTED);
