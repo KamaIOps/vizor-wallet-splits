@@ -47,7 +47,19 @@ fvm flutter test integration_test/splits_ui_walkthrough_test.dart \
 `splits_ui_methods_test.dart` and `splits_mobile_test.dart` take the same
 defines. The multi-device lanes are driven by `scripts/e2e/`, which claims each
 device's role from a coordinator at run time, so every device is launched with
-the same defines and built once.
+the same defines. Each device starts once the one before it is running, so only
+one platform build writes `build/` at a time.
+
+`splits-two-device.sh`, `splits-ui-settle.sh` and `splits-lanes.sh` run on the
+iOS simulators `splits-e2e`, `-b`, `-c` and `-d` by default. With
+`SPLITS_PLATFORM=android` they run on Android emulators instead: attached ones
+first, then the AVDs named in `SPLITS_AVDS`, one per device, each booted
+headless and shut down afterwards. The relay, coordinator and lightwalletd
+ports are forwarded to each emulator with `adb reverse`.
+
+```bash
+SPLITS_PLATFORM=android scripts/e2e/splits-lanes.sh
+```
 
 ## Networks
 
