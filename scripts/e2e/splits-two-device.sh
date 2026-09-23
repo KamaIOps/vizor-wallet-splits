@@ -104,8 +104,10 @@ trap cleanup EXIT
 device() {
   local name="$1" udid="$2" log="$3" status="$4"
   shift 4
+  # Monitor mode puts the job in a process group of its own, whose id is
+  # its pid, so cleanup can kill the VM `flutter test` leaves behind.
+  set -m
   (
-    set -m
     set +e
     (cd "$root" && fvm flutter test integration_test/splits_two_device_test.dart \
       -d "$udid" \
@@ -117,6 +119,7 @@ device() {
       "$@") >"$log" 2>&1
     echo $? >"$status"
   ) &
+  set +m
 }
 
 # Waits for a device's app to be up on its simulator.
