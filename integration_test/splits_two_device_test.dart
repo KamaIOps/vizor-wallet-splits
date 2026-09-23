@@ -42,8 +42,6 @@ import 'package:zcash_wallet/src/core/storage/wallet_paths.dart';
 import 'package:zcash_wallet/src/features/splits/splits_relay.dart';
 import 'package:zcash_wallet/src/features/splits/splits_wallet_adapter.dart';
 import 'package:zcash_wallet/src/providers/account_provider.dart';
-import 'package:zcash_wallet/src/providers/rpc_endpoint_provider.dart';
-import 'package:zcash_wallet/src/rust/api/wallet.dart' as rust_wallet;
 
 import 'support/mobile_regtest_flow.dart';
 import 'support/splits_coordinator.dart';
@@ -98,17 +96,22 @@ void main() {
 
     // The same pieces `splits_entry_screen.dart` gives the controller: the
     // app's own storage, its keychain, the payout address it publishes, and
-    // the relay it builds. The viewing key is what carries this account's
-    // identity across a reinstall, and it is read the way the screen reads it.
-    String? viewingKey;
+    // the relay it builds. The account's spending secret is what carries
+    // its identity across a reinstall, and it is read the way the screen reads
+    // it.
+    List<int>? identitySecret;
     try {
-      viewingKey = await rust_wallet.getAccountUfvk(
-        dbPath: await getWalletDbPath(),
-        network: container.read(rpcEndpointProvider).networkName,
-        accountUuid: accountUuid,
-      );
+      final secret = await container
+          .read(accountProvider.notifier)
+          .getSoftwareWalletSecretForAccount(accountUuid);
+      if (secret != null) {
+        identitySecret = splitsIdentitySecret(
+          mnemonic: secret.mnemonic,
+          passphrase: secret.bip39Passphrase,
+        );
+      }
     } on Object {
-      viewingKey = null;
+      identitySecret = null;
     }
     expect(account.activeAddress, isNotNull,
         reason: 'a participant with no payout address cannot be settled to');
@@ -119,7 +122,7 @@ void main() {
     );
     final wallet = VizorSplitsWallet(
       accountUuid: accountUuid,
-      unifiedFullViewingKey: viewingKey,
+      identitySecret: identitySecret,
       sender: WalletSplitsSender(
         payToAddress: account.activeAddress,
         // §9.2's cash lane settles this bill: a transaction between two

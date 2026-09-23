@@ -23,13 +23,13 @@ WalletSplitsSender _sender({
     );
 
 VizorSplitsWallet _wallet({
-  String? viewingKey = 'uview1',
+  List<int>? identitySecret = const [1, 2, 3],
   Uint8List Function(int)? randomBytes,
   DateTime Function()? clock,
 }) =>
     VizorSplitsWallet(
       accountUuid: 'account-1',
-      unifiedFullViewingKey: viewingKey,
+      identitySecret: identitySecret,
       sender: _sender(),
       secrets: _MemorySecrets(),
       randomBytes: randomBytes,
@@ -48,17 +48,31 @@ class _MemorySecrets implements SecretStore {
 
 void main() {
   group('the account the package sees', () {
-    test('carries the uuid and the viewing key it was given', () {
+    test('carries the uuid and the identity secret it was given', () {
       final w = _wallet();
       expect(w.account.id, 'account-1');
-      expect(w.account.viewingKey, 'uview1');
+      expect(w.account.identitySecret, [1, 2, 3]);
     });
 
-    test('a wallet with no viewing key still has an account', () {
-      // The viewing key is what makes the splits identity survive a
-      // reinstall; without one the account is still usable, so this is a
-      // state rather than a failure.
-      expect(_wallet(viewingKey: null).account.viewingKey, isNull);
+    test('a wallet with no secret still has an account', () {
+      // The secret is what makes the splits identity survive a reinstall;
+      // a hardware account has none on the phone and is still usable, so
+      // this is a state rather than a failure.
+      expect(_wallet(identitySecret: null).account.identitySecret, isNull);
+    });
+
+    test('the secret is the mnemonic and passphrase, joined by a zero byte',
+        () {
+      expect(
+        splitsIdentitySecret(mnemonic: 'ab', passphrase: 'c'),
+        [0x61, 0x62, 0, 0x63],
+      );
+      // A passphrase selects a different wallet, so it selects a different
+      // identity.
+      expect(
+        splitsIdentitySecret(mnemonic: 'ab', passphrase: ''),
+        isNot(splitsIdentitySecret(mnemonic: 'ab', passphrase: 'c')),
+      );
     });
   });
 

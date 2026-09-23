@@ -6,6 +6,7 @@
 /// wallet unchanged.
 library;
 
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -20,7 +21,7 @@ import '../../core/storage/app_secure_store.dart';
 /// read the app's sandbox can use.
 class KeychainSecretStore implements SecretStore {
   KeychainSecretStore({AppSecureStore? store})
-      : _store = store ?? AppSecureStore.instance;
+    : _store = store ?? AppSecureStore.instance;
 
   final AppSecureStore _store;
 
@@ -40,9 +41,8 @@ class KeychainSecretStore implements SecretStore {
 /// Two calls, and they must stay two: proposing takes the wallet's write lock
 /// and locks the inputs it selected, and broadcasting is irreversible. What
 /// sits between them is where a person can still walk away.
-typedef ProposeAndBroadcast = Future<WalletSendOutcome> Function(
-  String paymentRequestUri,
-);
+typedef ProposeAndBroadcast =
+    Future<WalletSendOutcome> Function(String paymentRequestUri);
 
 /// This wallet's send path, as the package's `WalletSender`.
 ///
@@ -54,8 +54,8 @@ class WalletSplitsSender implements WalletSender {
   const WalletSplitsSender({
     required ProposeAndBroadcast send,
     required String? payToAddress,
-  })  : _send = send,
-        _payToAddress = payToAddress;
+  }) : _send = send,
+       _payToAddress = payToAddress;
 
   final ProposeAndBroadcast _send;
   final String? _payToAddress;
@@ -74,22 +74,22 @@ class WalletSplitsSender implements WalletSender {
 class VizorSplitsWallet implements SplitsWallet {
   VizorSplitsWallet({
     required String accountUuid,
-    required String? unifiedFullViewingKey,
+    required List<int>? identitySecret,
     required this.sender,
     SecretStore? secrets,
     Uint8List Function(int)? randomBytes,
     DateTime Function()? clock,
-  })  : account = WalletAccount(
-          id: accountUuid,
-          // What makes this account's splits identity survive a reinstall: a
-          // viewing key is derived from the wallet seed, so the same mnemonic
-          // yields the same identity on a new device, while the account uuid
-          // is assigned by the wallet database at import and does not.
-          viewingKey: unifiedFullViewingKey,
-        ),
-        secrets = secrets ?? KeychainSecretStore(),
-        _randomBytes = randomBytes,
-        _clock = clock;
+  }) : account = WalletAccount(
+         id: accountUuid,
+         // What makes this account's splits identity survive a reinstall:
+         // derived from the mnemonic, so the same mnemonic yields the same
+         // identity on a new device, while the account uuid is assigned by
+         // the wallet database at import and does not.
+         identitySecret: identitySecret,
+       ),
+       secrets = secrets ?? KeychainSecretStore(),
+       _randomBytes = randomBytes,
+       _clock = clock;
 
   @override
   final WalletAccount account;
@@ -123,3 +123,15 @@ class VizorSplitsWallet implements SplitsWallet {
 
   static math.Random _secure() => math.Random.secure();
 }
+
+/// The bytes a software account's splits identity is derived from: the
+/// mnemonic and the BIP39 passphrase, UTF-8, joined by a zero byte.
+///
+/// Both, because the passphrase selects a different wallet from one mnemonic;
+/// the zero byte because neither may contain one, so no two pairs join to the
+/// same bytes. `splitz_host` hashes this under its own domain, so the identity
+/// seed reveals nothing about the mnemonic.
+List<int> splitsIdentitySecret({
+  required String mnemonic,
+  required String passphrase,
+}) => [...utf8.encode(mnemonic), 0, ...utf8.encode(passphrase)];

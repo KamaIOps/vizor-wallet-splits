@@ -25,8 +25,6 @@ import 'splits_swaps.dart';
 
 import '../../core/storage/wallet_paths.dart';
 import '../../providers/account_provider.dart';
-import '../../providers/rpc_endpoint_provider.dart';
-import '../../rust/api/wallet.dart' as rust_wallet;
 import 'dev_accounts_import.dart';
 import 'splits_send.dart';
 import 'splits_wallet_adapter.dart';
@@ -74,20 +72,38 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
       return;
     }
 
-    // The viewing key is what carries this account's splits identity across a
-    // reinstall. An account that will not give one up still signs — the seed
-    // is then random — and the bills screen says so rather than leaving it to
-    // be discovered the day the device is replaced.
-    String? viewingKey;
-    try {
-      final dbPath = await getWalletDbPath();
-      viewingKey = await rust_wallet.getAccountUfvk(
-        dbPath: dbPath,
-        network: ref.read(rpcEndpointProvider).networkName,
-        accountUuid: accountUuid,
-      );
-    } on Object {
-      viewingKey = null;
+    // The account's spending secret is what carries its splits identity
+    // across a reinstall: the same mnemonic and passphrase give the same
+    // identity. Never the viewing key — the wallet shows and shares that, and
+    // whoever holds the input holds the identity. A hardware account keeps no
+    // secret on the phone, and a locked session reads none; either still
+    // signs, with a random seed, and the bills screen says it cannot be
+    // recovered.
+    final notifier = ref.read(accountProvider.notifier);
+    final hardware = notifier.hardwareSignerKindForAccount(accountUuid) != null;
+    List<int>? identitySecret;
+    if (!hardware) {
+      try {
+        final secret = await notifier.getSoftwareWalletSecretForAccount(
+          accountUuid,
+        );
+        if (secret != null) {
+          identitySecret = splitsIdentitySecret(
+            mnemonic: secret.mnemonic,
+            passphrase: secret.bip39Passphrase,
+          );
+        }
+      } on Object {
+        identitySecret = null;
+      }
+      // A software account always has a secret; one that did not read is a
+      // locked session or a keychain fault, not an account without one.
+      // Continuing would store a random identity for good, and this account
+      // could never be recovered on another device.
+      if (identitySecret == null) {
+        setState(() => _error = 'Unlock the wallet to open your bills.');
+        return;
+      }
     }
 
     // Beside the wallet database, which is where this app is allowed to write.
@@ -97,7 +113,7 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
 
     final wallet = VizorSplitsWallet(
       accountUuid: accountUuid,
-      unifiedFullViewingKey: viewingKey,
+      identitySecret: identitySecret,
       sender: WalletSplitsSender(
         payToAddress: account?.activeAddress,
         send: (uri) => proposeAndBroadcastSplitsBatch(
@@ -168,10 +184,12 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
     if (error != null) {
       return Scaffold(
         appBar: AppBar(title: const Text('Bills')),
-        body: Center(child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Text(error, textAlign: TextAlign.center),
-        )),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Text(error, textAlign: TextAlign.center),
+          ),
+        ),
       );
     }
     final controller = _controller;

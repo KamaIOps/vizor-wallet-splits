@@ -42,7 +42,6 @@ import 'package:zcash_wallet/src/features/splits/splits_wallet_adapter.dart';
 import 'package:zcash_wallet/src/providers/account_provider.dart';
 import 'package:zcash_wallet/src/providers/rpc_endpoint_provider.dart';
 import 'package:zcash_wallet/src/rust/api/sync.dart' as rust_sync;
-import 'package:zcash_wallet/src/rust/api/wallet.dart' as rust_wallet;
 
 import 'support/mobile_regtest_flow.dart';
 import 'support/splits_coordinator.dart';
@@ -112,15 +111,19 @@ void main() {
     expect(address, isNotNull,
         reason: 'a participant with no address cannot be paid in ZEC');
 
-    String? viewingKey;
+    List<int>? identitySecret;
     try {
-      viewingKey = await rust_wallet.getAccountUfvk(
-        dbPath: await getWalletDbPath(),
-        network: container.read(rpcEndpointProvider).networkName,
-        accountUuid: accountUuid,
-      );
+      final secret = await container
+          .read(accountProvider.notifier)
+          .getSoftwareWalletSecretForAccount(accountUuid);
+      if (secret != null) {
+        identitySecret = splitsIdentitySecret(
+          mnemonic: secret.mnemonic,
+          passphrase: secret.bip39Passphrase,
+        );
+      }
     } on Object {
-      viewingKey = null;
+      identitySecret = null;
     }
 
     // The sequencer funds the payer's address before the bill is opened. Only
@@ -134,7 +137,7 @@ void main() {
     );
     final wallet = VizorSplitsWallet(
       accountUuid: accountUuid,
-      unifiedFullViewingKey: viewingKey,
+      identitySecret: identitySecret,
       sender: WalletSplitsSender(
         payToAddress: address,
         // The app's own send, so the ZEC leg is a transaction this chain
