@@ -1,10 +1,14 @@
-# The analyzer and the splits host tests, on every push to the splits branch.
+# The analyzer, the splits host tests, the send flow's tests and the native
+# wallet library's unit tests, on every push to the splits branch.
 #
 # The whole `flutter test` suite is deliberately not run: it is mostly the
 # upstream wallet's own, of which 80 fail on Linux for want of the native
 # bridge, the platform plugins and a Tor connection, and a red lane that tests
 # nothing we wrote teaches nobody anything. What runs is the host tests this
-# branch owns — test/features/splits/ and the incoming-link classifier. The
+# branch owns — test/features/splits/ and the incoming-link classifier — and
+# test/features/send/, which carries the send and broadcast status a splits
+# payment is reported by. The Rust job runs `cargo test --lib`; the tests under
+# rust/tests/ need a regtest node and are not run here. The
 # lanes that drive real screens are in integration_test/ and need a booted
 # simulator a hosted runner does not have; SPLITS.md says how to run them.
 #
@@ -66,6 +70,21 @@ jobs:
         working-directory: Vizor-Wallet
 
       - run: >-
-          flutter test test/features/splits
+          flutter test test/features/splits test/features/send
           test/core/navigation/incoming_link_dispatch_test.dart
         working-directory: Vizor-Wallet
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ledger-transport-hid links hidapi, which needs libudev on Linux.
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - run: cargo test --lib --locked
+        working-directory: rust
