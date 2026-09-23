@@ -195,7 +195,7 @@ void main() {
     // whole reason the multi-recipient path exists.
     final wallet = VizorSplitsWallet(
       accountUuid: uuidOf(payerName),
-      unifiedFullViewingKey: null,
+      identitySecret: null,
       sender: WalletSplitsSender(
         payToAddress: addresses[payerName],
         send: (uri) async => throw StateError('the lane sends, not the seam'),
@@ -411,7 +411,7 @@ Map<String, dynamic> _expenseFrom(
 /// the address differ; the clock and the randomness stay the wallet's.
 class _As implements SplitsWallet {
   _As(this._inner, String id, this._address)
-      : account = WalletAccount(id: id, viewingKey: null);
+      : account = WalletAccount(id: id);
 
   final VizorSplitsWallet _inner;
   final String _address;
