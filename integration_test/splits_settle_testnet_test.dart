@@ -242,7 +242,7 @@ void main() {
       source: 'fixed for this lane',
     ));
 
-    final folded = splitz.BillLog(host, entries: entries).fold();
+    final folded = splitz.BillLog(host, entries: entries, billId: billId).fold();
     final owed = splitz.obligationFor(host, folded)!;
     logE2e('owes ${owed.settlements.length} people, '
         'carrying ${owed.carriedMinorUnits} minor units');
@@ -326,7 +326,7 @@ void main() {
       ));
     }
 
-    final recorded = splitz.BillLog(host, entries: entries).fold();
+    final recorded = splitz.BillLog(host, entries: entries, billId: billId).fold();
     expect(recorded.setAside, isEmpty,
         reason: 'one id per recipient, so nothing is refused');
     expect(recorded.bill.payments.length, payeeNames.length);
@@ -351,7 +351,7 @@ void main() {
       ));
     }
 
-    final closed = splitz.BillLog(host, entries: entries).fold();
+    final closed = splitz.BillLog(host, entries: entries, billId: billId).fold();
     expect(closed.setAside, isEmpty,
         reason: 'each payee confirmed a payment addressed to them');
     expect(closed.bill.confirmedPayments.length, payeeNames.length);
