@@ -1097,51 +1097,11 @@ Future<SendBroadcastOutcome> _runSendBroadcast({
       broadcastMessageForFallback = result.message;
     }
 
-    final canReadProviders = !secretGuard.enabled || ref.context.mounted;
-    if (canReadProviders &&
-        ledger == null &&
-        !broadcastComplete &&
-        !broadcastExpired &&
-        broadcastMessageForFallback != null) {
-      final switched = await ref
-          .read(rpcEndpointFailoverProvider.notifier)
-          .switchToFallbackFor(
-            broadcastMessageForFallback,
-            endpoint: endpoint,
-            operation: isHardware
-                ? 'hardware send broadcast'
-                : 'send broadcast',
-          );
-      if (switched) {
-        unawaited(ref.read(syncProvider.notifier).restartSync());
-      }
-    }
-
-    if (canReadProviders) {
-      if (broadcastComplete &&
-          !ref.read(appSecurityProvider).requiresUnlock &&
-          (ref
-                  .read(accountProvider)
-                  .value
-                  ?.accounts
-                  .any((account) => account.uuid == args.proposalAccountUuid) ??
-              false)) {
-        ref
-            .read(pendingActivityEvidenceProvider.notifier)
-            .observe(
-              accountUuid: args.proposalAccountUuid,
-              txids: txids.split(','),
-            );
-      }
-      try {
-        await ref.read(syncProvider.notifier).refreshAfterSend();
-      } catch (e) {
-        log('SendBroadcast: refreshAfterSend failed (non-critical): $e');
-      }
-    }
-
-    if (!secretGuard.enabled && await abortRequested()) return aborted();
-    return SendBroadcastOutcome(
+    // The wallet has stored a transaction and may have broadcast it, so this
+    // outcome is final. The steps below only tidy up after it: an error or an
+    // abort from them must not report the send as failed or cancelled, or the
+    // caller would offer to send the same payment again.
+    final outcome = SendBroadcastOutcome(
       phase: broadcastExpired
           ? SendBroadcastPhase.failed
           : broadcastComplete
@@ -1154,6 +1114,53 @@ Future<SendBroadcastOutcome> _runSendBroadcast({
           ? 'The hardware signing request expired before broadcast. Return to your wallet, wait for sync, then review the payment and try again.'
           : null,
     );
+
+    try {
+      final canReadProviders = !secretGuard.enabled || ref.context.mounted;
+      if (canReadProviders &&
+          ledger == null &&
+          !broadcastComplete &&
+          !broadcastExpired &&
+          broadcastMessageForFallback != null) {
+        final switched = await ref
+            .read(rpcEndpointFailoverProvider.notifier)
+            .switchToFallbackFor(
+              broadcastMessageForFallback,
+              endpoint: endpoint,
+              operation: isHardware
+                  ? 'hardware send broadcast'
+                  : 'send broadcast',
+            );
+        if (switched) {
+          unawaited(ref.read(syncProvider.notifier).restartSync());
+        }
+      }
+
+      if (canReadProviders) {
+        if (broadcastComplete &&
+            !ref.read(appSecurityProvider).requiresUnlock &&
+            (ref
+                    .read(accountProvider)
+                    .value
+                    ?.accounts
+                    .any(
+                      (account) => account.uuid == args.proposalAccountUuid,
+                    ) ??
+                false)) {
+          ref
+              .read(pendingActivityEvidenceProvider.notifier)
+              .observe(
+                accountUuid: args.proposalAccountUuid,
+                txids: txids.split(','),
+              );
+        }
+        await ref.read(syncProvider.notifier).refreshAfterSend();
+      }
+    } catch (e) {
+      log('SendBroadcast: post-send refresh failed (non-critical): $e');
+    }
+
+    return outcome;
   } catch (e) {
     log('SendBroadcast: ERROR: $e');
     // Only Rust can confirm, with its retry code, that a failed native call
