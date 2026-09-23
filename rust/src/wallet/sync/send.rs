@@ -38,7 +38,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::convert::Infallible;
 use std::num::NonZeroUsize;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU32, Ordering},
     Mutex, OnceLock,
 };
 use std::thread;
@@ -6531,28 +6531,39 @@ impl CreatedBroadcastResult {
 /// Broadcasts transactions the wallet has already stored.
 ///
 /// Every caller reaches this after the transactions exist, so a panic while
-/// broadcasting is reported as `pending_broadcast` with their txids rather
-/// than unwinding into an error: an error reads as "nothing was sent", and
-/// the stored transactions may still reach the network.
+/// broadcasting is reported as `pending_broadcast` (or `partial_broadcast`
+/// once any were accepted) with their txids rather than unwinding into an
+/// error: an error reads as "nothing was sent", and the stored transactions
+/// may still reach the network.
 async fn broadcast_created_transactions(
     db_path: &str,
     lightwalletd_url: &str,
     txids: &[TxId],
     log_label: &str,
 ) -> CreatedBroadcastResult {
+    let accepted = AtomicU32::new(0);
     broadcast_guarded(
-        broadcast_created_transactions_unguarded(db_path, lightwalletd_url, txids, log_label),
+        broadcast_created_transactions_unguarded(
+            db_path,
+            lightwalletd_url,
+            txids,
+            log_label,
+            &accepted,
+        ),
         txids,
+        &accepted,
         log_label,
     )
     .await
 }
 
 /// Runs a broadcast of the stored `txids`, turning a panic into
-/// `pending_broadcast`.
+/// `pending_broadcast`, or `partial_broadcast` when `accepted` counts any the
+/// server took before it.
 async fn broadcast_guarded<F>(
     broadcast: F,
     txids: &[TxId],
+    accepted: &AtomicU32,
     log_label: &str,
 ) -> CreatedBroadcastResult
 where
@@ -6570,6 +6581,7 @@ where
             log::warn!(
                 "{log_label}: broadcast panicked after the transactions were stored: {reason}"
             );
+            let broadcasted_count = accepted.load(Ordering::SeqCst);
             CreatedBroadcastResult {
                 broadcast_failure_kind: None,
                 txids: txids
@@ -6577,8 +6589,12 @@ where
                     .map(|id| format!("{id}"))
                     .collect::<Vec<_>>()
                     .join(","),
-                status: CreatedBroadcastResult::PENDING_BROADCAST,
-                broadcasted_count: 0,
+                status: if broadcasted_count == 0 {
+                    CreatedBroadcastResult::PENDING_BROADCAST
+                } else {
+                    CreatedBroadcastResult::PARTIAL_BROADCAST
+                },
+                broadcasted_count,
                 total_count: txids.len() as u32,
                 message: Some(format!(
                     "The transaction was created, but its broadcast stopped unexpectedly ({reason})"
@@ -6593,6 +6609,7 @@ async fn broadcast_created_transactions_unguarded(
     lightwalletd_url: &str,
     txids: &[TxId],
     log_label: &str,
+    accepted: &AtomicU32,
 ) -> CreatedBroadcastResult {
     let txid_strings: Vec<String> = txids.iter().map(|id| format!("{id}")).collect();
     let txids_joined = txid_strings.join(",");
@@ -6646,6 +6663,7 @@ async fn broadcast_created_transactions_unguarded(
         match broadcast_raw_transaction_isolated(lightwalletd_url, &raw_tx).await {
             Ok(()) => {
                 broadcast_ok.push(format!("{txid}"));
+                accepted.fetch_add(1, Ordering::SeqCst);
                 log::info!("{log_label}: broadcast {txid} ({} bytes)", raw_tx.len());
             }
             Err(e) => {
