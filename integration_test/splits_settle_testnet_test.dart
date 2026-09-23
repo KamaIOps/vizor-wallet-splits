@@ -348,6 +348,7 @@ void main() {
         host: WalletBillHost(_As(wallet, name, addresses[name]!)),
         paymentId: theirs.id,
         method: 'recipientConfirmed',
+        record: recorded.paymentDigests[theirs.id]!,
       ));
     }
 
