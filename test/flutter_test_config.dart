@@ -7,10 +7,18 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zcash_wallet/src/core/layout/app_form_factor.dart';
+import 'package:zcash_wallet/src/core/storage/linux_keyring_coordinator.dart';
 
 import 'support/mobile_test_assets.dart';
 
+/// Runs before every test file under `test/`.
+///
+/// On a Linux host every `AppSecureStore.instance` storage call goes through
+/// the process-wide [LinuxKeyringCoordinator] queue. Each case restarts that
+/// queue so it never waits on a future left by an earlier case's fake-async
+/// zone.
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {
+  setUp(LinuxKeyringCoordinator.instance.resetStorageQueueForTesting);
   // Native integration tests use their actual platform bundle. This hook only
   // changes the host widget-test bundle, which normally includes every platform.
   if (kAppFormFactor != AppFormFactor.mobile ||
