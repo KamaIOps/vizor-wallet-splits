@@ -56,8 +56,10 @@ xcrun simctl terminate "$UDID" "$APP_BUNDLE_ID" >/dev/null 2>&1 || true
 xcrun simctl uninstall "$UDID" "$APP_BUNDLE_ID" >/dev/null 2>&1 || true
 xcrun simctl keychain "$UDID" reset >/dev/null 2>&1 || true
 
+# Monitor mode puts the job in a process group of its own, whose id is
+# its pid, so cleanup can kill the VM `flutter test` leaves behind.
+set -m
 (
-  set -m
   set +e
   (cd "$root" && fvm flutter test integration_test/splits_invite_link_test.dart \
     -d "$UDID" \
@@ -66,6 +68,7 @@ xcrun simctl keychain "$UDID" reset >/dev/null 2>&1 || true
   echo $? >"$work/run.status"
 ) &
 test_pid=$!
+set +m
 
 invite=""
 for _ in $(seq 1800); do
