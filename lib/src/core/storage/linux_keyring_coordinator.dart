@@ -248,6 +248,17 @@ class LinuxKeyringCoordinator extends ChangeNotifier {
   @visibleForTesting
   void setStateForTesting(LinuxKeyringState state) => _setState(state);
 
+  /// Starts the storage queue from a future created in the caller's zone.
+  ///
+  /// A settled future delivers a listener added later through the zone it was
+  /// created in. `testWidgets` runs each case in its own fake-async zone, so a
+  /// queue tail left by an earlier case would never deliver to a later one and
+  /// every storage call after the first case would wait forever.
+  @visibleForTesting
+  void resetStorageQueueForTesting() {
+    _storageTail = Future<void>.value();
+  }
+
   @override
   void dispose() {
     _disposed = true;
