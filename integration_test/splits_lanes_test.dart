@@ -60,10 +60,11 @@ const _owedEach = _spent ~/ 2;
 const _minorUnitsPerZec = 100000;
 const _maxZatoshi = 20000000;
 
-// Every device runs the same binary and they start together, so a wait here
-// is a wait on the relay and on a wallet being created — not on three more
-// builds. The first is longer because a device may still be installing.
-const _firstWait = Duration(minutes: 10);
+// Every device runs the same binary, but the lane starts each one only after
+// the one before it is running, and on Android each start is a Gradle build of
+// one to two and a half minutes. The first wait covers the last payee still
+// building and installing; the rest are waits on the relay and on a wallet.
+const _firstWait = Duration(minutes: 15);
 const _wait = Duration(minutes: 8);
 
 /// The payee lanes, by phase name: what each one wants and how it is settled.

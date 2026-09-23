@@ -21,40 +21,15 @@ root="${VIZOR_ROOT:-$(cd "$here/../.." && pwd)}"
 protocol="${SPLITZ_PROTOCOL:-$HOME/Splitz-Protocol}"
 fund="${SPLITS_FUND_ZEC:-1.0}"
 
-# A wallet survives a reinstall. `flutter test` replaces the app bundle, but the
-# iOS keychain is not part of it, so a device that ran before boots straight to
-# /unlock and the create-wallet flow never sees its first screen. Every device
-# starts from nothing, which means terminating, uninstalling and resetting the
-# keychain — the last of those is the part a reinstall does not do.
-APP_BUNDLE_ID="${APP_BUNDLE_ID:-com.keplr.vizor}"
-wipe_device() {
-  local udid="$1"
-  xcrun simctl terminate "$udid" "$APP_BUNDLE_ID" >/dev/null 2>&1 || true
-  xcrun simctl uninstall "$udid" "$APP_BUNDLE_ID" >/dev/null 2>&1 || true
-  xcrun simctl keychain "$udid" reset >/dev/null 2>&1 || true
-}
-
-named_simulator() {
-  xcrun simctl list devices available |
-    sed -n "s/.*$1 (\([0-9A-F-]\{36\}\)).*/\1/p" | head -1
-}
+. "$here/splits-devices.sh"
+trap splits_release_devices EXIT
 
 # Labels for the four log files. The role each device actually
 # plays is claimed from the coordinator, in whatever order they
 # get there, so a log named `zec` may hold the payer.
 declare -a PHASES=(one two three four)
-declare -a UDIDS=(
-  "${SPLITS_UDID_A:-$(named_simulator splits-e2e)}"
-  "${SPLITS_UDID_B:-$(named_simulator splits-e2e-b)}"
-  "${SPLITS_UDID_C:-$(named_simulator splits-e2e-c)}"
-  "${SPLITS_UDID_D:-$(named_simulator splits-e2e-d)}"
-)
-for i in 0 1 2 3; do
-  if [ -z "${UDIDS[$i]}" ]; then
-    echo "need four simulators: splits-e2e, -b, -c and -d" >&2
-    exit 2
-  fi
-done
+splits_select_devices 4
+declare -a UDIDS=("${SPLITS_DEVICES[@]}")
 
 if ! docker ps --format '{{.Names}}' | grep -q lightwalletd; then
   echo "the regtest chain is not up: scripts/regtest/up.sh" >&2
@@ -99,15 +74,14 @@ cleanup() {
   for pid in "${PIDS[@]:-}"; do kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true; done
   [ -n "$own_relay" ] && kill "$own_relay" 2>/dev/null || true
   [ -n "${own_coord:-}" ] && kill "$own_coord" 2>/dev/null || true
-  return 0
+  splits_release_devices
 }
 trap cleanup EXIT
 
 device() {
   local name="$1" udid="$2"
   shift 2
-  xcrun simctl boot "$udid" 2>/dev/null || true
-  wipe_device "$udid"
+  splits_prepare_device "$udid" "${relay##*:}" "$coord_port" 9067
   # Monitor mode puts the job in a process group of its own, whose id is
   # its pid, so cleanup can kill the VM `flutter test` leaves behind.
   set -m
@@ -169,18 +143,19 @@ await_line() {
 }
 
 # Every device is launched with the same defines, so one build serves all
-# four and they start together. Which device each one is, and the payer's
-# address and invite, come from the coordinator at runtime.
-# The first one builds; the rest start together into a warm cache. With the
-# defines identical a race could no longer produce the wrong binary — there is
-# only one — but four processes writing one set of artifacts can still corrupt
-# them, and waiting out a single build costs forty seconds.
+# four. Which device each one is, and the payer's address and invite, come
+# from the coordinator at runtime.
+# Each device starts once the one before it is running. `flutter test` still
+# runs the platform build for every device — Gradle on Android does real work
+# each time — and two of them writing the one `build/` directory at once fail
+# on each other's intermediates.
 echo "── device on ${UDIDS[0]} (builds) ───────────────"
 device "${PHASES[0]}" "${UDIDS[0]}"
 await_running "${PHASES[0]}" 1800
 for i in 1 2 3; do
   echo "── device on ${UDIDS[$i]} ───────────────────────"
   device "${PHASES[$i]}" "${UDIDS[$i]}"
+  await_running "${PHASES[$i]}" 1800
 done
 
 # Whichever device claimed `payer` publishes its address. Only it needs coins.
