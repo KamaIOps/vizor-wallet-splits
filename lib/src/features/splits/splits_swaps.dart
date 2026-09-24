@@ -40,24 +40,24 @@ const Duration splitsQuoteValidity = Duration(minutes: 10);
 /// Built over the wallet's own HTTP client, so a swap goes out the same way
 /// every other request does — one proxy configuration, one set of timeouts.
 SwapProvider splitsSwaps({required NetworkHttpClient http}) => OneClickSwaps(
-      origin: Uri.parse(splitsSwapOrigin),
-      zecAssetId: splitsZecAssetId,
-      referral: splitsSwapReferral,
-      // The clock and the calendar are the wallet's (§15.1); the package
-      // carries neither.
-      deadline: () => canonicalInstant(
-        DateTime.now().toUtc().add(splitsQuoteValidity).toIso8601String(),
-      ),
-      post: (url, body) => readSwapResponse(
-        http.request(
-          'POST',
-          url,
-          headers: const {'Content-Type': 'application/json'},
-          bodyBytes: utf8.encode(body),
-        ),
-      ),
-      get: (url) => readSwapResponse(http.request('GET', url)),
-    );
+  origin: Uri.parse(splitsSwapOrigin),
+  zecAssetId: splitsZecAssetId,
+  referral: splitsSwapReferral,
+  // The clock and the calendar are the wallet's (§15.1); the package
+  // carries neither.
+  deadline: () => canonicalInstant(
+    DateTime.now().toUtc().add(splitsQuoteValidity).toIso8601String(),
+  ),
+  post: (url, body) => readSwapResponse(
+    http.request(
+      'POST',
+      url,
+      headers: const {'Content-Type': 'application/json'},
+      bodyBytes: utf8.encode(body),
+    ),
+  ),
+  get: (url) => readSwapResponse(http.request('GET', url)),
+);
 
 /// The body of a response, refusing a status the provider uses to say no.
 ///

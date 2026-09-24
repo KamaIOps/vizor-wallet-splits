@@ -21,16 +21,17 @@ void main() {
       expect(await _cents(42.0), 4200);
     });
 
-    test('any other currency is null rather than an invented number',
-        () async {
+    test('any other currency is null rather than an invented number', () async {
       final prices = WalletZecPrices(_reader(42.0));
       expect(await prices.minorUnitsPerZec('EUR'), isNull);
       expect(await prices.minorUnitsPerZec('GBP'), isNull);
     });
 
     test('the currency is matched without regard to case', () async {
-      expect(await WalletZecPrices(_reader(42.0)).minorUnitsPerZec('usd'),
-          4200);
+      expect(
+        await WalletZecPrices(_reader(42.0)).minorUnitsPerZec('usd'),
+        4200,
+      );
     });
   });
 
@@ -44,21 +45,22 @@ void main() {
       expect(await _cents(0.135), 14);
     });
 
-    test('a decimal the feed cannot represent lands where the double does',
-        () async {
-      // 1.005 is not representable: the nearest double times 100 is
-      // 100.49999999999999, so the cent below is the honest answer and not a
-      // rounding bug to chase.
-      expect(await _cents(1.005), 100);
-    });
+    test(
+      'a decimal the feed cannot represent lands where the double does',
+      () async {
+        // 1.005 is not representable: the nearest double times 100 is
+        // 100.49999999999999, so the cent below is the honest answer and not a
+        // rounding bug to chase.
+        expect(await _cents(1.005), 100);
+      },
+    );
   });
 
   group('a figure that is not a price is refused, never thrown', () {
     test('no price yet', () async => expect(await _cents(null), isNull));
     test('zero', () async => expect(await _cents(0), isNull));
     test('negative', () async => expect(await _cents(-1.0), isNull));
-    test('infinite', () async =>
-        expect(await _cents(double.infinity), isNull));
+    test('infinite', () async => expect(await _cents(double.infinity), isNull));
     test('NaN', () async => expect(await _cents(double.nan), isNull));
 
     test('a price too large to hold exactly', () async {
