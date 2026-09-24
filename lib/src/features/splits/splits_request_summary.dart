@@ -17,9 +17,9 @@ library;
 /// recipients. Adding one to the count is right for the first shape and wrong
 /// for the second, where it reports three people paid for two.
 int splitsRecipientCount(String paymentRequestUri) {
-  final named = RegExp(r'[?&]address(\.\d+)?=')
-      .allMatches(paymentRequestUri)
-      .length;
+  final named = RegExp(
+    r'[?&]address(\.\d+)?=',
+  ).allMatches(paymentRequestUri).length;
   return named == 0 ? 1 : named;
 }
 
@@ -30,8 +30,9 @@ int splitsRecipientCount(String paymentRequestUri) {
 /// zatoshi of a large figure exactly.
 BigInt splitsTotalZatoshi(String paymentRequestUri) {
   var total = BigInt.zero;
-  for (final match in RegExp(r'[?&]amount(?:\.\d+)?=([0-9.]+)')
-      .allMatches(paymentRequestUri)) {
+  for (final match in RegExp(
+    r'[?&]amount(?:\.\d+)?=([0-9.]+)',
+  ).allMatches(paymentRequestUri)) {
     final parts = match.group(1)!.split('.');
     final whole = BigInt.tryParse(parts[0].isEmpty ? '0' : parts[0]);
     final fraction = parts.length > 1

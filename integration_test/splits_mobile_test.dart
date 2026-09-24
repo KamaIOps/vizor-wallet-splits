@@ -29,8 +29,9 @@ void main() {
     await initializeZcashWalletRuntime();
   });
 
-  testWidgets('a bill is opened, spent on and priced, in the wallet',
-      (tester) async {
+  testWidgets('a bill is opened, spent on and priced, in the wallet', (
+    tester,
+  ) async {
     tolerateRenderOverflows();
 
     // The wallet syncs in the background against a real endpoint, and a TLS
