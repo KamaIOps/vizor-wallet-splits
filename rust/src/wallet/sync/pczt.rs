@@ -1859,7 +1859,7 @@ async fn store_and_broadcast_pczts_inner(
     }
     let mut first_transport = Some(expiry_transport);
     let mut newly_broadcasted = 0;
-    let broadcast_plan = 'broadcast: loop {
+    let broadcast_plan = 'broadcast: {
         for (index, item) in prepared.iter().enumerate() {
             if mined[index] {
                 match pczt_broadcast_step(index, prepared.len(), PcztBroadcastAttempt::Accepted) {
