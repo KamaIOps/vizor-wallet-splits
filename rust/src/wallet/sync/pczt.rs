@@ -1712,7 +1712,7 @@ async fn store_and_broadcast_pczts_inner(
         };
     }
     let mut first_client = Some(expiry_client);
-    let broadcast_plan = 'broadcast: loop {
+    let broadcast_plan = 'broadcast: {
         for (index, item) in prepared.iter().enumerate() {
             let client = if let Some(client) = first_client.take() {
                 Ok(client)
