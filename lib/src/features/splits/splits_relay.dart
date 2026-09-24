@@ -41,4 +41,3 @@ SplitsRelay splitsRelay() {
     },
   );
 }
-

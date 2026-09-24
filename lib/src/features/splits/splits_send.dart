@@ -68,18 +68,17 @@ Future<WalletSendOutcome> proposeAndBroadcastSplitsBatch({
 
   return switch (outcome.phase) {
     SendBroadcastPhase.succeeded => WalletSendOutcome(
-        phase: WalletSendPhase.succeeded,
-        txid: outcome.txid,
-      ),
+      phase: WalletSendPhase.succeeded,
+      txid: outcome.txid,
+    ),
     // Built and signed, not handed to the network. It may still land, so it is
     // neither paid nor unpaid: the bill records nothing and no retry is safe
     // until the wallet says which way it went.
     SendBroadcastPhase.pendingBroadcast => WalletSendOutcome(
-        phase: WalletSendPhase.pendingBroadcast,
-        statusMessage: outcome.statusMessage,
-      ),
-    SendBroadcastPhase.failed ||
-    SendBroadcastPhase.aborted =>
+      phase: WalletSendPhase.pendingBroadcast,
+      statusMessage: outcome.statusMessage,
+    ),
+    SendBroadcastPhase.failed || SendBroadcastPhase.aborted =>
       WalletSendOutcome(phase: WalletSendPhase.failed, error: outcome.error),
   };
 }

@@ -90,8 +90,9 @@ void main() {
     await initializeZcashWalletRuntime();
   });
 
-  testWidgets('a bill between testnet wallets settles in one transaction',
-      (tester) async {
+  testWidgets('a bill between testnet wallets settles in one transaction', (
+    tester,
+  ) async {
     tolerateRenderOverflows();
     final defaultHandler = FlutterError.onError;
     FlutterError.onError = (details) {
@@ -142,9 +143,9 @@ void main() {
     // `scripts/regtest/fund-wallet.sh <address> 1.0` takes it from here.
     addresses.forEach((name, address) => logE2e('  $name at $address'));
 
-    await container.read(accountProvider.notifier).switchAccount(
-          uuidOf(payerName),
-        );
+    await container
+        .read(accountProvider.notifier)
+        .switchAccount(uuidOf(payerName));
 
     // Wait for the payer to have something to spend. Reported as it goes, so
     // a lane that is merely slow reads differently from one that is stuck.
@@ -170,9 +171,11 @@ void main() {
         network: network,
       );
       final behind = progress.chainTipHeight - progress.scannedHeight;
-      logE2e('$payerName spendable: $spendable zatoshi, '
-          '${progress.scannedHeight}/${progress.chainTipHeight} '
-          '($behind behind)');
+      logE2e(
+        '$payerName spendable: $spendable zatoshi, '
+        '${progress.scannedHeight}/${progress.chainTipHeight} '
+        '($behind behind)',
+      );
       if (spendable > BigInt.from(maxZatoshi * 3) && progress.isComplete) {
         break;
       }
@@ -204,12 +207,14 @@ void main() {
     final host = WalletBillHost(wallet);
 
     final entries = <Map<String, dynamic>>[];
-    entries.add(splitz.createBill(
-      host: host,
-      name: 'Dinner',
-      currency: 'USD',
-      creatorKey: 'A' * 43,
-    ));
+    entries.add(
+      splitz.createBill(
+        host: host,
+        name: 'Dinner',
+        currency: 'USD',
+        creatorKey: 'A' * 43,
+      ),
+    );
     final billId = entries.first['id'] as String;
 
     // A participant's id is whatever its host answers to (`joinBill` writes
@@ -235,19 +240,30 @@ void main() {
     // One ZEC is a thousand dollars here, so 0.30 is 30_000 zatoshi. The
     // figure is chosen to keep the request small, and the cap below is what
     // enforces that rather than this arithmetic.
-    entries.add(splitz.setRate(
-      host: host,
-      currency: 'USD',
-      minorUnitsPerZec: 100000,
-      source: 'fixed for this lane',
-    ));
+    entries.add(
+      splitz.setRate(
+        host: host,
+        currency: 'USD',
+        minorUnitsPerZec: 100000,
+        source: 'fixed for this lane',
+      ),
+    );
 
-    final folded = splitz.BillLog(host, entries: entries, billId: billId).fold();
+    final folded = splitz.BillLog(
+      host,
+      entries: entries,
+      billId: billId,
+    ).fold();
     final owed = splitz.obligationFor(host, folded)!;
-    logE2e('owes ${owed.settlements.length} people, '
-        'carrying ${owed.carriedMinorUnits} minor units');
-    expect(owed.settlements.length, payeeNames.length,
-        reason: 'one transaction should pay both');
+    logE2e(
+      'owes ${owed.settlements.length} people, '
+      'carrying ${owed.carriedMinorUnits} minor units',
+    );
+    expect(
+      owed.settlements.length,
+      payeeNames.length,
+      reason: 'one transaction should pay both',
+    );
 
     final uri = owed.uri!;
     logE2e('request: $uri');
@@ -256,8 +272,11 @@ void main() {
     final permitted = addresses.values.toSet();
     for (final settlement in owed.settlements) {
       final address = folded.bill.participant(settlement.to)!.payableAddress!;
-      expect(permitted, contains(address),
-          reason: 'a recipient that is not a development wallet');
+      expect(
+        permitted,
+        contains(address),
+        reason: 'a recipient that is not a development wallet',
+      );
     }
     final total = owed.settlements.fold<int>(0, (sum, s) => sum + s.amount);
     final zatoshi = total * 100000000 ~/ 100000;
@@ -273,11 +292,16 @@ void main() {
         network: network,
         accountUuid: uuidOf(name),
       );
-      logE2e('payee $name holds: ${b.spendable} spendable (sapling ${b.sapling} '
-          'orchard ${b.orchard} ironwood ${b.ironwood})');
+      logE2e(
+        'payee $name holds: ${b.spendable} spendable (sapling ${b.sapling} '
+        'orchard ${b.orchard} ironwood ${b.ironwood})',
+      );
     }
-    expect(zatoshi, lessThanOrEqualTo(maxZatoshi),
-        reason: 'over the cap this lane is allowed to send');
+    expect(
+      zatoshi,
+      lessThanOrEqualTo(maxZatoshi),
+      reason: 'over the cap this lane is allowed to send',
+    );
 
     if (!broadcast) {
       logE2e('SPLITS_BROADCAST is not set: stopping before the send');
@@ -299,8 +323,10 @@ void main() {
       paymentRequestUri: uri,
     );
 
-    logE2e('outcome: ${outcome.phase} txid=${outcome.txid ?? '-'} '
-        '${outcome.error ?? outcome.statusMessage ?? ''}');
+    logE2e(
+      'outcome: ${outcome.phase} txid=${outcome.txid ?? '-'} '
+      '${outcome.error ?? outcome.statusMessage ?? ''}',
+    );
     expect(outcome.phase, WalletSendPhase.succeeded);
     expect(outcome.txid, isNotNull);
     logE2e('settled: sent ${outcome.txid}');
@@ -317,51 +343,78 @@ void main() {
     // is the protocol's to derive, not this lane's.
     final txid = outcome.txid!;
     for (final settlement in owed.settlements) {
-      entries.add(splitz.recordPayment(
-        host: host,
-        paymentId: splitz.paymentIdForSend(txid, settlement.to),
-        to: settlement.to,
-        amount: settlement.amount,
-        reference: txid,
-      ));
+      entries.add(
+        splitz.recordPayment(
+          host: host,
+          paymentId: splitz.paymentIdForSend(txid, settlement.to),
+          to: settlement.to,
+          amount: settlement.amount,
+          reference: txid,
+        ),
+      );
     }
 
-    final recorded = splitz.BillLog(host, entries: entries, billId: billId).fold();
-    expect(recorded.setAside, isEmpty,
-        reason: 'one id per recipient, so nothing is refused');
+    final recorded = splitz.BillLog(
+      host,
+      entries: entries,
+      billId: billId,
+    ).fold();
+    expect(
+      recorded.setAside,
+      isEmpty,
+      reason: 'one id per recipient, so nothing is refused',
+    );
     expect(recorded.bill.payments.length, payeeNames.length);
     final claimed = splitz.obligationFor(host, recorded)!;
-    expect(claimed.settlements, isEmpty,
-        reason: 'a payer is not asked to pay a debt twice');
-    expect(claimed.awaiting.map((a) => a.to).toSet(),
-        owed.settlements.map((s) => s.to).toSet(),
-        reason: 'every payment is in flight until its payee vouches for it');
+    expect(
+      claimed.settlements,
+      isEmpty,
+      reason: 'a payer is not asked to pay a debt twice',
+    );
+    expect(
+      claimed.awaiting.map((a) => a.to).toSet(),
+      owed.settlements.map((s) => s.to).toSet(),
+      reason: 'every payment is in flight until its payee vouches for it',
+    );
     logE2e('recorded: ${claimed.awaiting.length} awaiting confirmation');
 
     // Each payee confirms the payment their own bill shows them. A payee
     // reads the id off the bill rather than assuming the transaction's.
     for (final name in payeeNames) {
       final payeeId = ids[name]!;
-      final theirs =
-          recorded.bill.payments.singleWhere((p) => p.to == payeeId);
-      entries.add(splitz.confirmPayment(
-        host: WalletBillHost(_As(wallet, name, addresses[name]!)),
-        paymentId: theirs.id,
-        method: 'recipientConfirmed',
-        record: recorded.paymentDigests[theirs.id]!,
-      ));
+      final theirs = recorded.bill.payments.singleWhere((p) => p.to == payeeId);
+      entries.add(
+        splitz.confirmPayment(
+          host: WalletBillHost(_As(wallet, name, addresses[name]!)),
+          paymentId: theirs.id,
+          method: 'recipientConfirmed',
+          record: recorded.paymentDigests[theirs.id]!,
+        ),
+      );
     }
 
-    final closed = splitz.BillLog(host, entries: entries, billId: billId).fold();
-    expect(closed.setAside, isEmpty,
-        reason: 'each payee confirmed a payment addressed to them');
+    final closed = splitz.BillLog(
+      host,
+      entries: entries,
+      billId: billId,
+    ).fold();
+    expect(
+      closed.setAside,
+      isEmpty,
+      reason: 'each payee confirmed a payment addressed to them',
+    );
     expect(closed.bill.confirmedPayments.length, payeeNames.length);
     final after = splitz.obligationFor(host, closed);
     expect(after?.settlements ?? const [], isEmpty);
-    expect(after?.awaiting ?? const [], isEmpty,
-        reason: 'once every payee has vouched, the bill owes nobody');
-    logE2e('confirmed: the bill is closed, '
-        '${closed.bill.confirmedPayments.length} payments vouched for');
+    expect(
+      after?.awaiting ?? const [],
+      isEmpty,
+      reason: 'once every payee has vouched, the bill owes nobody',
+    );
+    logE2e(
+      'confirmed: the bill is closed, '
+      '${closed.bill.confirmedPayments.length} payments vouched for',
+    );
   });
 }
 
@@ -411,8 +464,7 @@ Map<String, dynamic> _expenseFrom(
 /// entries are written here rather than fetched from a peer. Only the id and
 /// the address differ; the clock and the randomness stay the wallet's.
 class _As implements SplitsWallet {
-  _As(this._inner, String id, this._address)
-      : account = WalletAccount(id: id);
+  _As(this._inner, String id, this._address) : account = WalletAccount(id: id);
 
   final VizorSplitsWallet _inner;
   final String _address;

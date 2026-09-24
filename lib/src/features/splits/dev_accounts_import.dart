@@ -24,8 +24,7 @@ import '../../../app.dart' show log;
 import '../../providers/account_provider.dart';
 
 /// Where the driver is, or empty when this build was given none.
-const String seedDriverUrl =
-    String.fromEnvironment('SPLITS_SEED_DRIVER_URL');
+const String seedDriverUrl = String.fromEnvironment('SPLITS_SEED_DRIVER_URL');
 
 /// A floor under every development wallet's birthday, or null for none.
 ///
@@ -37,8 +36,10 @@ const String seedDriverUrl =
 /// is the right trade for a lane that needs a recipient's address, and the
 /// wrong one for a lane that needs its balance, so it is named per run rather
 /// than written into the table.
-const int devBirthdayFloor =
-    int.fromEnvironment('SPLITS_DEV_BIRTHDAY_FLOOR', defaultValue: 0);
+const int devBirthdayFloor = int.fromEnvironment(
+  'SPLITS_DEV_BIRTHDAY_FLOOR',
+  defaultValue: 0,
+);
 
 /// Imports [accounts] from the driver, and returns how many arrived.
 ///
@@ -72,13 +73,13 @@ Future<int> importDevAccounts({
     try {
       final seed = await driver.seedAt(account.seedIndex);
       await readNotifier().importAccount(
-            mnemonic: seed.phrase,
-            name: account.name,
-            // A wallet made recently has nothing before this height, so
-            // scanning from it is the difference between a run that takes a
-            // minute and one that takes an hour.
-            birthdayHeight: _birthdayFor(account),
-          );
+        mnemonic: seed.phrase,
+        name: account.name,
+        // A wallet made recently has nothing before this height, so
+        // scanning from it is the difference between a run that takes a
+        // minute and one that takes an hour.
+        birthdayHeight: _birthdayFor(account),
+      );
       imported++;
       log('dev accounts: imported ${account.name}');
     } on Object catch (e) {

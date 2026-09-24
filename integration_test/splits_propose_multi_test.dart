@@ -39,8 +39,9 @@ void main() {
     await initializeZcashWalletRuntime();
   });
 
-  testWidgets('a two-recipient request reaches Rust and is answered',
-      (tester) async {
+  testWidgets('a two-recipient request reaches Rust and is answered', (
+    tester,
+  ) async {
     tolerateRenderOverflows();
     final defaultHandler = FlutterError.onError;
     FlutterError.onError = (details) {
@@ -54,8 +55,10 @@ void main() {
     final container = ProviderScope.containerOf(
       tester.element(find.byType(Scaffold).first),
     );
-    final accountUuid =
-        container.read(accountProvider).value!.activeAccountUuid!;
+    final accountUuid = container
+        .read(accountProvider)
+        .value!
+        .activeAccountUuid!;
     final dbPath = await getWalletDbPath();
     final network = container.read(rpcEndpointProvider).networkName;
 
@@ -88,7 +91,8 @@ void main() {
     // applied. Accepting that answer here would pass with input selection
     // entirely broken, so it is retried until the guard clears and only the
     // answer from behind it is asserted on.
-    const uri = 'zcash:$_recipientA?amount=0.0878323'
+    const uri =
+        'zcash:$_recipientA?amount=0.0878323'
         '&address.1=$_recipientB&amount.1=0.5';
     var twoRecipients = await propose(uri);
     final deadline = DateTime.now().add(const Duration(seconds: 120));
@@ -104,7 +108,8 @@ void main() {
     expect(
       twoRecipients.toLowerCase(),
       anyOf(contains('fund'), contains('balance')),
-      reason: 'it should fail for want of money — not for a bad request, and '
+      reason:
+          'it should fail for want of money — not for a bad request, and '
           'not for the sync guard that sits in front of input selection',
     );
 

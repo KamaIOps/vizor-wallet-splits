@@ -15,10 +15,12 @@ void main() {
 
   // The shape a bill settled between several people actually produces: every
   // address in the query, including the first.
-  const two = 'zcash:?address=u1addr0&amount=0.0003'
+  const two =
+      'zcash:?address=u1addr0&amount=0.0003'
       '&address.1=u1addr1&amount.1=0.00030001';
 
-  const four = 'zcash:?address=u1addr0&amount=0.0003'
+  const four =
+      'zcash:?address=u1addr0&amount=0.0003'
       '&address.1=u1addr1&amount.1=0.00030001'
       '&address.2=u1addr2&amount.2=0.00030002'
       '&address.3=u1addr3&amount.3=0.00030003';
@@ -46,20 +48,23 @@ void main() {
 
     test('every amount is summed', () {
       expect(splitsTotalZatoshi(two), BigInt.from(30000 + 30001));
-      expect(splitsTotalZatoshi(four),
-          BigInt.from(30000 + 30001 + 30002 + 30003));
+      expect(
+        splitsTotalZatoshi(four),
+        BigInt.from(30000 + 30001 + 30002 + 30003),
+      );
     });
 
     test('a whole number of ZEC carries no fraction', () {
-      expect(splitsTotalZatoshi('zcash:u1a?amount=1'),
-          BigInt.from(100000000));
+      expect(splitsTotalZatoshi('zcash:u1a?amount=1'), BigInt.from(100000000));
     });
 
     test('a figure a double cannot hold exactly is still exact', () {
       // 21,000,000 ZEC is 2.1e15 zatoshi, past the 2^53-1 a double is exact
       // to, so reading this through a double loses zatoshi.
-      expect(splitsTotalZatoshi('zcash:u1a?amount=21000000.00000001'),
-          BigInt.parse('2100000000000001'));
+      expect(
+        splitsTotalZatoshi('zcash:u1a?amount=21000000.00000001'),
+        BigInt.parse('2100000000000001'),
+      );
     });
   });
 

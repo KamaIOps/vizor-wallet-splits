@@ -31,121 +31,148 @@ void main() {
     await initializeZcashWalletRuntime();
   });
 
-  testWidgets('a bill that travels as a code, not over a relay',
-      (tester) async {
-    tolerateRenderOverflows();
-    final defaultHandler = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception is SocketException) return;
-      defaultHandler?.call(details);
-    };
+  testWidgets(
+    'a bill that travels as a code, not over a relay',
+    (tester) async {
+      tolerateRenderOverflows();
+      final defaultHandler = FlutterError.onError;
+      FlutterError.onError = (details) {
+        if (details.exception is SocketException) return;
+        defaultHandler?.call(details);
+      };
 
-    expect(splitsRelayUrl, isEmpty,
-        reason: 'this lane is about the path with no relay; name none');
+      expect(
+        splitsRelayUrl,
+        isEmpty,
+        reason: 'this lane is about the path with no relay; name none',
+      );
 
-    await tester.pumpWidget(await buildBootstrappedZcashWalletApp());
-    await createWalletWithPasscode(tester);
+      await tester.pumpWidget(await buildBootstrappedZcashWalletApp());
+      await createWalletWithPasscode(tester);
 
-    GoRouter.of(tester.element(find.byType(Scaffold).first)).push('/splits');
-    await tester.pumpAndSettle(const Duration(seconds: 10));
+      GoRouter.of(tester.element(find.byType(Scaffold).first)).push('/splits');
+      await tester.pumpAndSettle(const Duration(seconds: 10));
 
-    // ── A code that is not one is refused, and says which code it is ──
-    //
-    // The §12 code stays in the sentence because it is the part that reads the
-    // same in every wallet: it is what somebody can be asked to read out.
-    await tester.tap(find.byTooltip('Scan a bill'));
-    await _settle(tester);
-    expect(find.text('Scan a bill'), findsWidgets);
-    await _typeIntoField(tester, 'Code', 'splitz1:notacode');
-    await _tapText(tester, 'Read it');
-    await _settle(tester);
-    expect(find.textContaining('('), findsWidgets,
-        reason: 'the refusal names the §12 code it came from');
-    logE2e('a damaged code is refused by name');
-    await _back(tester);
+      // ── A code that is not one is refused, and says which code it is ──
+      //
+      // The §12 code stays in the sentence because it is the part that reads the
+      // same in every wallet: it is what somebody can be asked to read out.
+      await tester.tap(find.byTooltip('Scan a bill'));
+      await _settle(tester);
+      expect(find.text('Scan a bill'), findsWidgets);
+      await _typeIntoField(tester, 'Code', 'splitz1:notacode');
+      await _tapText(tester, 'Read it');
+      await _settle(tester);
+      expect(
+        find.textContaining('('),
+        findsWidgets,
+        reason: 'the refusal names the §12 code it came from',
+      );
+      logE2e('a damaged code is refused by name');
+      await _back(tester);
 
-    // ── A bill of this device's own ──────────────────────────────────
-    await _tapText(tester, 'New bill');
-    await _typeInto(tester, 'What is it for', 'By code');
-    await _tapText(tester, 'Open the bill');
-    await _settle(tester);
+      // ── A bill of this device's own ──────────────────────────────────
+      await _tapText(tester, 'New bill');
+      await _typeInto(tester, 'What is it for', 'By code');
+      await _tapText(tester, 'Open the bill');
+      await _settle(tester);
 
-    // Not a failure, and the screen says which of the two it is.
-    expect(
-      find.text('Not syncing — this bill travels by code'),
-      findsOneWidget,
-      reason: 'a build with no relay is a state, not a sync that never ends',
-    );
-    logE2e('no-relay notice shown');
+      // Not a failure, and the screen says which of the two it is.
+      expect(
+        find.text('Not syncing — this bill travels by code'),
+        findsOneWidget,
+        reason: 'a build with no relay is a state, not a sync that never ends',
+      );
+      logE2e('no-relay notice shown');
 
-    // ── The whole bill, and the invite, as codes ─────────────────────
-    await tester.tap(find.byTooltip('Share'));
-    await _settle(tester);
-    expect(find.text('Bill code'), findsOneWidget);
-    final codes = tester
-        .widgetList<SelectableText>(find.byType(SelectableText))
-        .map((w) => w.data!)
-        .toList();
-    expect(codes, isNotEmpty);
-    final payload = codes.first;
-    // Read back through the protocol rather than eyeballed: a code only this
-    // app can read is a code no wallet can scan.
-    final scannedBill = splitz.readScan(payload);
-    expect(scannedBill, isA<splitz.ScannedBill>());
-    expect((scannedBill as splitz.ScannedBill).invite, isNotNull,
-        reason: '§11.2 carries the invite inside the whole-bill payload');
-    logE2e('bill code reads back as a bill with an invite');
+      // ── The whole bill, and the invite, as codes ─────────────────────
+      await tester.tap(find.byTooltip('Share'));
+      await _settle(tester);
+      expect(find.text('Bill code'), findsOneWidget);
+      final codes = tester
+          .widgetList<SelectableText>(find.byType(SelectableText))
+          .map((w) => w.data!)
+          .toList();
+      expect(codes, isNotEmpty);
+      final payload = codes.first;
+      // Read back through the protocol rather than eyeballed: a code only this
+      // app can read is a code no wallet can scan.
+      final scannedBill = splitz.readScan(payload);
+      expect(scannedBill, isA<splitz.ScannedBill>());
+      expect(
+        (scannedBill as splitz.ScannedBill).invite,
+        isNotNull,
+        reason: '§11.2 carries the invite inside the whole-bill payload',
+      );
+      logE2e('bill code reads back as a bill with an invite');
 
-    // The invite on its own is the other thing this screen offers, and it is
-    // a heading further down the list rather than a control.
-    await _scrollToText(tester, 'Just the invite');
-    expect(find.text('Just the invite'), findsOneWidget);
-    expect(find.text('Invite'), findsOneWidget,
-        reason: '§11.1 renders the invite as its own code');
-    final inviteCodes = tester
-        .widgetList<SelectableText>(find.byType(SelectableText))
-        .map((w) => w.data!)
-        .where((c) => c.startsWith('splitz://'))
-        .toList();
-    if (inviteCodes.isNotEmpty) {
-      expect(splitz.readScan(inviteCodes.first), isA<splitz.ScannedInvite>(),
-          reason: '§11.1 renders an invite as a link');
-      logE2e('invite code reads back as an invite');
-    }
-    await _back(tester);
+      // The invite on its own is the other thing this screen offers, and it is
+      // a heading further down the list rather than a control.
+      await _scrollToText(tester, 'Just the invite');
+      expect(find.text('Just the invite'), findsOneWidget);
+      expect(
+        find.text('Invite'),
+        findsOneWidget,
+        reason: '§11.1 renders the invite as its own code',
+      );
+      final inviteCodes = tester
+          .widgetList<SelectableText>(find.byType(SelectableText))
+          .map((w) => w.data!)
+          .where((c) => c.startsWith('splitz://'))
+          .toList();
+      if (inviteCodes.isNotEmpty) {
+        expect(
+          splitz.readScan(inviteCodes.first),
+          isA<splitz.ScannedInvite>(),
+          reason: '§11.1 renders an invite as a link',
+        );
+        logE2e('invite code reads back as an invite');
+      }
+      await _back(tester);
 
-    // ── The scanner takes the code this device just showed ───────────
-    await _back(tester);
-    await tester.tap(find.byTooltip('Scan a bill'));
-    await _settle(tester);
-    await _typeIntoField(tester, 'Code', payload);
-    await _tapText(tester, 'Read it');
-    await _settle(tester);
-    expect(find.text('By code'), findsWidgets,
-        reason: 'the bill the code carried is the bill on the list');
-    logE2e('the code this device showed is a code it can read');
+      // ── The scanner takes the code this device just showed ───────────
+      await _back(tester);
+      await tester.tap(find.byTooltip('Scan a bill'));
+      await _settle(tester);
+      await _typeIntoField(tester, 'Code', payload);
+      await _tapText(tester, 'Read it');
+      await _settle(tester);
+      expect(
+        find.text('By code'),
+        findsWidgets,
+        reason: 'the bill the code carried is the bill on the list',
+      );
+      logE2e('the code this device showed is a code it can read');
 
-    // ── The record a person keeps of themselves ──────────────────────
-    await _tapText(tester, 'By code');
-    await _settle(tester);
-    await _tapKey(tester, 'splits_bill_people');
-    await _settle(tester);
-    expect(find.byKey(const Key('splits_person_payout')), findsOneWidget,
-        reason: '§10.7 leaves a payout to the device that can sign for it');
-    await _tapKey(tester, 'splits_person_payout');
-    await _settle(tester);
-    expect(find.text('How you get paid'), findsOneWidget);
-    for (final lane in ['zec', 'swap', 'cash']) {
-      expect(find.byKey(Key('splits_payout_$lane')), findsOneWidget,
-          reason: '§9.2 offers all three lanes');
-    }
-    await _tapKey(tester, 'splits_payout_cash');
-    await _tapKey(tester, 'splits_payout_save');
-    await _settle(tester);
-    logE2e('own payout set to cash');
+      // ── The record a person keeps of themselves ──────────────────────
+      await _tapText(tester, 'By code');
+      await _settle(tester);
+      await _tapKey(tester, 'splits_bill_people');
+      await _settle(tester);
+      expect(
+        find.byKey(const Key('splits_person_payout')),
+        findsOneWidget,
+        reason: '§10.7 leaves a payout to the device that can sign for it',
+      );
+      await _tapKey(tester, 'splits_person_payout');
+      await _settle(tester);
+      expect(find.text('How you get paid'), findsOneWidget);
+      for (final lane in ['zec', 'swap', 'cash']) {
+        expect(
+          find.byKey(Key('splits_payout_$lane')),
+          findsOneWidget,
+          reason: '§9.2 offers all three lanes',
+        );
+      }
+      await _tapKey(tester, 'splits_payout_cash');
+      await _tapKey(tester, 'splits_payout_save');
+      await _settle(tester);
+      logE2e('own payout set to cash');
 
-    logE2e('screens walkthrough complete');
-  }, timeout: const Timeout(Duration(minutes: 25)));
+      logE2e('screens walkthrough complete');
+    },
+    timeout: const Timeout(Duration(minutes: 25)),
+  );
 }
 
 /// Scrolls the screen until [text] is on it.
@@ -155,8 +182,11 @@ void main() {
 Future<void> _scrollToText(WidgetTester tester, String text) async {
   final target = find.text(text);
   if (tester.any(target)) return;
-  await tester.scrollUntilVisible(target, 200,
-      scrollable: find.byType(Scrollable).last);
+  await tester.scrollUntilVisible(
+    target,
+    200,
+    scrollable: find.byType(Scrollable).last,
+  );
   await _settle(tester);
 }
 
@@ -168,8 +198,11 @@ Future<void> _settle(WidgetTester tester) async {
 }
 
 Future<void> _tapText(WidgetTester tester, String text) async {
-  await pumpUntil(tester, () => tester.any(find.text(text)),
-      description: 'the control "$text"');
+  await pumpUntil(
+    tester,
+    () => tester.any(find.text(text)),
+    description: 'the control "$text"',
+  );
   await tester.tap(find.text(text).last);
   await _settle(tester);
 }
@@ -178,8 +211,11 @@ Future<void> _tapKey(WidgetTester tester, String key) async {
   // A keyboard still opening moves the fold, so it finishes first; then the
   // control is scrolled fully into view before the tap.
   await _settle(tester);
-  await pumpUntil(tester, () => tester.any(find.byKey(Key(key))),
-      description: 'the control $key');
+  await pumpUntil(
+    tester,
+    () => tester.any(find.byKey(Key(key))),
+    description: 'the control $key',
+  );
   await tester.ensureVisible(find.byKey(Key(key)).last);
   await _settle(tester);
   await tester.tap(find.byKey(Key(key)).last);
@@ -188,18 +224,27 @@ Future<void> _tapKey(WidgetTester tester, String key) async {
 
 Future<void> _typeInto(WidgetTester tester, String label, String text) async {
   final field = find.widgetWithText(TextFormField, label);
-  await pumpUntil(tester, () => tester.any(field),
-      description: 'the field "$label"');
+  await pumpUntil(
+    tester,
+    () => tester.any(field),
+    description: 'the field "$label"',
+  );
   await tester.enterText(field.first, text);
   await tester.pump();
 }
 
 /// The scanner's box is a plain `TextField`, not a `TextFormField`.
 Future<void> _typeIntoField(
-    WidgetTester tester, String label, String text) async {
+  WidgetTester tester,
+  String label,
+  String text,
+) async {
   final field = find.widgetWithText(TextField, label);
-  await pumpUntil(tester, () => tester.any(field),
-      description: 'the field "$label"');
+  await pumpUntil(
+    tester,
+    () => tester.any(field),
+    description: 'the field "$label"',
+  );
   await tester.enterText(field.first, text);
   await tester.pump();
 }
