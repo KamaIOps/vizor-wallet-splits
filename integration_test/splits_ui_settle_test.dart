@@ -60,10 +60,16 @@ void main() {
 
     // Which device this is, asked of the coordinator rather than compiled in.
     final phase = await claimRole(fallback: _phaseDefine);
-    expect(const ['payer', 'payee'].contains(phase), isTrue,
-        reason: 'the coordinator names the payer or the payee');
-    expect(const ['cash', 'swap'].contains(_lane), isTrue,
-        reason: 'SPLITS_LANE is cash or swap');
+    expect(
+      const ['payer', 'payee'].contains(phase),
+      isTrue,
+      reason: 'the coordinator names the payer or the payee',
+    );
+    expect(
+      const ['cash', 'swap'].contains(_lane),
+      isTrue,
+      reason: 'SPLITS_LANE is cash or swap',
+    );
     expect(splitsRelayUrl, isNotEmpty, reason: 'this lane needs a relay');
 
     await tester.pumpWidget(await buildBootstrappedZcashWalletApp());
@@ -98,27 +104,38 @@ Future<void> _payer(WidgetTester tester) async {
   // inside §11.2's cap.
   await tester.tap(find.byTooltip('Share'));
   await _settle(tester);
-  await _reveal(tester, find.text('Bill code'),
-      'the whole-bill code on the share screen');
+  await _reveal(
+    tester,
+    find.text('Bill code'),
+    'the whole-bill code on the share screen',
+  );
   final code = tester
       .widgetList<SelectableText>(find.byType(SelectableText))
       .map((w) => w.data!)
-      .firstWhere((c) => c.startsWith('splitz1:'),
-          orElse: () => throw StateError('the share screen showed no bill code'));
+      .firstWhere(
+        (c) => c.startsWith('splitz1:'),
+        orElse: () => throw StateError('the share screen showed no bill code'),
+      );
   logE2e('BILLCODE $code');
   await publish('invite', code);
   await _back(tester);
 
   // 1 · The payee joins from its own device, declares its lane, and puts what
   //     it covered on the bill. Each of those is waited for on the screen.
-  await _syncUntilVisible(tester, find.text('Covered'),
-      description: "the payee's expense",
-      timeout: const Duration(minutes: 25));
+  await _syncUntilVisible(
+    tester,
+    find.text('Covered'),
+    description: "the payee's expense",
+    timeout: const Duration(minutes: 25),
+  );
   logE2e('the payee joined and spent');
 
   // 2 · A price is what makes the bill settleable.
-  await tester.scrollUntilVisible(find.text('Settle up'), 200,
-      scrollable: find.byType(Scrollable).first);
+  await tester.scrollUntilVisible(
+    find.text('Settle up'),
+    200,
+    scrollable: find.byType(Scrollable).first,
+  );
   await _tapText(tester, 'Settle up');
   if (tester.any(find.text('Price it'))) {
     await _tapText(tester, 'Price it');
@@ -129,10 +146,16 @@ Future<void> _payer(WidgetTester tester) async {
 
   // 3 · §8.5 leaves the payee out of the request and says why, rather than
   //     flattening a lane the request cannot carry.
-  await _reveal(tester, find.textContaining('not paid in shielded ZEC'),
-      'the withheld payee, reported rather than dropped');
-  expect(find.textContaining('not paid in shielded ZEC'), findsOneWidget,
-      reason: 'a payee in another lane is reported, never dropped');
+  await _reveal(
+    tester,
+    find.textContaining('not paid in shielded ZEC'),
+    'the withheld payee, reported rather than dropped',
+  );
+  expect(
+    find.textContaining('not paid in shielded ZEC'),
+    findsOneWidget,
+    reason: 'a payee in another lane is reported, never dropped',
+  );
   final apart = _keysWithPrefix(tester, 'splits_settle_apart_');
   expect(apart.length, 1, reason: 'one row to settle apart');
   await _tapKeyRevealed(tester, apart.first);
@@ -140,8 +163,11 @@ Future<void> _payer(WidgetTester tester) async {
   if (_lane == 'swap') {
     // The swap screen quotes against a provider this lane does not run, so
     // what is asserted is that it says so rather than failing silently.
-    expect(find.textContaining('in another asset'), findsWidgets,
-        reason: 'the swap screen is where a non-ZEC asset is settled');
+    expect(
+      find.textContaining('in another asset'),
+      findsWidgets,
+      reason: 'the swap screen is where a non-ZEC asset is settled',
+    );
     // `initState` asks for a quote on a post-frame callback, so the screen
     // answers by itself: either a quote, with the ZEC leg to send, or the
     // sentence saying why there is none. Both are below the fold on this
@@ -154,8 +180,12 @@ Future<void> _payer(WidgetTester tester) async {
       final scrollables = find.byType(Scrollable);
       for (var i = 0; i < tester.widgetList(scrollables).length; i++) {
         try {
-          await tester.scrollUntilVisible(answered, 120,
-              scrollable: scrollables.at(i), maxScrolls: 15);
+          await tester.scrollUntilVisible(
+            answered,
+            120,
+            scrollable: scrollables.at(i),
+            maxScrolls: 15,
+          );
         } on Object {
           // Not in that one.
         }
@@ -163,9 +193,13 @@ Future<void> _payer(WidgetTester tester) async {
       await tester.pump(const Duration(milliseconds: 300));
       await Future<void>.delayed(const Duration(seconds: 1));
     }
-    expect(tester.any(answered) || tester.any(sendable), isTrue,
-        reason: 'the swap screen says what the provider answered, or why it '
-            'could not be asked');
+    expect(
+      tester.any(answered) || tester.any(sendable),
+      isTrue,
+      reason:
+          'the swap screen says what the provider answered, or why it '
+          'could not be asked',
+    );
     if (tester.any(answered)) {
       final said = tester.widget<Text>(answered).data;
       logE2e('swap screen reported: $said');
@@ -191,8 +225,11 @@ Future<void> _payer(WidgetTester tester) async {
   await _syncThenLookOn(
     tester,
     open: () async {
-      await tester.scrollUntilVisible(find.text('Settle up'), 200,
-          scrollable: find.byType(Scrollable).first);
+      await tester.scrollUntilVisible(
+        find.text('Settle up'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       await _tapText(tester, 'Settle up');
     },
     target: find.text('You owe nothing on this bill.'),
@@ -205,8 +242,11 @@ Future<void> _payer(WidgetTester tester) async {
 
 /// Joins by code, declares a lane, spends, and vouches for what arrives.
 Future<void> _payee(WidgetTester tester) async {
-  final invite = await awaitValue('invite',
-      timeout: const Duration(minutes: 20), fallback: _inviteDefine);
+  final invite = await awaitValue(
+    'invite',
+    timeout: const Duration(minutes: 20),
+    fallback: _inviteDefine,
+  );
   expect(invite, isNotEmpty, reason: 'the payer published a bill code');
 
   // 1 · Joining is reading a code, on the screen that reads codes. A whole
@@ -217,17 +257,23 @@ Future<void> _payee(WidgetTester tester) async {
   await _typeIntoField(tester, 'Code', invite);
   await _tapText(tester, 'Read it');
   await _settle(tester);
-  await pumpUntil(tester, () => tester.any(find.text('Apart')),
-      description: 'the bill the code carried',
-      timeout: const Duration(minutes: 3));
+  await pumpUntil(
+    tester,
+    () => tester.any(find.text('Apart')),
+    description: 'the bill the code carried',
+    timeout: const Duration(minutes: 3),
+  );
   logE2e('the bill arrived by code');
 
   // 2 · Reading a bill is not being on it. `bill_screen.dart` says so — "You
   //     are not on this bill yet." — and offers the join, which is what writes
   //     this device's own participant. Until that exists there is no "me" row
   //     on the people screen and so no payout to set.
-  await _reveal(tester, find.text('You are not on this bill yet.'),
-      'the notice that this device is not on the bill');
+  await _reveal(
+    tester,
+    find.text('You are not on this bill yet.'),
+    'the notice that this device is not on the bill',
+  );
   expect(find.text('You are not on this bill yet.'), findsOneWidget);
   await _tapText(tester, 'Join');
   // The notice going away is what says the join landed. What replaces it is
@@ -235,9 +281,12 @@ Future<void> _payee(WidgetTester tester) async {
   // neither a payout nor an address, and the wallet gives every participant
   // its own address when it joins — so this device is already in the ZEC lane
   // before it chooses another.
-  await _untilGone(tester, find.text('You are not on this bill yet.'),
-      description: 'the not-on-this-bill notice, after joining',
-      timeout: const Duration(minutes: 3));
+  await _untilGone(
+    tester,
+    find.text('You are not on this bill yet.'),
+    description: 'the not-on-this-bill notice, after joining',
+    timeout: const Duration(minutes: 3),
+  );
   logE2e('joined the bill');
 
   // 3 · This device's own lane, which is the only one it may set.
@@ -334,14 +383,21 @@ Future<void> _sync(WidgetTester tester) async {
     await tester.pageBack();
     await _settle(tester);
   }
-  expect(control, findsOneWidget,
-      reason: 'the bill screen, which is the only screen that can sync. '
-          'This screen shows: ${_visibleText(tester).join(' | ')}');
+  expect(
+    control,
+    findsOneWidget,
+    reason:
+        'the bill screen, which is the only screen that can sync. '
+        'This screen shows: ${_visibleText(tester).join(' | ')}',
+  );
   await tester.tap(control);
   await _settle(tester);
-  await pumpUntil(tester, () => !tester.any(find.text('Syncing…')),
-      description: 'the sync to finish',
-      timeout: const Duration(minutes: 2));
+  await pumpUntil(
+    tester,
+    () => !tester.any(find.text('Syncing…')),
+    description: 'the sync to finish',
+    timeout: const Duration(minutes: 2),
+  );
 }
 
 /// Syncs on the bill screen, then looks for [target] on the screen [open]
@@ -367,8 +423,12 @@ Future<void> _syncThenLookOn(
       final scrollables = find.byType(Scrollable);
       for (var j = 0; j < tester.widgetList(scrollables).length; j++) {
         try {
-          await tester.scrollUntilVisible(target, 120,
-              scrollable: scrollables.at(j), maxScrolls: 15);
+          await tester.scrollUntilVisible(
+            target,
+            120,
+            scrollable: scrollables.at(j),
+            maxScrolls: 15,
+          );
         } on Object {
           // Not in that one.
         }
@@ -426,8 +486,12 @@ Future<void> _syncUntilVisible(
     final scrollables = find.byType(Scrollable);
     for (var i = 0; i < tester.widgetList(scrollables).length; i++) {
       try {
-        await tester.scrollUntilVisible(target, 120,
-            scrollable: scrollables.at(i), maxScrolls: 20);
+        await tester.scrollUntilVisible(
+          target,
+          120,
+          scrollable: scrollables.at(i),
+          maxScrolls: 20,
+        );
       } on Object {
         // Not in that one.
       }
@@ -442,9 +506,13 @@ Future<void> _syncUntilVisible(
 }
 
 List<Key> _keysWithPrefix(WidgetTester tester, String prefix) => tester
-    .widgetList<Widget>(find.byWidgetPredicate((w) =>
-        w.key is ValueKey<String> &&
-        (w.key! as ValueKey<String>).value.startsWith(prefix)))
+    .widgetList<Widget>(
+      find.byWidgetPredicate(
+        (w) =>
+            w.key is ValueKey<String> &&
+            (w.key! as ValueKey<String>).value.startsWith(prefix),
+      ),
+    )
     .map((w) => w.key!)
     .toList();
 
@@ -486,8 +554,12 @@ Future<void> _reveal(WidgetTester tester, Finder target, String what) async {
   final scrollables = find.byType(Scrollable);
   for (var i = 0; i < tester.widgetList(scrollables).length; i++) {
     try {
-      await tester.scrollUntilVisible(target, 120,
-          scrollable: scrollables.at(i), maxScrolls: 30);
+      await tester.scrollUntilVisible(
+        target,
+        120,
+        scrollable: scrollables.at(i),
+        maxScrolls: 30,
+      );
       await _settle(tester);
       if (tester.any(target)) return;
     } on Object {
@@ -510,25 +582,37 @@ Future<void> _tapKey(WidgetTester tester, String key) async {
 }
 
 Future<void> _typeText(WidgetTester tester, String key, String text) async {
-  await pumpUntil(tester, () => tester.any(find.byKey(Key(key))),
-      description: 'the field $key');
+  await pumpUntil(
+    tester,
+    () => tester.any(find.byKey(Key(key))),
+    description: 'the field $key',
+  );
   await tester.enterText(find.byKey(Key(key)), text);
   await tester.pump();
 }
 
 Future<void> _typeInto(WidgetTester tester, String label, String text) async {
   final field = find.widgetWithText(TextFormField, label);
-  await pumpUntil(tester, () => tester.any(field),
-      description: 'the field "$label"');
+  await pumpUntil(
+    tester,
+    () => tester.any(field),
+    description: 'the field "$label"',
+  );
   await tester.enterText(field.first, text);
   await tester.pump();
 }
 
 Future<void> _typeIntoField(
-    WidgetTester tester, String label, String text) async {
+  WidgetTester tester,
+  String label,
+  String text,
+) async {
   final field = find.widgetWithText(TextField, label);
-  await pumpUntil(tester, () => tester.any(field),
-      description: 'the field "$label"');
+  await pumpUntil(
+    tester,
+    () => tester.any(field),
+    description: 'the field "$label"',
+  );
   await tester.enterText(field.first, text);
   await tester.pump();
 }

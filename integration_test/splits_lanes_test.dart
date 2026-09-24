@@ -68,11 +68,7 @@ const _firstWait = Duration(minutes: 15);
 const _wait = Duration(minutes: 8);
 
 /// The payee lanes, by phase name: what each one wants and how it is settled.
-const _lanes = {
-  'zec': 'shieldedZec',
-  'usdc': 'swap',
-  'cash': 'cash',
-};
+const _lanes = {'zec': 'shieldedZec', 'usdc': 'swap', 'cash': 'cash'};
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -94,7 +90,8 @@ void main() {
     expect(
       const ['payer', 'zec', 'usdc', 'cash'].contains(phase),
       isTrue,
-      reason: 'the coordinator names the payer or one of the three lanes, '
+      reason:
+          'the coordinator names the payer or one of the three lanes, '
           'and gave "$phase"',
     );
     logE2e('this device is the $phase');
@@ -109,8 +106,11 @@ void main() {
     final account = container.read(accountProvider).value!;
     final accountUuid = account.activeAccountUuid!;
     final address = account.activeAddress;
-    expect(address, isNotNull,
-        reason: 'a participant with no address cannot be paid in ZEC');
+    expect(
+      address,
+      isNotNull,
+      reason: 'a participant with no address cannot be paid in ZEC',
+    );
 
     List<int>? identitySecret;
     try {
@@ -230,8 +230,11 @@ Future<void> _payer(
     expect(payouts, isNotEmpty, reason: '${p.name} declared no lane');
     lane[p.id] = payouts.first.type;
   }
-  expect(lane.values.toSet(), {'zec', 'swap', 'cash'},
-      reason: 'one payee in each of §9.2\'s three lanes');
+  expect(lane.values.toSet(), {
+    'zec',
+    'swap',
+    'cash',
+  }, reason: 'one payee in each of §9.2\'s three lanes');
   logE2e('lanes: $lane');
 
   // 2 · §8.5 carries the ZEC payee and reports the other two. A request that
@@ -249,27 +252,42 @@ Future<void> _payer(
     reason: 'left out for a reason that is not a missing address, and said so',
   );
   final withheld = {for (final u in owed.unpayable) u.id};
-  final carried =
-      owed.settlements.where((s) => !withheld.contains(s.to)).toList();
+  final carried = owed.settlements
+      .where((s) => !withheld.contains(s.to))
+      .toList();
   expect(carried.single.amount, _owedEach);
-  expect(lane[carried.single.to], 'zec',
-      reason: 'only a Zcash address can go in a ZIP 321 request');
-  expect(owed.isComplete, isFalse,
-      reason: 'the request does not carry the whole obligation');
+  expect(
+    lane[carried.single.to],
+    'zec',
+    reason: 'only a Zcash address can go in a ZIP 321 request',
+  );
+  expect(
+    owed.isComplete,
+    isFalse,
+    reason: 'the request does not carry the whole obligation',
+  );
   final zatoshi = _owedEach * 100000000 ~/ _minorUnitsPerZec;
   expect(zatoshi, lessThanOrEqualTo(_maxZatoshi));
   logE2e('request carries $zatoshi zatoshi; 2 payees withheld');
 
   // 3 · The ZEC lane, on the chain, through the library's own settle.
   final settled = await controller.settle(billId, owed);
-  expect(settled!.result, splitz.SendResult.sent,
-      reason: 'detail: ${settled.detail}');
+  expect(
+    settled!.result,
+    splitz.SendResult.sent,
+    reason: 'detail: ${settled.detail}',
+  );
   final txid = settled.txid!;
-  expect(settled.records.length, 1,
-      reason: 'a record for what the transaction carried, and nothing else');
-  expect(settled.records.single['payment']['id'],
-      splitz.paymentIdForSend(txid, carried.single.to),
-      reason: 'a record carries its own id; the transaction is the reference');
+  expect(
+    settled.records.length,
+    1,
+    reason: 'a record for what the transaction carried, and nothing else',
+  );
+  expect(
+    settled.records.single['payment']['id'],
+    splitz.paymentIdForSend(txid, carried.single.to),
+    reason: 'a record carries its own id; the transaction is the reference',
+  );
   expect(settled.records.single['payment']['reference'], txid);
   logE2e('sent $txid');
 
@@ -294,10 +312,16 @@ Future<void> _payer(
   await controller.syncBill(billId);
 
   final claimed = (await controller.obligation(billId))!;
-  expect(claimed.settlements, isEmpty,
-      reason: 'a payer is not asked to pay a debt twice');
-  expect(claimed.awaiting.map((a) => a.to).toSet(), lane.keys.toSet(),
-      reason: 'all three are in flight until their payee vouches');
+  expect(
+    claimed.settlements,
+    isEmpty,
+    reason: 'a payer is not asked to pay a debt twice',
+  );
+  expect(
+    claimed.awaiting.map((a) => a.to).toSet(),
+    lane.keys.toSet(),
+    reason: 'all three are in flight until their payee vouches',
+  );
   logE2e('recorded 3 payments, ${claimed.awaiting.length} awaiting');
 
   // 5 · Each payee vouches for the record addressed to them, and only then
@@ -310,8 +334,11 @@ Future<void> _payer(
     description: 'three confirmations',
   );
   final end = _billOn(controller, billId);
-  expect(end.setAside, isEmpty,
-      reason: 'nothing any of the four devices wrote is refused');
+  expect(
+    end.setAside,
+    isEmpty,
+    reason: 'nothing any of the four devices wrote is refused',
+  );
   final balances = protocol.netBalances(end.bill);
   for (final p in end.bill.participants) {
     expect(balances[p.id], 0, reason: '${p.name} is square');
@@ -329,9 +356,11 @@ Future<void> _payee(
 ) async {
   // The payer publishes the invite once the bill is on the relay; until then
   // there is nothing to join.
-  final invite0 =
-      await awaitValue('invite',
-          timeout: const Duration(minutes: 20), fallback: _inviteDefine);
+  final invite0 = await awaitValue(
+    'invite',
+    timeout: const Duration(minutes: 20),
+    fallback: _inviteDefine,
+  );
   expect(invite0, isNotEmpty, reason: 'the payer published an invite');
   final scanned = splitz.readScan(invite0);
   final invite = (scanned as splitz.ScannedInvite).invite;
@@ -340,15 +369,22 @@ Future<void> _payee(
   await controller.acceptKey(billId, invite.key);
   expect(await controller.syncBill(billId), isNotNull);
   await controller.load();
-  expect(controller.bills.map((b) => b.id), contains(billId),
-      reason: 'the relay holds the bill the payer opened');
+  expect(
+    controller.bills.map((b) => b.id),
+    contains(billId),
+    reason: 'the relay holds the bill the payer opened',
+  );
 
   // 1 · The lane this device is in. §9.2 keeps the order, so the first
   //     preference is the one that decides.
   final payout = switch (phase) {
     'zec' => splitz.Payout(type: 'zec', address: address),
     'usdc' => const splitz.Payout(
-        type: 'swap', asset: 'USDC', chain: 'base', address: '0xcara'),
+      type: 'swap',
+      asset: 'USDC',
+      chain: 'base',
+      address: '0xcara',
+    ),
     _ => const splitz.Payout(type: 'cash'),
   };
   await controller.setPayouts(
@@ -370,9 +406,7 @@ Future<void> _payee(
     timeout: _firstWait,
   );
   final me = controller.me;
-  final them = _billOn(controller, billId)
-      .bill
-      .participants
+  final them = _billOn(controller, billId).bill.participants
       .map((p) => p.id)
       .firstWhere((id) => id != me && id == _creatorOf(controller, billId));
   await controller.addExpense(
@@ -393,14 +427,22 @@ Future<void> _payee(
     (view) => view.bill.payments.any((p) => p.to == me),
     description: 'the payment addressed to this device',
   );
-  final payment =
-      _billOn(controller, billId).bill.payments.singleWhere((p) => p.to == me);
+  final payment = _billOn(
+    controller,
+    billId,
+  ).bill.payments.singleWhere((p) => p.to == me);
   expect(payment.amount, _owedEach);
-  expect(payment.method, _lanes[phase],
-      reason: 'each lane is settled by the method §9.2 gives it');
+  expect(
+    payment.method,
+    _lanes[phase],
+    reason: 'each lane is settled by the method §9.2 gives it',
+  );
   if (phase == 'zec') {
-    expect(payment.reference, isNotNull,
-        reason: 'a shielded payment names the transaction it rode on');
+    expect(
+      payment.reference,
+      isNotNull,
+      reason: 'a shielded payment names the transaction it rode on',
+    );
   }
 
   // 4 · §10.5: only the payee may say the money arrived. `walletReceived` is

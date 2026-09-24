@@ -113,8 +113,11 @@ void main() {
     } on Object {
       identitySecret = null;
     }
-    expect(account.activeAddress, isNotNull,
-        reason: 'a participant with no payout address cannot be settled to');
+    expect(
+      account.activeAddress,
+      isNotNull,
+      reason: 'a participant with no payout address cannot be settled to',
+    );
 
     // Beside the wallet database, exactly where the entry screen puts it.
     final directory = Directory(
@@ -143,8 +146,11 @@ void main() {
 
     // Which device this is, asked of the coordinator rather than compiled in.
     final phase = await claimRole(fallback: _phaseDefine);
-    expect(const ['a', 'b'].contains(phase), isTrue,
-        reason: 'the coordinator names device a or device b');
+    expect(
+      const ['a', 'b'].contains(phase),
+      isTrue,
+      reason: 'the coordinator names device a or device b',
+    );
 
     if (phase == 'a') {
       await _deviceA(tester, controller, me);
@@ -167,8 +173,11 @@ Future<void> _deviceA(
   ))!;
   await controller.syncBill(billId);
   final invite = await controller.inviteFor(billId);
-  expect(invite, startsWith('splitz://join'),
-      reason: '§11.1 renders an invite as a link, not a payload');
+  expect(
+    invite,
+    startsWith('splitz://join'),
+    reason: '§11.1 renders an invite as a link, not a payload',
+  );
   // The sequencer reads this line and starts device B with it. The invite
   // carries the bill id and the key; the log comes from the relay.
   logE2e('INVITE $invite');
@@ -184,11 +193,10 @@ Future<void> _deviceA(
     description: 'device B to join',
     timeout: _firstWait,
   );
-  final them = _billOn(controller, billId)
-      .bill
-      .participants
-      .map((p) => p.id)
-      .firstWhere((id) => id != me);
+  final them = _billOn(
+    controller,
+    billId,
+  ).bill.participants.map((p) => p.id).firstWhere((id) => id != me);
   logE2e('device B joined as $them');
 
   // 2 · The expense A covered, and the rate that makes the bill settleable.
@@ -227,10 +235,15 @@ Future<void> _deviceA(
     (view) => view.bill.payments.any((p) => p.to == me),
     description: "device B's payment",
   );
-  final payment =
-      _billOn(controller, billId).bill.payments.singleWhere((p) => p.to == me);
-  expect(payment.amount, _benOwes,
-      reason: 'the netted bill leaves B owing $_benOwes');
+  final payment = _billOn(
+    controller,
+    billId,
+  ).bill.payments.singleWhere((p) => p.to == me);
+  expect(
+    payment.amount,
+    _benOwes,
+    reason: 'the netted bill leaves B owing $_benOwes',
+  );
   expect(payment.from, them);
 
   // 5 · Only the payee may say a payment arrived, and this device is it.
@@ -243,7 +256,11 @@ Future<void> _deviceA(
   logE2e('confirmed ${payment.id}');
 
   final end = _billOn(controller, billId);
-  expect(end.setAside, isEmpty, reason: 'nothing either device wrote is refused');
+  expect(
+    end.setAside,
+    isEmpty,
+    reason: 'nothing either device wrote is refused',
+  );
   expect(end.bill.confirmedPayments, contains(payment.id));
   expect(protocol.netBalances(end.bill)[me], 0);
   expect(protocol.netBalances(end.bill)[them], 0);
@@ -256,11 +273,17 @@ Future<void> _deviceB(
   SplitsController controller,
   String me,
 ) async {
-  final published = await awaitValue('invite',
-      timeout: const Duration(minutes: 20), fallback: _inviteDefine);
+  final published = await awaitValue(
+    'invite',
+    timeout: const Duration(minutes: 20),
+    fallback: _inviteDefine,
+  );
   expect(published, isNotEmpty, reason: 'device a published an invite');
-  expect(controller.bills, isEmpty,
-      reason: 'a fresh install holds no bill until it pulls');
+  expect(
+    controller.bills,
+    isEmpty,
+    reason: 'a fresh install holds no bill until it pulls',
+  );
 
   final scanned = splitz.readScan(published);
   expect(scanned, isA<splitz.ScannedInvite>());
@@ -268,15 +291,25 @@ Future<void> _deviceB(
   final billId = invite.billId;
 
   await controller.acceptKey(billId, invite.key);
-  expect(await controller.syncBill(billId), isNotNull,
-      reason: 'the relay answered');
+  expect(
+    await controller.syncBill(billId),
+    isNotNull,
+    reason: 'the relay answered',
+  );
   await controller.load();
-  expect(controller.bills.map((b) => b.id), contains(billId),
-      reason: 'the relay holds the bill device A opened, and this device '
-          'holds nothing it did not pull');
+  expect(
+    controller.bills.map((b) => b.id),
+    contains(billId),
+    reason:
+        'the relay holds the bill device A opened, and this device '
+        'holds nothing it did not pull',
+  );
   final pulled = _billOn(controller, billId);
-  expect(pulled.bill.name, 'Dinner',
-      reason: 'the bill the other device opened arrived over the relay');
+  expect(
+    pulled.bill.name,
+    'Dinner',
+    reason: 'the bill the other device opened arrived over the relay',
+  );
   logE2e('pulled "${pulled.bill.name}"');
 
   // 1 · A join is what carries a display name and a payout address, and
@@ -293,11 +326,10 @@ Future<void> _deviceB(
     description: "device A's expense and rate",
     timeout: _firstWait,
   );
-  final them = _billOn(controller, billId)
-      .bill
-      .participants
-      .map((p) => p.id)
-      .firstWhere((id) => id != me);
+  final them = _billOn(
+    controller,
+    billId,
+  ).bill.participants.map((p) => p.id).firstWhere((id) => id != me);
   logE2e('device A put $_anaSpent on the bill');
 
   // 3 · This device's own expense. The bill is netted before it is priced,
@@ -314,10 +346,16 @@ Future<void> _deviceB(
   // 4 · What this device owes, from the protocol rather than from this lane.
   final owed = (await controller.obligation(billId))!;
   expect(owed.settlements.single.to, them);
-  expect(owed.settlements.single.amount, _benOwes,
-      reason: '($_anaSpent - $_benSpent) / 2 = $_benOwes, netted then priced');
-  expect(owed.unpayable, isEmpty,
-      reason: 'device A published a payout address when it joined');
+  expect(
+    owed.settlements.single.amount,
+    _benOwes,
+    reason: '($_anaSpent - $_benSpent) / 2 = $_benOwes, netted then priced',
+  );
+  expect(
+    owed.unpayable,
+    isEmpty,
+    reason: 'device A published a payout address when it joined',
+  );
 
   // 5 · §9.2's cash lane: the money moves outside this protocol, and the only
   //     evidence it ever has is the payee's confirmation (§10.5).
@@ -347,11 +385,18 @@ Future<void> _deviceB(
   );
 
   final end = _billOn(controller, billId);
-  expect(end.setAside, isEmpty, reason: 'nothing either device wrote is refused');
+  expect(
+    end.setAside,
+    isEmpty,
+    reason: 'nothing either device wrote is refused',
+  );
   expect(protocol.netBalances(end.bill)[me], 0);
   expect(protocol.netBalances(end.bill)[them], 0);
-  expect((await controller.obligation(billId))!.awaiting, isEmpty,
-      reason: 'once the payee has vouched, the bill owes nobody');
+  expect(
+    (await controller.obligation(billId))!.awaiting,
+    isEmpty,
+    reason: 'once the payee has vouched, the bill owes nobody',
+  );
   logE2e('the bill owes nobody');
 }
 
