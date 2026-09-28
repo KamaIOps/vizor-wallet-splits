@@ -28,22 +28,77 @@ Future<WalletSendOutcome> proposeAndBroadcastSplitsBatch({
   required String paymentRequestUri,
 }) async {
   final syncNotifier = ref.read(syncProvider.notifier);
-
-  final proposal = await syncNotifier.runWithAuthoritativeSpendable(
-    accountUuid: accountUuid,
-    operation: () async {
-      final dbPath = await getWalletDbPath();
-      final endpoint = ref.read(rpcEndpointProvider);
-      return rust_sync.proposeSendMulti(
-        dbPath: dbPath,
-        network: endpoint.networkName,
-        accountUuid: accountUuid,
-        sendFlowId: sendFlowId,
-        paymentUri: paymentRequestUri,
-      );
-    },
+  return sendSplitsBatch(
+    propose: () => syncNotifier.runWithAuthoritativeSpendable(
+      accountUuid: accountUuid,
+      operation: () async {
+        final dbPath = await getWalletDbPath();
+        final endpoint = ref.read(rpcEndpointProvider);
+        return rust_sync.proposeSendMulti(
+          dbPath: dbPath,
+          network: endpoint.networkName,
+          accountUuid: accountUuid,
+          sendFlowId: sendFlowId,
+          paymentUri: paymentRequestUri,
+        );
+      },
+    ),
+    broadcast: (proposal) => _broadcast(
+      ref: ref,
+      proposal: proposal,
+      accountUuid: accountUuid,
+      sendFlowId: sendFlowId,
+      paymentRequestUri: paymentRequestUri,
+    ),
   );
+}
 
+/// Proposes, then broadcasts, and says which of §14.3's outcomes occurred.
+///
+/// A proposal that is refused — too little to spend, an address the wallet
+/// cannot pay — builds no transaction, so nothing can land. It is reported as
+/// failed rather than raised: a raise leaves the send looking as though it
+/// may still reach the network, and that blocks every later one.
+Future<WalletSendOutcome> sendSplitsBatch<P>({
+  required Future<P> Function() propose,
+  required Future<SendBroadcastOutcome> Function(P proposal) broadcast,
+}) async {
+  final P proposal;
+  try {
+    proposal = await propose();
+  } on Object catch (error) {
+    return WalletSendOutcome(
+      phase: WalletSendPhase.failed,
+      error: 'The wallet could not build this payment: $error',
+    );
+  }
+  final outcome = await broadcast(proposal);
+  return switch (outcome.phase) {
+    SendBroadcastPhase.succeeded => WalletSendOutcome(
+      phase: WalletSendPhase.succeeded,
+      txid: outcome.txid,
+    ),
+    // Built and signed, not handed to the network. It may still land, so it
+    // is neither paid nor unpaid: the bill records nothing and no retry is
+    // safe until the wallet says which way it went. The transaction it built
+    // is what a person looks up to learn which way.
+    SendBroadcastPhase.pendingBroadcast => WalletSendOutcome(
+      phase: WalletSendPhase.pendingBroadcast,
+      statusMessage: outcome.statusMessage,
+      txid: outcome.txid,
+    ),
+    SendBroadcastPhase.failed || SendBroadcastPhase.aborted =>
+      WalletSendOutcome(phase: WalletSendPhase.failed, error: outcome.error),
+  };
+}
+
+Future<SendBroadcastOutcome> _broadcast({
+  required WidgetRef ref,
+  required rust_sync.ProposalResult proposal,
+  required String accountUuid,
+  required String sendFlowId,
+  required String paymentRequestUri,
+}) {
   // `SendReviewArgs` describes a single recipient, because the wallet's own
   // send flow has exactly one. Only the proposal id, the flow id and the
   // account drive execution; the address and amount are display metadata that
@@ -60,25 +115,9 @@ Future<WalletSendOutcome> proposeAndBroadcastSplitsBatch({
     needsSaplingParams: proposal.needsSaplingParams,
   );
 
-  final outcome = await runSendBroadcast(
+  return runSendBroadcast(
     ref: ref,
     args: args,
     confirmSaplingParamsDownload: () async => true,
   );
-
-  return switch (outcome.phase) {
-    SendBroadcastPhase.succeeded => WalletSendOutcome(
-      phase: WalletSendPhase.succeeded,
-      txid: outcome.txid,
-    ),
-    // Built and signed, not handed to the network. It may still land, so it is
-    // neither paid nor unpaid: the bill records nothing and no retry is safe
-    // until the wallet says which way it went.
-    SendBroadcastPhase.pendingBroadcast => WalletSendOutcome(
-      phase: WalletSendPhase.pendingBroadcast,
-      statusMessage: outcome.statusMessage,
-    ),
-    SendBroadcastPhase.failed || SendBroadcastPhase.aborted =>
-      WalletSendOutcome(phase: WalletSendPhase.failed, error: outcome.error),
-  };
 }

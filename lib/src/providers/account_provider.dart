@@ -1190,6 +1190,11 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
         recordError('gift-card observer db cleanup', e, st);
       }
       try {
+        await deleteSplitsDirectory();
+      } catch (e, st) {
+        recordError('splits bill cleanup', e, st);
+      }
+      try {
         ref.read(votingHomeCacheProvider.notifier).clearForReset();
         await clearVotingCachesForReset();
       } catch (e, st) {

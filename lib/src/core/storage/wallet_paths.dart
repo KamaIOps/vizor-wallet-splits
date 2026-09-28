@@ -40,6 +40,22 @@ Future<String> getWalletDbPath() async {
   return '${dir.path}${Platform.pathSeparator}$dbName';
 }
 
+/// Where the splits feature keeps this device's bills.
+Future<String> getSplitsDirectoryPath() async {
+  final dir = await getWalletSupportDirectory();
+  return '${dir.path}${Platform.pathSeparator}splits';
+}
+
+/// Deletes every bill this device holds. Their keys are in secure storage,
+/// which a reset wipes with the rest; a bill left behind would be listed to
+/// the next wallet on this device with no key to read it.
+Future<void> deleteSplitsDirectory({
+  Future<String> Function() resolveDirectory = getSplitsDirectoryPath,
+}) async {
+  final directory = Directory(await resolveDirectory());
+  if (await directory.exists()) await directory.delete(recursive: true);
+}
+
 Future<String> getTorDataDirectoryPath() async {
   final dir = await getWalletSupportDirectory();
   return '${dir.path}${Platform.pathSeparator}tor';

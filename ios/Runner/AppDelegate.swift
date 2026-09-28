@@ -431,10 +431,11 @@ import UIKit
     networkPrivacyChannel.setMethodCallHandler { (call, result) in
       switch call.method {
       case "excludeFromBackup":
-        // Arti's directory records this wallet's guard choice. Restoring it
-        // onto another device would carry that choice across, so it is kept
-        // out of iCloud and finder backups; a restored install picks fresh
-        // guards at the cost of one bootstrap.
+        // Keeps a directory out of iCloud and Finder backups. Arti's records
+        // this wallet's guard choice, which a restore would carry to another
+        // device; a restored install picks fresh guards at the cost of one
+        // bootstrap. The splits directory holds bills in clear, whose keys
+        // stay in the keychain.
         guard
           let arguments = call.arguments as? [String: Any],
           let path = arguments["path"] as? String,

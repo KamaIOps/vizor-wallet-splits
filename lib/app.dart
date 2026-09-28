@@ -1863,10 +1863,9 @@ class _IncomingLinkHostState extends ConsumerState<_IncomingLinkHost> {
   void _handleSplitsInvite(String raw) {
     ref.read(splitsInviteIntakeProvider.notifier).receive(raw);
     if (ref.read(appSecurityProvider).requiresUnlock) return;
-    final location = _currentLocation;
-    if (isOnboardingLocation(location)) return;
+    if (isOnboardingLocation(_currentLocation)) return;
     // Already open: the screen listens for the intake and reads it in place.
-    if (location == '/splits') return;
+    if (ref.read(splitsInviteIntakeProvider.notifier).screenOpen) return;
     widget.router.push('/splits');
   }
 
