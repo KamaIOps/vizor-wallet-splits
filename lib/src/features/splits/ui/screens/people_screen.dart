@@ -125,49 +125,75 @@ class _PersonTile extends StatelessWidget {
   }
 
   Widget _tile(BuildContext context, ColorScheme scheme) {
-    return ListTile(
+    final lane = hostapi.laneFor(participant);
+    final name = view.bill.displayNameOf(
+      participant.id,
+      creatorId: view.creatorId,
+    );
+    // Offered where there is something to do about it, instead of a sentence
+    // saying what is missing. An address is theirs to set once they have
+    // joined from their own phone (§10.7), so only an unbound record gets one
+    // from here.
+    final actions = <Widget>[
+      if (!isMe && lane == hostapi.SettleLane.none && !_bound)
+        TextButton.icon(
+          key: Key('splits_person_add_address_${participant.id}'),
+          icon: const Icon(Icons.qr_code_scanner, size: 18),
+          label: const Text('Add address'),
+          onPressed: () => askAndSetAddress(
+            context,
+            billId: billId,
+            id: participant.id,
+            name: name,
+          ),
+        ),
+      if (!isMe && !_bound)
+        TextButton.icon(
+          key: Key('splits_person_invite_${participant.id}'),
+          icon: const Icon(Icons.link, size: 18),
+          label: const Text('Invite'),
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => ShareBillScreen(billId: billId),
+            ),
+          ),
+        ),
+    ];
+    return Padding(
       key: Key('splits_person_${participant.id}'),
-      title: Row(
+      padding: const EdgeInsets.fromLTRB(16, 12, 4, 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // A name comes from whatever a peer put in its join, and a
-          // participant nobody has renamed is named by its id — long enough to
-          // push the badge off the row. The name gives way; the badge does
-          // not, because it is what says which row is this device's.
-          Flexible(
-            child: Text(
-              view.bill.displayNameOf(
-                participant.id,
-                creatorId: view.creatorId,
-              ),
-              overflow: TextOverflow.ellipsis,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // The name gives way to the badge, which says which row is
+                // this device's.
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(name, overflow: TextOverflow.ellipsis),
+                    ),
+                    if (isMe)
+                      const Padding(
+                        padding: EdgeInsets.only(left: 8),
+                        child: Text('(you)'),
+                      ),
+                  ],
+                ),
+                if (lane != hostapi.SettleLane.none)
+                  Text(
+                    _payout,
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                  ),
+                if (actions.isNotEmpty) Wrap(spacing: 4, children: actions),
+              ],
             ),
           ),
           if (isMe)
-            const Padding(
-              padding: EdgeInsets.only(left: 8),
-              child: Text('(you)'),
-            ),
-        ],
-      ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(_payout),
-          if (!_bound)
-            Text(
-              // What this can actually tell, which is narrower than how they
-              // got here: §10.7 binds a key only to a join its own author
-              // signed and claimed. A join carrying no key is
-              // indistinguishable from a name somebody typed, so the sentence
-              // says the thing that is true of both.
-              'Not joined on their phone yet, so others can act for them.',
-              style: TextStyle(color: scheme.error),
-            ),
-        ],
-      ),
-      isThreeLine: true,
-      trailing: isMe
-          ? IconButton(
+            IconButton(
               key: const Key('splits_person_payout'),
               tooltip: 'How you get paid',
               icon: const Icon(Icons.chevron_right),
@@ -178,16 +204,16 @@ class _PersonTile extends StatelessWidget {
               ),
             )
           // §10.8 lets the bill's creator withdraw somebody else's join, and
-          // nobody else: offered to anyone else, it is a button that only
-          // ever fails.
-          : SplitsScope.of(context).me == view.creatorId
-          ? IconButton(
+          // nobody else.
+          else if (SplitsScope.of(context).me == view.creatorId)
+            IconButton(
               key: Key('splits_person_remove_${participant.id}'),
               tooltip: 'Take off the bill',
               icon: const Icon(Icons.person_remove_outlined),
               onPressed: () => _remove(context),
-            )
-          : null,
+            ),
+        ],
+      ),
     );
   }
 }

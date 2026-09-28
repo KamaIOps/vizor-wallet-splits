@@ -534,22 +534,11 @@ class _Unpayable extends StatelessWidget {
               icon: const Icon(Icons.qr_code_scanner, size: 18),
               label: Text('Add ${who(u.id)}’s address'),
               onPressed: () async {
-                final address = await askForText(
+                await askAndSetAddress(
                   context,
-                  title: '${who(u.id)}’s address',
-                  hint: 'Zcash address',
-                  action: 'Save',
-                  fieldKey: const Key('splits_settle_address_field'),
-                  actionKey: const Key('splits_settle_address_save'),
-                  scannable: true,
-                  fromScan: _addressIn,
-                );
-                if (address == null || address.trim().isEmpty) return;
-                if (!context.mounted) return;
-                await SplitsScope.read(context).setAddressFor(
                   billId: billId,
                   id: u.id,
-                  address: _addressIn(address),
+                  name: who(u.id),
                 );
                 await onReturn();
               },
@@ -981,16 +970,4 @@ int? _percentOff(int? rate, int? live) {
   if (rate == null || live == null || live <= 0) return null;
   final diff = BigInt.from(rate) - BigInt.from(live);
   return (diff * BigInt.from(100) ~/ BigInt.from(live)).toInt();
-}
-
-/// The address in a scanned code: a bare address, or the one a `zcash:`
-/// payment request names before its query.
-String _addressIn(String scanned) {
-  var text = scanned.trim();
-  if (text.toLowerCase().startsWith('zcash:')) {
-    text = text.substring('zcash:'.length);
-    final query = text.indexOf('?');
-    if (query >= 0) text = text.substring(0, query);
-  }
-  return text;
 }
