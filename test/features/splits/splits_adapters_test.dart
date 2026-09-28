@@ -6,7 +6,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:splitz_host/splitz_host.dart';
-import 'package:splitz_flutter/splitz_flutter.dart';
+import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 import 'package:zcash_wallet/src/core/network/network_http_client.dart';
 import 'package:zcash_wallet/src/features/splits/splits_relay.dart';
 import 'package:zcash_wallet/src/features/splits/splits_swaps.dart';

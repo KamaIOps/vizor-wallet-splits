@@ -11,7 +11,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:splitz_host/io.dart';
-import 'package:splitz_flutter/splitz_flutter.dart';
+import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import '../../core/network/network_http_client.dart';
 

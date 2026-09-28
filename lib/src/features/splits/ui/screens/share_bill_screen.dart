@@ -1,0 +1,230 @@
+/// Getting a bill from this phone to another.
+library;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+
+import 'splits_scope.dart';
+
+/// The invite, and the whole bill as one code when it still fits.
+///
+/// Two things, not one, because they are not interchangeable. An invite
+/// carries the bill's id and its key and nothing else — the log still has to
+/// arrive from somewhere. The payload carries the log itself, so a joiner
+/// holds a bill rather than a name to go looking for.
+class ShareBillScreen extends StatefulWidget {
+  const ShareBillScreen({super.key, required this.billId});
+
+  final String billId;
+
+  @override
+  State<ShareBillScreen> createState() => _ShareBillScreenState();
+}
+
+class _ShareBillScreenState extends State<ShareBillScreen> {
+  String? _invite;
+  String? _payload;
+  bool _tooBig = false;
+  bool _loaded = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_loaded) {
+      _loaded = true;
+      _build();
+    }
+  }
+
+  Future<void> _build() async {
+    final controller = SplitsScope.read(context);
+    final invite = await controller.inviteFor(widget.billId);
+    final payload = await controller.shareableBill(widget.billId);
+    if (!mounted) return;
+    setState(() {
+      _invite = invite;
+      _payload = payload;
+      // Null is a state, not a failure: §11.2 caps a payload, and a bill with
+      // several addressed people reaches that cap quickly.
+      _tooBig = payload == null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Share this bill')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(
+            'The whole bill',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'One code that opens the bill on another phone, contents and all.',
+          ),
+          const SizedBox(height: 12),
+          if (_payload != null)
+            _Code(label: 'Bill code', value: _payload!)
+          else if (_tooBig)
+            const _TooBig()
+          else
+            const _Loading(),
+          const SizedBox(height: 32),
+          Text(
+            'Just the invite',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'The bill’s name and its key, with none of its contents. The other '
+            'phone still needs the bill itself, from a code or from sync.',
+          ),
+          const SizedBox(height: 12),
+          if (_invite != null)
+            _Code(label: 'Invite', value: _invite!)
+          else
+            const _Loading(),
+        ],
+      ),
+    );
+  }
+}
+
+/// A bill past the scan cap.
+///
+/// Said plainly, because the remedy is different from an error's: nothing is
+/// broken, the bill has simply outgrown one code.
+class _TooBig extends StatelessWidget {
+  const _TooBig();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(12),
+    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+    child: const Text(
+      'This bill has outgrown a single code. Send the invite instead, and '
+      'let the other phone catch up through sync.',
+    ),
+  );
+}
+
+class _Loading extends StatelessWidget {
+  const _Loading();
+
+  @override
+  Widget build(BuildContext context) => const Padding(
+    padding: EdgeInsets.all(12),
+    child: LinearProgressIndicator(),
+  );
+}
+
+/// A code, drawn, shown as text, and offered to copy or share.
+///
+/// Reading a code needs a camera, which is the wallet's; drawing one is done
+/// here. Every form carries the same string, which is what makes a scan, a
+/// paste and a shared message interchangeable.
+class _Code extends StatelessWidget {
+  const _Code({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Copy',
+                icon: const Icon(Icons.copy),
+                onPressed: () => Clipboard.setData(ClipboardData(text: value)),
+              ),
+              if (SplitsScope.sharerOf(context) case final share?)
+                Builder(
+                  builder: (button) => IconButton(
+                    key: Key('splits_share_$label'),
+                    tooltip: 'Share',
+                    icon: const Icon(Icons.share),
+                    onPressed: () =>
+                        share(button, value, origin: _globalRect(button)),
+                  ),
+                ),
+            ],
+          ),
+          // The code itself, drawn. §11.2 caps a payload at what a
+          // version-40 QR holds in byte mode at error correction M, so those
+          // are the settings: a lower version could not carry a payload the
+          // protocol says fits, and a higher correction level would cap it
+          // lower than the protocol does.
+          Center(
+            child: QrImageView(
+              key: Key('splits_qr_$label'),
+              data: value,
+              version: QrVersions.auto,
+              errorCorrectionLevel: QrErrorCorrectLevel.M,
+              size: _qrSize,
+              padding: EdgeInsets.all(_quietZone(value)),
+              // White behind the modules whatever the theme is: a scanner
+              // reads contrast, and a dark-mode card behind a dark code is
+              // one that does not scan.
+              backgroundColor: const Color(0xFFFFFFFF),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Anyone who sees this code can read the bill and write to it. '
+            'Show it only to the people on the bill: it cannot be taken back.',
+            key: Key('splits_code_warning_$label'),
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          SelectableText(
+            value,
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${value.length} characters',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+const double _qrSize = 240;
+
+/// The white margin around the code, in logical pixels: four modules on every
+/// side, which ISO/IEC 18004 requires for a scanner to find the finder
+/// patterns. With `m` modules across and `p` padding, a module is
+/// `(size - 2p) / m`, so `p = 4 * size / (m + 8)`.
+double _quietZone(String value) {
+  final code = QrValidator.validate(
+    data: value,
+    errorCorrectionLevel: QrErrorCorrectLevel.M,
+  ).qrCode;
+  if (code == null) return 10;
+  return 4 * _qrSize / (code.moduleCount + 8);
+}
+
+/// Where [context]'s box sits on screen, or null before it has been laid out.
+Rect? _globalRect(BuildContext context) {
+  final box = context.findRenderObject();
+  if (box is! RenderBox || !box.hasSize) return null;
+  return box.localToGlobal(Offset.zero) & box.size;
+}

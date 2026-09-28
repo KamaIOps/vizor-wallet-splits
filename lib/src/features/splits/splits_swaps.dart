@@ -8,7 +8,7 @@ library;
 import 'dart:convert';
 
 import 'package:splitz_core/splitz_core.dart' show canonicalInstant;
-import 'package:splitz_flutter/splitz_flutter.dart';
+import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import '../../core/network/network_http_client.dart';
 
