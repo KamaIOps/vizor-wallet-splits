@@ -20,6 +20,21 @@ class SplitsInviteIntake extends Notifier<String?> {
     state = null;
     return raw;
   }
+
+  int _screens = 0;
+
+  /// Whether a bills screen is open to read an arriving invite in place.
+  ///
+  /// Counted by the screen itself rather than read from the router: a pushed
+  /// route does not change the location the router reports, so a check on
+  /// the location never sees the screen and every link would open another.
+  bool get screenOpen => _screens > 0;
+
+  void screenOpened() => _screens++;
+
+  void screenClosed() {
+    if (_screens > 0) _screens--;
+  }
 }
 
 final splitsInviteIntakeProvider =

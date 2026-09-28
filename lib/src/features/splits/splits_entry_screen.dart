@@ -23,6 +23,7 @@ import 'splits_invite_intake.dart';
 import 'splits_share.dart';
 import 'splits_swaps.dart';
 
+import '../../core/storage/device_backup.dart';
 import '../../core/storage/wallet_paths.dart';
 import '../../providers/account_provider.dart';
 import 'dev_accounts_import.dart';
@@ -44,9 +45,13 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
   /// The invite a link parked before the controller existed, read once.
   String? _openingInvite;
 
+  /// Held from [initState], because `ref` may not be read in [dispose].
+  late final SplitsInviteIntake _intake;
+
   @override
   void initState() {
     super.initState();
+    _intake = ref.read(splitsInviteIntakeProvider.notifier)..screenOpened();
     _build();
   }
 
@@ -91,6 +96,12 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
           identitySecret = splitsIdentitySecret(
             mnemonic: secret.mnemonic,
             passphrase: secret.bip39Passphrase,
+            accountIndex:
+                account?.accounts
+                    .where((a) => a.uuid == accountUuid)
+                    .firstOrNull
+                    ?.zip32AccountIndex ??
+                0,
           );
         }
       } on Object {
@@ -106,10 +117,15 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
       }
     }
 
-    // Beside the wallet database, which is where this app is allowed to write.
-    final directory = Directory(
-      '${File(await getWalletDbPath()).parent.path}/splits',
-    );
+    // Beside the wallet database, which is where this app is allowed to write,
+    // and out of device backups: bills are stored in clear, and a backup
+    // carries them to whoever holds it without the keys that seal them.
+    final directory = Directory(await getSplitsDirectoryPath());
+    try {
+      await excludeFromDeviceBackup(directory.path);
+    } on Object catch (error) {
+      debugPrint('splits: could not keep bills out of device backups: $error');
+    }
 
     final wallet = VizorSplitsWallet(
       accountUuid: accountUuid,
@@ -167,6 +183,7 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
 
   @override
   void dispose() {
+    _intake.screenClosed();
     _controller?.dispose();
     super.dispose();
   }
