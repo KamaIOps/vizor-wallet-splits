@@ -148,7 +148,7 @@ void main() {
       // whole bill as a code, or the sentence that it has outgrown one. What is
       // asserted is that one of them is on screen and neither is a failure.
       final whole = find.text('Bill code');
-      final outgrown = find.textContaining('outgrown a single code');
+      final outgrown = find.textContaining('Too big for one code');
       await pumpUntil(
         tester,
         () => tester.any(whole) || tester.any(outgrown),
@@ -172,7 +172,7 @@ void main() {
       }
 
       // The invite is offered either way, and is what a capped bill is sent as.
-      await _scrollToText(tester, 'Just the invite');
+      await _scrollToText(tester, 'Lets someone join. The bill arrives when they sync.');
       final invite = tester
           .widgetList<CodeImage>(find.byType(CodeImage))
           .map((w) => w.value)
@@ -255,7 +255,7 @@ void main() {
 
 /// Scrolls the screen until [text] is on it.
 ///
-/// The share screen is a `ListView`: "Just the invite" and the invite's own
+/// The share screen is a `ListView`: "Lets someone join" and the invite's own
 /// code sit below the fold, so a finder that waits for one waits forever.
 /// Waits for the add-expense screen to close, which is what says the expense
 /// was written.

@@ -247,7 +247,7 @@ void main() {
       final ben = await SignedPeer.named('ben');
       await c.accept(id, [await ben.join(id, name: 'Ben', payTo: '')]);
       await c.setAddressFor(billId: id, id: ben.id, address: 'u1other');
-      expect(c.lastError, contains('only they can set'));
+      expect(c.lastError, contains('sets their own address'));
       expect(
         c.bills.single.bill.participant(ben.id)!.payableAddress,
         isNot('u1other'),

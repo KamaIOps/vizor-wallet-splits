@@ -290,8 +290,7 @@ class _PayoutScreenState extends State<PayoutScreen> {
                     key: const Key('splits_payout_chains_unavailable'),
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Text(
-                      'The chains USDC arrives on could not be listed '
-                      '($_chainsUnavailable). Type the asset and chain.',
+                      'Couldn’t load chains. Type the asset and chain.',
                     ),
                   ),
                 ..._typedFields(),
@@ -313,11 +312,7 @@ class _PayoutScreenState extends State<PayoutScreen> {
             if (_choice == PayoutChoice.cash)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text(
-                  'Cash is not verified by anything. Anyone on the bill can '
-                  'say they paid you, so it only settles when you confirm it '
-                  'arrived.',
-                ),
+                child: Text('You confirm cash when it arrives.'),
               ),
             if (controller.lastError != null)
               Padding(

@@ -208,9 +208,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          widget.isEditing ? 'Correct this expense' : 'Add expense',
-        ),
+        title: Text(widget.isEditing ? 'Correct this expense' : 'Add expense'),
       ),
       bottomNavigationBar: BottomActions(
         children: [
@@ -422,11 +420,10 @@ int? parseMinorUnits(String text, {int exponent = 2, String? currency}) {
 String figureRefusal(String currency) {
   final exponent = currencyExponent(currency);
   if (exponent == null) {
-    return '$currency has no minor unit, so amounts in it cannot be typed '
-        'here.';
+    return '$currency can’t be split here.';
   }
   final example = exponent == 0 ? '1250' : '12.${'5'.padRight(exponent, '0')}';
-  return 'A figure in $currency, like $example, with no thousands separator';
+  return 'Enter an amount like $example';
 }
 
 extension<T> on Iterable<T> {

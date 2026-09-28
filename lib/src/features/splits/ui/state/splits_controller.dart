@@ -500,10 +500,7 @@ class SplitsController extends ChangeNotifier {
         throw const SplitsRefusal('That person is not on this bill.');
       }
       if (view.identities.bound.containsKey(id)) {
-        throw SplitsRefusal(
-          '${who.name} joined from their own phone, so only they can set '
-          'where they are paid.',
-        );
+        throw SplitsRefusal('${who.name} sets their own address.');
       }
       final trimmed = address.trim();
       if (trimmed.isEmpty) {
@@ -582,10 +579,8 @@ class SplitsController extends ChangeNotifier {
             .toSet();
         throw SplitsRefusal(
           refused.contains(protocol.SplitCode.participantStillNamed)
-              ? 'They paid for something or share an expense on this bill. '
-                    'Take those off first.'
-              : 'Only the organiser, or they themselves, can take them off '
-                    'this bill.',
+              ? 'They’re on an expense. Remove that first.'
+              : 'Only the bill’s creator can remove them.',
         );
       }
       await _store.merge(billId, voids);
@@ -744,10 +739,7 @@ class SplitsController extends ChangeNotifier {
           .firstOrNull
           ?.paymentDigests[paymentId];
       if (record == null) {
-        throw const SplitsRefusal(
-          'This device does not hold that payment. Sync the bill and try '
-          'again.',
-        );
+        throw const SplitsRefusal('Payment not found. Sync and try again.');
       }
       final seed = await _requireIdentity();
       final host = _host(seed);
@@ -801,9 +793,7 @@ class SplitsController extends ChangeNotifier {
       _syncStates[billId] = const SplitsSyncState(
         phase: SplitsSyncPhase.noRelay,
       );
-      _lastError =
-          'There is no bill relay in this build, so this bill '
-          'travels by code rather than by sync.';
+      _lastError = 'This build has no bill relay. Share by code.';
       notifyListeners();
       return null;
     }
@@ -927,16 +917,12 @@ class SplitsController extends ChangeNotifier {
     {
       if (await _intents.of(billId) != null) {
         throw const SplitsRefusal(
-          'A send from this bill has not been resolved. Check the wallet '
-          'before sending again.',
+          'An earlier send isn’t resolved. Check your wallet.',
         );
       }
       final now = await obligation(billId);
       if (now?.uri != owed.uri) {
-        throw const SplitsRefusal(
-          'The bill changed since these amounts were shown. Check them again '
-          'before sending.',
-        );
+        throw const SplitsRefusal('The bill changed. Check the amounts.');
       }
       final seed = _identitySeed;
       final entries = await _store.read(billId);
@@ -1028,16 +1014,10 @@ class SplitsController extends ChangeNotifier {
         // The provider's reference identifies it; no transaction id needed.
         final amount = intent.carried[swap.to];
         if (amount == null) {
-          throw const SplitsRefusal(
-            'This device no longer knows what that send carried. Record it '
-            'by hand.',
-          );
+          throw const SplitsRefusal('Send details lost. Record it by hand.');
         }
         if (!await _recordSwap(swap, amount, intent.zatoshi)) {
-          throw const SplitsRefusal(
-            'This device no longer holds this bill. Open it again, then '
-            'record the send.',
-          );
+          throw const SplitsRefusal('Bill not on this phone. Open it again.');
         }
       } else if (landed) {
         final given = (txid == null || txid.trim().isEmpty)
@@ -1052,14 +1032,12 @@ class SplitsController extends ChangeNotifier {
         // A Zcash transaction id is 32 bytes, shown as 64 hex digits.
         if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(id)) {
           throw const SplitsRefusal(
-            'That is not a transaction id. Copy the 64-character id from the '
-            'wallet’s history.',
+            'Not a transaction id. Copy the 64-character one.',
           );
         }
         if (intent.carried.isEmpty) {
           throw const SplitsRefusal(
-            'This device no longer knows what that send carried. Record each '
-            'payment by hand.',
+            'Send details lost. Record each payment by hand.',
           );
         }
         final seed = await _requireIdentity();
@@ -1088,10 +1066,7 @@ class SplitsController extends ChangeNotifier {
           rate: rate == null ? null : protocol.decodeRate(rate),
         );
         if (!await _mergeWhileHeld(billId, records)) {
-          throw const SplitsRefusal(
-            'This device no longer holds this bill. Open it again, then '
-            'record the send.',
-          );
+          throw const SplitsRefusal('Bill not on this phone. Open it again.');
         }
       }
       await _intents.clear(billId);
@@ -1128,7 +1103,7 @@ class SplitsController extends ChangeNotifier {
       final address = payout.address;
       if (asset == null || chain == null || address == null) {
         throw const SwapException(
-          'That payout names no asset, chain or address to swap into',
+          'That payout has no asset, chain or address.',
         );
       }
 
@@ -1211,9 +1186,7 @@ class SplitsController extends ChangeNotifier {
       if (quote.hasExpired(
         protocol.canonicalInstant(_wallet.now().toUtc().toIso8601String()),
       )) {
-        throw const SwapException(
-          'That quote has expired. Ask for a new one before sending.',
-        );
+        throw const SwapException('Quote expired. Get a new one.');
       }
       _refuseMemo(quote);
       // The debt this quote pays must still be owed, and not already paid
@@ -1227,10 +1200,7 @@ class SplitsController extends ChangeNotifier {
           ) &&
           !now.awaiting.any((a) => a.to == to);
       if (!stillOwed) {
-        throw const SplitsRefusal(
-          'The bill changed since this was quoted. Go back and check what is '
-          'owed.',
-        );
+        throw const SplitsRefusal('The bill changed. Check what’s owed.');
       }
       // The quote delivers to the address it was asked for. A payee who has
       // since replaced their payout is owed at the new one, and a deposit on
@@ -1243,15 +1213,11 @@ class SplitsController extends ChangeNotifier {
           ?.payouts
           .firstOrNull;
       if (payout?.address == null || quote.recipient != payout!.address) {
-        throw const SplitsRefusal(
-          'Where this person is paid changed since this was quoted. Ask for a '
-          'new quote.',
-        );
+        throw const SplitsRefusal('Their address changed. Get a new quote.');
       }
       if (await _intents.of(billId) != null) {
         throw const SplitsRefusal(
-          'A send from this bill has not been resolved. Check the wallet '
-          'before sending again.',
+          'An earlier send isn’t resolved. Check your wallet.',
         );
       }
       // Captured first, deliberately: after the wallet is called this device
@@ -1317,8 +1283,7 @@ class SplitsController extends ChangeNotifier {
     final memo = quote.depositMemo;
     if (memo != null && memo.isNotEmpty) {
       throw const SwapException(
-        'This provider wants a memo with the deposit, which this wallet '
-        'cannot attach. Nothing was sent.',
+        'This swap needs a memo we can’t add. Nothing was sent.',
       );
     }
   }
@@ -1447,10 +1412,7 @@ class SplitsController extends ChangeNotifier {
   Future<void> replaceKey(String billId, String key) async {
     await _guard(() async {
       if (_sending.contains(billId) || await _intents.of(billId) != null) {
-        throw const SplitsRefusal(
-          'A send from this bill has not been resolved. Settle it before '
-          'changing the bill’s key.',
-        );
+        throw const SplitsRefusal('Finish the earlier send first.');
       }
       await _keys.replaceBillKey(billId, key);
       await _refresh();
@@ -1509,10 +1471,7 @@ class SplitsController extends ChangeNotifier {
       // A send that may still land keeps its bill: forgetting it would
       // forget the only note that the debt is already paid.
       if (_sending.contains(billId) || await _intents.of(billId) != null) {
-        throw const SplitsRefusal(
-          'A send from this bill has not been resolved. Settle it before '
-          'removing the bill.',
-        );
+        throw const SplitsRefusal('Finish the earlier send first.');
       }
       await _forget(billId);
       await _refresh();
@@ -1655,9 +1614,7 @@ class SplitsController extends ChangeNotifier {
     if (error is SwapException) return error.message;
     if (error is SplitsRefusal) return error.message;
     if (error is BillKeyConflict) {
-      return 'This device already holds a different key for this bill, so '
-          'the invite was not used. Ask whoever shared it which one is '
-          'current.';
+      return 'This phone has another key for this bill. Ask which one is current.';
     }
     return error.toString();
   }

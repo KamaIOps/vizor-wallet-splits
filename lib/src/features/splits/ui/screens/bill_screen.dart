@@ -15,6 +15,7 @@ import 'people_screen.dart';
 import 'price_bill_screen.dart';
 import 'settle_screen.dart';
 import 'share_bill_screen.dart';
+import 'text_entry_screen.dart';
 import 'splits_scope.dart';
 
 /// The bill, derived from the entries this device holds.
@@ -68,9 +69,7 @@ class _BillScreenState extends State<BillScreen> {
       builder: (dialog) => AlertDialog(
         title: const Text('Remove this bill from this phone?'),
         content: const Text(
-          'Everyone else keeps it as it is. This phone forgets its entries '
-          'and its key, so seeing it again needs a new invite or code from '
-          'someone on the bill.',
+          'Others keep it. You’ll need a new invite to see it again.',
         ),
         actions: [
           TextButton(
@@ -255,8 +254,7 @@ class _BillScreenState extends State<BillScreen> {
               // §13: a wallet MUST show a changed pay-to address before it
               // settles to one. Buried in a list it is not shown.
               message:
-                  '${who(replaced.id)} changed where they are paid. Check it '
-                  'is really them before you send.',
+                  '${who(replaced.id)} changed their address. Check with them before paying.',
               error: true,
             ),
           for (final name in view.bill.sharedNames)
@@ -265,8 +263,7 @@ class _BillScreenState extends State<BillScreen> {
               // Two people answering to one name is how somebody who read the
               // invite passes for a person already on the bill.
               message:
-                  'More than one person on this bill is called $name. Check '
-                  'which is which before you pay either of them.',
+                  'Two people are called $name. Check who’s who before paying.',
             ),
           _People(billId: billId, view: view),
           const SectionLabel('Expenses'),
@@ -329,9 +326,13 @@ class _JoinPrompt extends StatelessWidget {
   /// bill, so it is asked for rather than filled in from the wallet.
   Future<void> _join(BuildContext context) async {
     final controller = SplitsScope.read(context);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (_) => const _JoinName(),
+    final name = await askForText(
+      context,
+      title: 'Your name',
+      hint: 'What others see',
+      action: 'Join',
+      fieldKey: const Key('splits_bill_join_name'),
+      actionKey: const Key('splits_bill_join_ok'),
     );
     if (name == null || name.trim().isEmpty) return;
     await controller.join(billId, displayName: name.trim());
@@ -354,46 +355,6 @@ class _JoinPrompt extends StatelessWidget {
       ),
     );
   }
-}
-
-class _JoinName extends StatefulWidget {
-  const _JoinName();
-
-  @override
-  State<_JoinName> createState() => _JoinNameState();
-}
-
-class _JoinNameState extends State<_JoinName> {
-  final _name = TextEditingController();
-
-  @override
-  void dispose() {
-    _name.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Your name on this bill'),
-    content: TextField(
-      key: const Key('splits_bill_join_name'),
-      controller: _name,
-      autofocus: true,
-      decoration: const InputDecoration(labelText: 'What the others call you'),
-      onSubmitted: (v) => Navigator.of(context).pop(v),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.of(context).pop(),
-        child: const Text('Cancel'),
-      ),
-      FilledButton(
-        key: const Key('splits_bill_join_ok'),
-        onPressed: () => Navigator.of(context).pop(_name.text),
-        child: const Text('Join'),
-      ),
-    ],
-  );
 }
 
 /// A plain row: what, a line under it, and a figure on the right.
@@ -469,10 +430,7 @@ class _ExpenseTile extends StatelessWidget {
         title: const Text('Take this off the bill?'),
         // Honest about what it does: the entry stays in the log where every
         // device can still see it was written.
-        content: const Text(
-          'It stops counting towards what anyone owes. It stays in the '
-          'history, so everyone can see it was taken off.',
-        ),
+        content: const Text('It stops counting, but stays in the history.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialog).pop(false),
@@ -547,10 +505,8 @@ class _ExpenseTile extends StatelessWidget {
 /// The code stays beside it: it is what two people compare when their devices
 /// disagree.
 String _whyNotApplied(String code) => switch (code) {
-  'unauthorized_entry' =>
-    'Written by somebody not allowed to change this, or not signed by them',
-  'participant_still_named' =>
-    'Takes somebody off who is still named by an expense or payment',
+  'unauthorized_entry' => 'Not allowed, or not signed',
+  'participant_still_named' => 'Removes someone still on an expense',
   'participant_id_not_derived' =>
     'A join whose key does not match the person it names',
   'duplicate_expense' => 'A second expense under an id already used',
@@ -612,64 +568,105 @@ class _SyncNotice extends StatelessWidget {
   }
 }
 
-/// Who is on the bill, in reach from the bill itself: a person is added here,
-/// and taken off by whoever opened the bill (§10.8). Tapping one opens the
-/// full list, with how each is paid.
+/// Who is on the bill, in one sideways row, with + to add somebody and − to
+/// take somebody off. Taking off is the creator's alone (§10.8). Tapping a
+/// name opens the full list, with how each is paid.
 class _People extends StatelessWidget {
   const _People({required this.billId, required this.view});
 
   final String billId;
   final BillView view;
 
+  String _name(String id, String me) {
+    final name = view.bill.displayNameOf(id, creatorId: view.creatorId);
+    return id == me ? '$name (you)' : name;
+  }
+
+  Future<void> _removeSomebody(BuildContext context) async {
+    final controller = SplitsScope.read(context);
+    final others = [
+      for (final p in view.bill.participants)
+        if (p.id != controller.me) p,
+    ];
+    final canRemove = view.creatorId == controller.me;
+    final picked = await showModalBottomSheet<protocol.Participant>(
+      context: context,
+      useRootNavigator: false,
+      showDragHandle: true,
+      builder: (sheet) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          children: [
+            Text(
+              canRemove ? 'Remove who?' : 'Only the bill’s creator can remove.',
+              style: Theme.of(sheet).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            if (others.isEmpty) const Text('Nobody else is on the bill.'),
+            for (final p in others)
+              ListTile(
+                key: Key('splits_bill_remove_${p.id}'),
+                title: Text(_name(p.id, controller.me)),
+                trailing: canRemove
+                    ? const Icon(Icons.remove_circle_outline)
+                    : null,
+                enabled: canRemove,
+                onTap: () => Navigator.of(sheet).pop(p),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !context.mounted) return;
+    await confirmAndRemovePerson(context, billId: billId, participant: picked);
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = SplitsScope.of(context);
-    final canRemove = view.creatorId == controller.me;
-    void open() => Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => PeopleScreen(billId: billId)),
-    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
           children: [
             const Expanded(child: SectionLabel('People')),
-            TextButton.icon(
+            IconButton(
+              key: const Key('splits_bill_remove_person'),
+              tooltip: 'Remove someone',
+              icon: const Icon(Icons.remove),
+              onPressed: controller.busy
+                  ? null
+                  : () => _removeSomebody(context),
+            ),
+            IconButton(
               key: const Key('splits_bill_add_person'),
+              tooltip: 'Add someone',
+              icon: const Icon(Icons.add),
               onPressed: controller.busy
                   ? null
                   : () => askAndAddPerson(context, billId: billId, view: view),
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('Add'),
             ),
           ],
         ),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final p in view.bill.participants)
-              InputChip(
-                key: Key('splits_bill_person_${p.id}'),
-                label: Text(
-                  p.id == controller.me
-                      ? '${view.bill.displayNameOf(p.id, creatorId: view.creatorId)} (you)'
-                      : view.bill.displayNameOf(
-                          p.id,
-                          creatorId: view.creatorId,
-                        ),
+        SingleChildScrollView(
+          key: const Key('splits_bill_people_row'),
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            spacing: 8,
+            children: [
+              for (final p in view.bill.participants)
+                ActionChip(
+                  key: Key('splits_bill_person_${p.id}'),
+                  label: Text(_name(p.id, controller.me)),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => PeopleScreen(billId: billId),
+                    ),
+                  ),
                 ),
-                onPressed: open,
-                onDeleted: canRemove && p.id != controller.me
-                    ? () => confirmAndRemovePerson(
-                        context,
-                        billId: billId,
-                        participant: p,
-                      )
-                    : null,
-                deleteButtonTooltipMessage: 'Take off the bill',
-              ),
-          ],
+            ],
+          ),
         ),
       ],
     );

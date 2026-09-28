@@ -62,8 +62,7 @@ class _SwapScreenState extends State<SwapScreen> {
     if (pending != null) {
       setState(
         () => _message =
-            'A send from this bill has not been resolved. Settle it on the '
-            'settle screen before sending again.',
+            'An earlier send isn’t resolved. Finish it in Settle up.',
       );
       return;
     }
@@ -102,10 +101,7 @@ class _SwapScreenState extends State<SwapScreen> {
       // is what a person is shown.
       _message =
           controller.lastError ??
-          (quote == null
-              ? 'This bill has no price on it, or they did not ask to be '
-                    'paid in another asset.'
-              : null);
+          (quote == null ? 'Nothing to swap for them.' : null);
     });
   }
 
@@ -215,11 +211,8 @@ class _SwapScreenState extends State<SwapScreen> {
                 padding: const EdgeInsets.all(12),
                 child: Text(
                   expired
-                      ? 'This quote has expired. Ask for a new one before '
-                            'sending: the price it named is no longer held.'
-                      : 'Sending is not the same as them being paid. The ZEC '
-                            'leg is all this bill can see — they confirm when '
-                            'the asset arrives.',
+                      ? 'Quote expired. Get a new one.'
+                      : 'They confirm once it arrives.',
                 ),
               ),
             ),
@@ -303,8 +296,7 @@ class _SwapRate extends StatelessWidget {
         ),
         if (live == null)
           Text(
-            'No current price for $currency is available to check this rate '
-            'against. Compare it with a price you trust before sending.',
+            'No live price to compare. Check this rate yourself.',
             key: const Key('splits_swap_rate_unchecked'),
             style: error,
           )
@@ -319,8 +311,7 @@ class _SwapRate extends StatelessWidget {
           ),
         if (setter == to)
           Text(
-            '${who(setter!)} set this rate and is paid by this swap. Check it '
-            'against a price you trust.',
+            '${who(setter!)} set this rate and gets paid here. Check it.',
             key: const Key('splits_swap_setter_paid'),
             style: error,
           ),
@@ -373,20 +364,15 @@ class _Outcome extends StatelessWidget {
     final (title, detail) = switch (outcome.phase) {
       WalletSendPhase.succeeded => (
         'Sent',
-        'The ZEC is on its way to the provider. $who confirms once the '
-            'asset reaches them — until then the debt stands.',
+        'Sent. $who confirms when it arrives.',
       ),
       WalletSendPhase.pendingBroadcast => (
         'Not confirmed',
-        'The transaction was built but has not reached the network. It may '
-            'still land, so nothing was recorded and nothing should be sent '
-            'again until it expires.',
+        'Not on the network yet. Don’t send again until it expires.',
       ),
       WalletSendPhase.failed => (
         'Not sent',
-        outcome.error ??
-            'The wallet could not send it. Nothing was '
-                'recorded and nothing was spent.',
+        outcome.error ?? 'Couldn’t send. Nothing was spent.',
       ),
       WalletSendPhase.aborted => (
         'Cancelled',

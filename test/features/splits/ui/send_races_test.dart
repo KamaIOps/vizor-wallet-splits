@@ -158,7 +158,7 @@ void main() {
       await pumpEventQueue();
 
       await c.forget(id);
-      expect(c.lastError, contains('has not been resolved'));
+      expect(c.lastError, contains('earlier send'));
       expect(c.bills.map((b) => b.id), contains(id));
 
       w.sender.gates.single.complete(
@@ -166,7 +166,7 @@ void main() {
       );
       await a;
       await c.forget(id);
-      expect(c.lastError, contains('has not been resolved'));
+      expect(c.lastError, contains('earlier send'));
       await c.settle(id, (await c.obligation(id))!);
       expect(w.sender.sent, hasLength(1));
     },

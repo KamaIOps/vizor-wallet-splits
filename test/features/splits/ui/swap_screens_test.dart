@@ -206,7 +206,7 @@ void main() {
         quote: quote,
       );
       expect(wallet.sender.sent, isEmpty);
-      expect(c.lastError, contains('Ask for a new quote'));
+      expect(c.lastError, contains('Get a new quote'));
     });
 
     testWidgets('a quote with no floor shows the quoted figure alone', (
@@ -274,7 +274,7 @@ void main() {
 
       expect(find.byKey(const Key('splits_swap_requote')), findsOneWidget);
       expect(find.byKey(const Key('splits_swap_send')), findsNothing);
-      expect(find.textContaining('no longer held'), findsOneWidget);
+      expect(find.textContaining('Quote expired'), findsOneWidget);
     });
   });
 
@@ -320,7 +320,7 @@ void main() {
         isNot(contains(payment.reference)),
       );
       expect(
-        find.textContaining('confirms once the asset reaches them'),
+        find.textContaining('confirms when it arrives'),
         findsOneWidget,
       );
     });
@@ -350,7 +350,7 @@ void main() {
       expect(c.bills.firstWhere((b) => b.id == id).bill.payments, isEmpty);
       expect(find.text('Not confirmed'), findsOneWidget);
       expect(
-        find.textContaining('nothing should be sent again'),
+        find.textContaining('Don’t send again'),
         findsOneWidget,
       );
     });
@@ -475,7 +475,7 @@ void main() {
       await t.pumpAndSettle();
 
       expect(
-        find.textContaining('they still confirm it arrived'),
+        find.textContaining('They confirm when it arrives'),
         findsOneWidget,
       );
       // The debt stands until Ben confirms.
@@ -501,7 +501,7 @@ void main() {
       await t.pumpAndSettle();
 
       expect(
-        find.textContaining('refund returns to your own wallet'),
+        find.textContaining('Any refund comes back'),
         findsOneWidget,
       );
       expect(await c.swapsInFlight(id), isEmpty);
@@ -521,7 +521,7 @@ void main() {
       await t.pumpAndSettle();
 
       expect(
-        find.textContaining('returning the ZEC to your own wallet'),
+        find.textContaining('coming back to you'),
         findsOneWidget,
       );
       expect(find.textContaining('working on it'), findsNothing);
@@ -556,7 +556,7 @@ void main() {
       // Backing out keeps it.
       await t.tap(find.byKey(forget));
       await t.pumpAndSettle();
-      expect(find.textContaining('not cancelled'), findsOneWidget);
+      expect(find.textContaining('The swap keeps going'), findsOneWidget);
       await t.tap(find.text('Keep following'));
       await t.pumpAndSettle();
       expect(await c.swapsInFlight(id), hasLength(1));
@@ -603,7 +603,7 @@ void main() {
       );
       await t.pumpAndSettle();
       expect(swaps.quotes, 1);
-      expect(find.textContaining('has not been resolved'), findsOneWidget);
+      expect(find.textContaining('earlier send'), findsOneWidget);
       expect(find.byKey(const Key('splits_swap_send')), findsNothing);
 
       final quote = await swaps.quote(
@@ -619,7 +619,7 @@ void main() {
         quote: quote,
       );
       expect(wallet.sender.sent, hasLength(1));
-      expect(c.lastError, contains('has not been resolved'));
+      expect(c.lastError, contains('earlier send'));
     });
 
     test('found to have landed, it is recorded by its reference', () async {
@@ -685,7 +685,7 @@ void main() {
         quote: second,
       );
       expect(wallet.sender.sent, hasLength(1));
-      expect(c.lastError, contains('changed since this was quoted'));
+      expect(c.lastError, contains('The bill changed'));
       expect(c.bills.single.bill.payments, hasLength(1));
     });
 

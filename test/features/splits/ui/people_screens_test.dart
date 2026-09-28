@@ -49,7 +49,7 @@ void main() {
       // are. §10.7 binds nothing.
       expect(view.bill.participant('ben')!.identityKey, isNull);
       expect(view.identities.bound.containsKey('ben'), isFalse);
-      expect(find.textContaining('joined from their own phone'), findsOneWidget);
+      expect(find.textContaining('joined on their phone'), findsOneWidget);
     });
 
     testWidgets('two people with one name get two ids', (t) async {
@@ -102,7 +102,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(const Key('splits_person_ben')),
-          matching: find.textContaining('joined from their own phone'),
+          matching: find.textContaining('joined on their phone'),
         ),
         findsOneWidget,
       );
@@ -122,7 +122,7 @@ void main() {
       await t.pumpAndSettle();
 
       expect(
-        find.textContaining('nothing on the bill still names them'),
+        find.textContaining('Only if they’re on no expense'),
         findsOneWidget,
       );
     });
@@ -175,7 +175,7 @@ void main() {
       // Refused before anything is written: a withdrawal the fold set aside
       // would stay in the log and apply the day nothing names them.
       expect(view.setAside, isEmpty);
-      expect(c.lastError, contains('Take those off first'));
+      expect(c.lastError, contains('Remove that first'));
       expect(find.byKey(const Key('splits_people_error')), findsOneWidget);
     });
 

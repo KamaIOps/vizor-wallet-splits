@@ -97,10 +97,7 @@ class _PriceBillScreenState extends State<PriceBillScreen> {
       context: context,
       builder: (dialog) => AlertDialog(
         title: const Text('Withdraw this price?'),
-        content: const Text(
-          'It comes off the bill, and the price before it — or none — applies '
-          'on every device.',
-        ),
+        content: const Text('The earlier price, if any, applies again.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialog).pop(false),
@@ -157,10 +154,7 @@ class _PriceBillScreenState extends State<PriceBillScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Text(
-              'What 1 ZEC is worth in $currency. Everyone on the bill settles '
-              'at this price.',
-            ),
+            Text('Price of 1 ZEC in $currency.'),
             const SizedBox(height: 16),
             if (existing != null)
               Padding(
@@ -229,8 +223,7 @@ class _PriceBillScreenState extends State<PriceBillScreen> {
             ],
             const SizedBox(height: 12),
             Text(
-              'Debts stay in $currency. The price only sets how much ZEC '
-              'pays them.',
+              'Debts stay in $currency.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
