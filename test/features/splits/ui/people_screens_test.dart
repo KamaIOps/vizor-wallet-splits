@@ -49,7 +49,7 @@ void main() {
       // are. §10.7 binds nothing.
       expect(view.bill.participant('ben')!.identityKey, isNull);
       expect(view.identities.bound.containsKey('ben'), isFalse);
-      expect(find.textContaining('no key of their own yet'), findsOneWidget);
+      expect(find.textContaining('joined from their own phone'), findsOneWidget);
     });
 
     testWidgets('two people with one name get two ids', (t) async {
@@ -95,14 +95,14 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(const Key('splits_person_ben')),
-          matching: find.text('paid by a Zcash address'),
+          matching: find.text('Gets paid in ZEC'),
         ),
         findsOneWidget,
       );
       expect(
         find.descendant(
           of: find.byKey(const Key('splits_person_ben')),
-          matching: find.textContaining('no key of their own yet'),
+          matching: find.textContaining('joined from their own phone'),
         ),
         findsOneWidget,
       );

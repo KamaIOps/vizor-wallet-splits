@@ -13,7 +13,10 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:splitz_core/splitz_core.dart' as splitz;
+import 'package:splitz_host/splitz_host.dart' show TradableAsset;
+import 'package:zcash_wallet/src/features/swap/domain/swap_asset.dart';
 
+import '../state/splits_controller.dart';
 import '../view/chrome.dart';
 import 'splits_scope.dart';
 
@@ -22,7 +25,8 @@ enum PayoutChoice {
   /// A shielded Zcash output. Several recipients share one transaction.
   zec,
 
-  /// Swapped into another asset on another chain. One swap per recipient.
+  /// Swapped into USDC on a chain of the recipient's choosing. One swap per
+  /// recipient.
   swap,
 
   /// Handed over outside the app entirely.
@@ -32,7 +36,7 @@ enum PayoutChoice {
 extension PayoutChoiceText on PayoutChoice {
   String get label => switch (this) {
     PayoutChoice.zec => 'Zcash',
-    PayoutChoice.swap => 'Another asset',
+    PayoutChoice.swap => 'USDC',
     PayoutChoice.cash => 'Cash',
   };
 
@@ -41,8 +45,9 @@ extension PayoutChoiceText on PayoutChoice {
       'Paid straight to your wallet. Several people can be paid in one '
           'transaction.',
     PayoutChoice.swap =>
-      'Your ZEC is swapped and the other asset is sent to you. One swap '
-          'each, so this is not batched with anyone else.',
+      'Whoever pays you swaps their ZEC to USDC through NEAR Intents, and it '
+          'arrives on the chain you pick. One swap each, so this is not '
+          'batched with anyone else.',
     PayoutChoice.cash =>
       'Settled between you, outside this app. Nothing verifies it, so '
           'you have to say when it arrives.',
@@ -68,6 +73,26 @@ class _PayoutScreenState extends State<PayoutScreen> {
   bool _loaded = false;
   bool _saving = false;
 
+  /// The asset a swap payout asks for. The chain is chosen from where the
+  /// provider delivers it; anything else is typed by hand.
+  static const _usdc = 'USDC';
+
+  /// The chains USDC can arrive on, once the provider has said; null while
+  /// it has not been asked or has not answered.
+  List<TradableAsset>? _chains;
+
+  /// Why the chains could not be listed, when they could not.
+  String? _chainsUnavailable;
+
+  bool _askedForChains = false;
+
+  /// The chain picked from [_chains], or null while none is.
+  String? _pickedChain;
+
+  /// True when the chains could not be listed, or this device already asked
+  /// for something other than USDC: the asset and chain are then typed.
+  bool _typed = false;
+
   @override
   void dispose() {
     _asset.dispose();
@@ -89,6 +114,11 @@ class _PayoutScreenState extends State<PayoutScreen> {
         _asset.text = first.asset ?? '';
         _chain.text = first.chain ?? '';
         _address.text = first.address ?? '';
+        if ((first.asset ?? '').toUpperCase() == _usdc) {
+          _pickedChain = first.chain;
+        } else {
+          _typed = true;
+        }
       case 'cash':
         _choice = PayoutChoice.cash;
       case 'zec':
@@ -104,8 +134,8 @@ class _PayoutScreenState extends State<PayoutScreen> {
     PayoutChoice.swap => [
       splitz.Payout(
         type: 'swap',
-        asset: _asset.text.trim(),
-        chain: _chain.text.trim(),
+        asset: _typed ? _asset.text.trim() : _usdc,
+        chain: _typed ? _chain.text.trim() : _pickedChain,
         address: _address.text.trim(),
       ),
     ],
@@ -114,6 +144,9 @@ class _PayoutScreenState extends State<PayoutScreen> {
 
   Future<void> _save() async {
     if (!(_form.currentState?.validate() ?? false)) return;
+    if (_choice == PayoutChoice.swap && !_typed && _pickedChain == null) {
+      return;
+    }
     setState(() => _saving = true);
     final controller = SplitsScope.read(context);
     final navigator = Navigator.of(context);
@@ -122,6 +155,104 @@ class _PayoutScreenState extends State<PayoutScreen> {
     setState(() => _saving = false);
     if (controller.lastError == null) navigator.pop();
   }
+
+  /// A chain id as a person reads it — `base` is Base, `arb` Arbitrum.
+  static String _chainName(String chain) => SwapAsset.live(
+    assetId: '',
+    symbol: _usdc,
+    blockchain: chain,
+    decimals: 6,
+  ).chainLabel;
+
+  /// Every chain the provider delivers USDC on, one choice each.
+  ///
+  /// Read from the provider rather than written down here, so a chain it adds
+  /// or drops is offered or withdrawn without a release. When it cannot be
+  /// read, the asset and chain are typed instead of the lane going dark.
+  Widget _chainPicker(SplitsController controller) {
+    if (!_askedForChains) {
+      _askedForChains = true;
+      controller
+          .deliverableOn(_usdc)
+          .then(
+            (listed) {
+              if (!mounted) return;
+              setState(() {
+                _chains = listed;
+                if (listed.isEmpty) {
+                  _typed = true;
+                  _chainsUnavailable = 'the provider listed none';
+                }
+              });
+            },
+            onError: (Object e) {
+              if (!mounted) return;
+              setState(() {
+                _typed = true;
+                _chainsUnavailable = SplitsController.describe(e);
+              });
+            },
+          );
+    }
+    final listed = _chains;
+    if (listed == null) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Text('Asking where USDC can arrive…'),
+      );
+    }
+    final picked = _pickedChain?.toLowerCase();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SectionLabel('Which chain should it arrive on?'),
+        for (final a in listed)
+          OptionPill(
+            key: Key('splits_payout_chain_${a.chain.toLowerCase()}'),
+            label: 'USDC on ${_chainName(a.chain)}',
+            selected: picked == a.chain.toLowerCase(),
+            onTap: _saving
+                ? null
+                : () => setState(() => _pickedChain = a.chain),
+          ),
+        if (_pickedChain == null)
+          const Padding(
+            padding: EdgeInsets.only(top: 4),
+            child: Text(
+              'Pick one: the wrong chain delivers USDC somewhere you cannot '
+              'reach it.',
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// The asset and chain as free text, for a payout the picker cannot hold.
+  List<Widget> _typedFields() => [
+    const SizedBox(height: 8),
+    TextFormField(
+      key: const Key('splits_payout_asset'),
+      controller: _asset,
+      decoration: const InputDecoration(labelText: 'Asset', hintText: 'USDC'),
+      textCapitalization: TextCapitalization.characters,
+      validator: (v) =>
+          (_typed && (v == null || v.trim().isEmpty)) ? 'Name the asset' : null,
+    ),
+    const SizedBox(height: 8),
+    TextFormField(
+      key: const Key('splits_payout_chain'),
+      controller: _chain,
+      decoration: const InputDecoration(
+        labelText: 'Chain',
+        hintText: 'base',
+        // One symbol exists on many chains, and the wrong chain delivers the
+        // right token somewhere unreachable.
+        helperText: 'The network it should arrive on',
+      ),
+      validator: (v) =>
+          (_typed && (v == null || v.trim().isEmpty)) ? 'Name the chain' : null,
+    ),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -167,37 +298,29 @@ class _PayoutScreenState extends State<PayoutScreen> {
               ),
             ),
             if (_choice == PayoutChoice.swap) ...[
-              const SizedBox(height: 8),
-              TextFormField(
-                key: const Key('splits_payout_asset'),
-                controller: _asset,
-                decoration: const InputDecoration(
-                  labelText: 'Asset',
-                  hintText: 'USDC',
-                ),
-                textCapitalization: TextCapitalization.characters,
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Name the asset' : null,
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                key: const Key('splits_payout_chain'),
-                controller: _chain,
-                decoration: const InputDecoration(
-                  labelText: 'Chain',
-                  hintText: 'base',
-                  // One symbol exists on many chains, and the wrong chain
-                  // delivers the right token somewhere unreachable.
-                  helperText: 'The network it should arrive on',
-                ),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Name the chain' : null,
-              ),
+              if (!_typed)
+                _chainPicker(controller)
+              else ...[
+                if (_chainsUnavailable != null)
+                  Padding(
+                    key: const Key('splits_payout_chains_unavailable'),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      'The chains USDC arrives on could not be listed '
+                      '($_chainsUnavailable). Type the asset and chain.',
+                    ),
+                  ),
+                ..._typedFields(),
+              ],
               const SizedBox(height: 8),
               TextFormField(
                 key: const Key('splits_payout_address'),
                 controller: _address,
-                decoration: const InputDecoration(labelText: 'Your address'),
+                decoration: InputDecoration(
+                  labelText: _typed || _pickedChain == null
+                      ? 'Your address'
+                      : 'Your USDC address on ${_chainName(_pickedChain!)}',
+                ),
                 validator: (v) => (v == null || v.trim().isEmpty)
                     ? 'Nobody can be paid without an address'
                     : null,

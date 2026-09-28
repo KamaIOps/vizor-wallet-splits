@@ -133,12 +133,14 @@ class _PersonTile extends StatelessWidget {
   /// that decides the lane (§9.1).
   String get _payout {
     return switch (hostapi.laneFor(participant)) {
-      hostapi.SettleLane.zec => 'a Zcash address',
+      hostapi.SettleLane.zec => 'Gets paid in ZEC',
       hostapi.SettleLane.swap =>
-        '${participant.payouts.first.asset ?? 'another asset'} on '
+        'Gets paid in '
+            '${participant.payouts.first.asset ?? 'another asset'} on '
             '${participant.payouts.first.chain ?? 'another chain'}',
-      hostapi.SettleLane.cash => 'cash',
-      hostapi.SettleLane.none => 'nowhere yet — nobody can settle with them',
+      hostapi.SettleLane.cash => 'Gets paid in cash',
+      hostapi.SettleLane.none =>
+        'Hasn’t said how to get paid, so nobody can pay them yet',
     };
   }
 
@@ -210,7 +212,7 @@ class _PersonTile extends StatelessWidget {
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('paid by $_payout'),
+          Text(_payout),
           if (!_bound)
             Text(
               // What this can actually tell, which is narrower than how they
@@ -218,7 +220,8 @@ class _PersonTile extends StatelessWidget {
               // signed and claimed. A join carrying no key is
               // indistinguishable from a name somebody typed, so the sentence
               // says the thing that is true of both.
-              'no key of their own yet — anyone here can write as them',
+              'Hasn’t joined from their own phone yet. Until they do, '
+              'anyone on the bill can add entries in their name.',
               style: TextStyle(color: scheme.error),
             ),
         ],

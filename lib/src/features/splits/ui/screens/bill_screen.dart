@@ -2,7 +2,6 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:splitz_core/host.dart' as hostapi;
 import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:splitz_host/splitz_host.dart';
 
@@ -132,13 +131,49 @@ class _BillScreenState extends State<BillScreen> {
             icon: const Icon(Icons.more_horiz),
             // After the menu has closed, so a dialog is not popped with it.
             onSelected: (choice) {
-              if (choice == 'sync') {
-                controller.syncBill(billId);
-              } else {
-                _forget(context);
+              Widget? screen;
+              switch (choice) {
+                case 'people':
+                  screen = PeopleScreen(billId: billId);
+                case 'activity':
+                  screen = ActivityScreen(billId: billId);
+                case 'payout':
+                  screen = PayoutScreen(billId: billId);
+                case 'price':
+                  screen = PriceBillScreen(billId: billId);
+                case 'sync':
+                  controller.syncBill(billId);
+                case 'forget':
+                  _forget(context);
+              }
+              if (screen != null) {
+                final next = screen;
+                Navigator.of(
+                  context,
+                ).push(MaterialPageRoute<void>(builder: (_) => next));
               }
             },
             itemBuilder: (_) => [
+              const PopupMenuItem<String>(
+                key: Key('splits_bill_people'),
+                value: 'people',
+                child: Text('People'),
+              ),
+              const PopupMenuItem<String>(
+                key: Key('splits_bill_activity'),
+                value: 'activity',
+                child: Text('Activity'),
+              ),
+              const PopupMenuItem<String>(
+                key: Key('splits_bill_payout'),
+                value: 'payout',
+                child: Text('How you get paid'),
+              ),
+              const PopupMenuItem<String>(
+                key: Key('splits_bill_price'),
+                value: 'price',
+                child: Text('Price in ZEC'),
+              ),
               PopupMenuItem<String>(
                 key: const Key('splits_bill_sync_now'),
                 value: 'sync',
@@ -197,6 +232,21 @@ class _BillScreenState extends State<BillScreen> {
             ),
           ),
           _SyncNotice(state: controller.syncStateOf(billId)),
+          // Until the payee says it arrived, a payment is a claim and the
+          // debt stands (§10.5), so the question is put where it is seen.
+          if (awaitingConfirmationBy(view.bill, controller.me).isNotEmpty)
+            RowCard(
+              key: const Key('splits_bill_confirm'),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => ActivityScreen(billId: billId),
+                ),
+              ),
+              child: CardLine(
+                title: _activitySummary(view, controller.me),
+                chevron: true,
+              ),
+            ),
           if (controller.lastError != null)
             NoticeCard(message: controller.lastError!, error: true),
           if (!joined) _JoinPrompt(billId: billId),
@@ -253,15 +303,6 @@ class _BillScreenState extends State<BillScreen> {
                 figure: formatAmount(p.amount, currency),
               ),
           ],
-          const SectionLabel('Balances'),
-          for (final p in view.bill.participants)
-            _Line(
-              title: who(p.id),
-              detail: p.payableAddress == null
-                  ? 'no address yet — cannot be paid in ZEC'
-                  : _short(p.payableAddress!),
-              figure: _owes(balances[p.id] ?? 0, currency),
-            ),
           if (view.setAside.isNotEmpty) ...[
             const SectionLabel('Not applied'),
             // Shown rather than dropped: an entry that vanished silently is
@@ -272,84 +313,11 @@ class _BillScreenState extends State<BillScreen> {
                 detail: '${aside.code} · entry ${BillNaming.shortId(aside.id)}',
               ),
           ],
-          const SizedBox(height: 16),
-          RowCard(
-            key: const Key('splits_bill_people'),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => PeopleScreen(billId: billId),
-              ),
-            ),
-            child: CardLine(
-              title: 'People',
-              subtitle: Text(_peopleSummary(view)),
-              chevron: true,
-            ),
-          ),
-          RowCard(
-            key: const Key('splits_bill_activity'),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => ActivityScreen(billId: billId),
-              ),
-            ),
-            child: CardLine(
-              title: 'Activity',
-              subtitle: Text(_activitySummary(view, controller.me)),
-              chevron: true,
-            ),
-          ),
-          RowCard(
-            key: const Key('splits_bill_payout'),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => PayoutScreen(billId: billId),
-              ),
-            ),
-            child: CardLine(
-              title: 'How you get paid',
-              subtitle: Text(_payoutSummary(view, controller.me)),
-              chevron: true,
-            ),
-          ),
-          RowCard(
-            key: const Key('splits_bill_price'),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => PriceBillScreen(billId: billId),
-              ),
-            ),
-            child: CardLine(
-              title: view.bill.rate == null
-                  ? 'Not priced yet'
-                  : 'One ZEC is '
-                        '${formatAmount(view.bill.rate!.minorUnitsPerZec, currency)}',
-              // A bill with no rate is an ordinary bill, not a broken one:
-              // there is no §12 code for unpriced. It simply cannot be
-              // settled until somebody puts a figure on it.
-              subtitle: Text(
-                view.bill.rate == null
-                    ? 'A bill settles in ZEC at a price written onto it, so '
-                          'every device uses the same one.'
-                    : 'snapshotted onto the bill'
-                          '${view.bill.rate!.source == null ? '' : ' (${view.bill.rate!.source})'}',
-              ),
-              chevron: true,
-            ),
-          ),
         ],
       ),
     );
   }
 
-  static String _owes(int net, String currency) => net == 0
-      ? 'settled'
-      : net > 0
-      ? 'owed ${formatAmount(net, currency)}'
-      : 'owes ${formatAmount(-net, currency)}';
-
-  static String _short(String address) =>
-      address.length <= 16 ? address : '${address.substring(0, 12)}…';
 }
 
 class _JoinPrompt extends StatelessWidget {
@@ -449,24 +417,6 @@ class _Line extends StatelessWidget {
 
 extension<T> on Iterable<T> {
   T? get firstOrNull => isEmpty ? null : first;
-}
-
-/// What this device asked for on this bill, in a line.
-///
-/// The FIRST preference, because that is the one that decides the lane (§9.1).
-/// Summarising the list would say nothing about how the money actually
-/// travels.
-String _payoutSummary(BillView view, String me) {
-  final participant = view.bill.participant(me);
-  if (participant == null) return 'you are not on this bill yet';
-  return switch (hostapi.laneFor(participant)) {
-    hostapi.SettleLane.zec => 'straight to your Zcash address',
-    hostapi.SettleLane.swap =>
-      '${participant.payouts.first.asset ?? 'another asset'} on '
-          '${participant.payouts.first.chain ?? 'another chain'}',
-    hostapi.SettleLane.cash => 'cash, settled between you',
-    hostapi.SettleLane.none => 'nowhere yet — nobody can settle with you',
-  };
 }
 
 /// What the history is worth opening for, in a line.
@@ -609,23 +559,6 @@ String _whyNotApplied(String code) => switch (code) {
   'unknown_entry' => 'Changes an entry this bill does not hold',
   _ => 'Not applied',
 };
-
-/// Who is on the bill, and how many of them have proved who they are.
-///
-/// The count that matters is of people with no key of their own: §10.7 binds
-/// nothing to them, so anyone on the bill can write as them.
-String _peopleSummary(BillView view) {
-  final total = view.bill.participants.length;
-  final unbound = view.bill.participants
-      .where((p) => !view.identities.bound.containsKey(p.id))
-      .length;
-  if (unbound > 0) {
-    return unbound == 1
-        ? '$total on the bill — one has no key of their own'
-        : '$total on the bill — $unbound have no key of their own';
-  }
-  return '$total on the bill';
-}
 
 /// Where this bill's sync stands.
 ///

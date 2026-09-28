@@ -1359,6 +1359,27 @@ class SplitsController extends ChangeNotifier {
   /// back: the figure is shown, and putting it on the bill is a separate act.
   Future<int?> quoteZec(String currency) => _prices.minorUnitsPerZec(currency);
 
+  /// The chains the swap provider delivers [symbol] on, one asset each.
+  ///
+  /// A chain the provider lists [symbol] on more than once is left out: a
+  /// payout names an asset by symbol and chain together (§9.1), and two
+  /// matches would leave the payer's swap to pick one of them.
+  Future<List<TradableAsset>> deliverableOn(String symbol) async {
+    final all = await _swaps.tradableAssets();
+    final bySymbol = [
+      for (final a in all)
+        if (a.symbol.toLowerCase() == symbol.toLowerCase()) a,
+    ];
+    final counts = <String, int>{};
+    for (final a in bySymbol) {
+      counts[a.chain.toLowerCase()] = (counts[a.chain.toLowerCase()] ?? 0) + 1;
+    }
+    return [
+      for (final a in bySymbol)
+        if (counts[a.chain.toLowerCase()] == 1) a,
+    ];
+  }
+
   /// The key this bill's contents are sealed under, creating one if this
   /// device opened the bill and has not needed it yet.
   Future<String> billKey(String billId) => _keys.ensureBillKey(billId);

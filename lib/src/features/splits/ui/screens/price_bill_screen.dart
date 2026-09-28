@@ -158,9 +158,8 @@ class _PriceBillScreenState extends State<PriceBillScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             Text(
-              'What one ZEC costs in $currency. It is written onto the bill, '
-              'so every device settles at the same figure rather than at '
-              'whatever the price happens to be when they look.',
+              'What 1 ZEC is worth in $currency. Everyone on the bill settles '
+              'at this price.',
             ),
             const SizedBox(height: 16),
             if (existing != null)
@@ -178,7 +177,7 @@ class _PriceBillScreenState extends State<PriceBillScreen> {
                 labelText: 'One ZEC costs',
                 suffixText: currency,
                 helperText: _suggested == null
-                    ? 'This build has no price feed, so type the figure.'
+                    ? null
                     : 'The feed says '
                           '${formatAmount(_suggested!, currency)}.',
               ),
@@ -230,8 +229,8 @@ class _PriceBillScreenState extends State<PriceBillScreen> {
             ],
             const SizedBox(height: 12),
             Text(
-              'Repricing does not change what anybody owes. A debt stays in '
-              '$currency; the price only decides how much ZEC settles it.',
+              'Debts stay in $currency. The price only sets how much ZEC '
+              'pays them.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],

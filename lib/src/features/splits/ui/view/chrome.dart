@@ -34,7 +34,11 @@ class BottomActions extends StatelessWidget {
 /// A pill in the secondary style: the page colour's lighter surface, no
 /// outline. The quieter of two actions sits in one of these.
 class SecondaryButton extends StatelessWidget {
-  const SecondaryButton({super.key, required this.onPressed, required this.child});
+  const SecondaryButton({
+    super.key,
+    required this.onPressed,
+    required this.child,
+  });
 
   final VoidCallback? onPressed;
   final Widget child;
@@ -98,6 +102,12 @@ class CardLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
+    return LayoutBuilder(
+      builder: (context, box) => _row(text, scheme, box.maxWidth),
+    );
+  }
+
+  Widget _row(TextTheme text, ColorScheme scheme, double width) {
     return Row(
       children: [
         if (leading != null) ...[leading!, const SizedBox(width: 12)],
@@ -106,7 +116,7 @@ class CardLine extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(title, style: text.bodyLarge),
+              Text(title, style: text.bodyMedium),
               if (subtitle != null)
                 DefaultTextStyle.merge(
                   style: text.bodyMedium?.copyWith(
@@ -117,12 +127,13 @@ class CardLine extends StatelessWidget {
             ],
           ),
         ),
-        // Flexible, and sharing the row with the title: a figure that cannot
-        // shrink crushes the name beside it to a letter a line and is clipped
-        // itself at a large text size.
+        // At its own width against the right edge, and never more than
+        // 45% of the row: a figure that cannot shrink crushes the name beside
+        // it to a letter a line and is clipped itself at a large text size.
         if (trailing != null) ...[
           const SizedBox(width: 12),
-          Flexible(
+          ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: width * 0.45),
             child: Text(
               trailing!,
               style: text.bodyLarge,
@@ -149,7 +160,7 @@ class SectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = Theme.of(context).textTheme.bodyLarge?.copyWith(
+    final style = Theme.of(context).textTheme.bodyMedium?.copyWith(
       color: Theme.of(context).colorScheme.onSurfaceVariant,
     );
     return Padding(
@@ -202,7 +213,7 @@ class OptionPill extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
               child: Text(
                 label,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
                 ),
               ),

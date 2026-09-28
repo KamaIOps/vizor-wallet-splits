@@ -68,12 +68,18 @@ void main() {
       find.widgetWithText(TextFormField, 'What is it for'),
       'Dinner',
     );
+    // A currency the wallet's feed does not price, so the bill is priced by
+    // hand below rather than automatically when settling.
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Currency'),
+      'EUR',
+    );
     await tester.tap(find.text('Open the bill'));
     await tester.pumpAndSettle();
 
     // The opener is on the bill, and §9.4's id came off the wallet's own
     // randomness rather than from anything this test supplied.
-    expect(find.text('People'), findsOneWidget);
+    expect(find.text('Add expense'), findsOneWidget);
     expect(find.text('Nothing on it yet.'), findsOneWidget);
     expect(find.text('Join'), findsNothing);
 

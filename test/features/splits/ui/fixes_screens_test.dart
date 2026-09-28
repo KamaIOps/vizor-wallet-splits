@@ -143,14 +143,20 @@ void main() {
     }
     await t.pumpWidget(app(c, PeopleScreen(billId: id)));
     await t.pumpAndSettle();
-    // Scrolled as far as it goes.
-    await t.drag(find.byType(ListView), const Offset(0, -5000));
-    await t.pumpAndSettle();
     // The list's own order, not the order they were added in.
     final lastId = c.bills.single.bill.participants
         .lastWhere((p) => p.id != c.me)
         .id;
     final last = find.byKey(Key('splits_person_remove_$lastId'));
+    // Scrolled until the last row is built: rows differ in height, so the
+    // list's first estimate of its end falls short of it.
+    await t.dragUntilVisible(
+      last,
+      find.byType(ListView),
+      const Offset(0, -300),
+    );
+    await t.drag(find.byType(ListView), const Offset(0, -5000));
+    await t.pumpAndSettle();
     final button = t.getRect(find.byKey(const Key('splits_people_add')));
     expect(t.getRect(last).overlaps(button), isFalse);
   });

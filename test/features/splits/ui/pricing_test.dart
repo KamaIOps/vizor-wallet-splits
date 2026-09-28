@@ -65,7 +65,8 @@ void main() {
 
     await t.pumpWidget(app(c, PriceBillScreen(billId: id)));
     await t.pumpAndSettle();
-    expect(find.textContaining('no price feed'), findsOneWidget);
+    // No feed, so nothing is suggested beside the field.
+    expect(find.textContaining('The feed says'), findsNothing);
 
     await t.enterText(find.byType(TextFormField), '45.67');
     await t.tap(find.text('Put this price on the bill'));

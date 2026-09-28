@@ -65,7 +65,9 @@ void main() {
       // ── A new bill ───────────────────────────────────────────────────
       await _tapText(tester, 'Start a bill');
       await _typeInto(tester, 'What is it for', 'Dinner');
-      await _typeInto(tester, 'Currency', 'USD');
+      // A currency the wallet's feed does not price, so the pricing screen
+      // is walked through by hand rather than skipped by the automatic one.
+      await _typeInto(tester, 'Currency', 'EUR');
       await _tapText(tester, 'Open the bill');
       await _settle(tester);
       expect(find.text('Dinner'), findsWidgets);
@@ -234,19 +236,7 @@ void main() {
       }
 
       await _tapKey(tester, 'splits_payout_swap');
-      await tester.enterText(
-        find.byKey(const Key('splits_payout_asset')),
-        'USDC',
-      );
-      await tester.enterText(
-        find.byKey(const Key('splits_payout_chain')),
-        'base',
-      );
-      await tester.enterText(
-        find.byKey(const Key('splits_payout_address')),
-        '0xana',
-      );
-      await tester.pump();
+      await _payInUsdc(tester, 'base', '0xana');
       await _tapKey(tester, 'splits_payout_save');
       await _settle(tester);
       expect(
@@ -311,7 +301,22 @@ Future<void> _tapText(WidgetTester tester, String text) async {
   await _settle(tester);
 }
 
+const _billMenuItems = {
+  'splits_bill_people',
+  'splits_bill_activity',
+  'splits_bill_payout',
+  'splits_bill_price',
+  'splits_bill_sync_now',
+  'splits_bill_forget',
+};
+
 Future<void> _tapKey(WidgetTester tester, String key) async {
+  // People, Activity, How you get paid, Price, Sync now and Remove sit in
+  // the bill screen's menu, which is opened first when one is asked for.
+  if (_billMenuItems.contains(key) && !tester.any(find.byKey(Key(key)))) {
+    await tester.tap(find.byKey(const Key('splits_bill_menu')));
+    await _settle(tester);
+  }
   // A keyboard still opening moves the fold, so it finishes first; then the
   // control is scrolled fully into view before the tap.
   await _settle(tester);
@@ -340,4 +345,34 @@ Future<void> _typeInto(WidgetTester tester, String label, String text) async {
 Future<void> _back(WidgetTester tester) async {
   await tester.pageBack();
   await _settle(tester);
+}
+
+/// Declares USDC on [chain] as this device's payout.
+///
+/// Picked from the provider's list when it answers; typed when it cannot,
+/// which is what the screen falls back to.
+Future<void> _payInUsdc(
+  WidgetTester tester,
+  String chain,
+  String address,
+) async {
+  final pill = find.byKey(Key('splits_payout_chain_$chain'));
+  final typed = find.byKey(const Key('splits_payout_asset'));
+  await pumpUntil(
+    tester,
+    () => tester.any(pill) || tester.any(typed),
+    description: 'the USDC chain list, or the typed fallback',
+    timeout: const Duration(seconds: 60),
+  );
+  if (tester.any(pill)) {
+    await _tapKey(tester, 'splits_payout_chain_$chain');
+  } else {
+    await tester.enterText(typed, 'USDC');
+    await tester.enterText(find.byKey(const Key('splits_payout_chain')), chain);
+  }
+  await tester.enterText(
+    find.byKey(const Key('splits_payout_address')),
+    address,
+  );
+  await tester.pump();
 }
