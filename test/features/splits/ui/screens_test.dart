@@ -26,8 +26,8 @@ void main() {
     await t.pumpWidget(app(c));
 
     expect(find.textContaining('No bills yet'), findsOneWidget);
-    expect(find.text('New bill'), findsOneWidget);
-    expect(find.byTooltip('Scan a bill'), findsOneWidget);
+    expect(find.text('Start a bill'), findsOneWidget);
+    expect(find.text('Join a bill'), findsOneWidget);
   });
 
   testWidgets('an account that cannot be restored is told so', (t) async {
@@ -46,7 +46,7 @@ void main() {
     await c.load();
     await t.pumpWidget(app(c));
 
-    await t.tap(find.text('New bill'));
+    await t.tap(find.text('Start a bill'));
     await t.pumpAndSettle();
 
     await t.enterText(
@@ -89,16 +89,17 @@ void main() {
     await t.pumpWidget(app(c, home: BillScreen(billId: id)));
     await t.pumpAndSettle();
 
-    await t.tap(find.text('Add an expense'));
+    await t.tap(find.text('Add expense'));
     await t.pumpAndSettle();
 
-    await t.enterText(find.widgetWithText(TextFormField, 'Amount'), '90.00');
-    await t.enterText(find.widgetWithText(TextFormField, 'What for'), 'Pizza');
-    await t.tap(find.text('Add it'));
+    await t.enterText(find.byKey(const Key('splits_amount')), '90.00');
+    await t.enterText(find.byKey(const Key('splits_description')), 'Pizza');
+    await t.tap(find.byKey(const Key('splits_expense_save')));
     await t.pumpAndSettle();
 
     expect(find.text('Pizza'), findsOneWidget);
-    expect(find.text('90.00 EUR'), findsOneWidget);
+    // The row's figure; the currency is the bill's, said once above.
+    expect(find.text('90.00'), findsOneWidget);
     expect(c.lastError, isNull);
   });
 
@@ -123,7 +124,9 @@ void main() {
 
     // No relay in this build. A sync that quietly did nothing would look
     // exactly like one that worked.
-    await t.tap(find.byTooltip('Sync'));
+    await t.tap(find.byKey(const Key('splits_bill_menu')));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Sync now'));
     await t.pumpAndSettle();
     expect(find.textContaining('no bill relay'), findsOneWidget);
   });

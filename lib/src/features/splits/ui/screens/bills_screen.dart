@@ -5,38 +5,31 @@ import 'package:flutter/material.dart';
 import 'package:splitz_core/splitz_core.dart' as protocol;
 
 import '../state/splits_controller.dart';
+import '../view/chrome.dart';
 import '../view/naming.dart';
 import 'bill_screen.dart';
 import 'new_bill_screen.dart';
 import 'scan_bill_screen.dart';
 import 'splits_scope.dart';
 
-/// Every bill on this device, and the way in to a new one.
+/// Every bill on this device, and the two ways in to another.
 class BillsScreen extends StatelessWidget {
   const BillsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     final controller = SplitsScope.of(context);
+    // The feature runs in a navigator of its own, where this is the first
+    // route. Leaving it pops whatever hosts that navigator.
+    final host = Navigator.of(
+      context,
+    ).context.findAncestorStateOfType<NavigatorState>();
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Bills'),
-        actions: [
-          IconButton(
-            tooltip: 'Scan a bill',
-            icon: const Icon(Icons.qr_code_scanner),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const ScanBillScreen()),
-            ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.of(
-          context,
-        ).push(MaterialPageRoute<void>(builder: (_) => const NewBillScreen())),
-        icon: const Icon(Icons.add),
-        label: const Text('New bill'),
+        leading: host != null && host.canPop()
+            ? BackButton(onPressed: () => host.maybePop())
+            : null,
+        title: const Text('Split a bill'),
       ),
       body: Column(
         children: [
@@ -46,12 +39,31 @@ class BillsScreen extends StatelessWidget {
           Expanded(
             child: controller.bills.isEmpty
                 ? const _Empty()
-                : ListView.separated(
-                    itemCount: controller.bills.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (context, i) =>
-                        _BillTile(view: controller.bills[i]),
+                : ListView(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    children: [
+                      for (final view in controller.bills)
+                        _BillTile(view: view),
+                    ],
                   ),
+          ),
+        ],
+      ),
+      bottomNavigationBar: BottomActions(
+        children: [
+          SecondaryButton(
+            key: const Key('splits_join_bill'),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const ScanBillScreen()),
+            ),
+            child: const Text('Join a bill'),
+          ),
+          FilledButton(
+            key: const Key('splits_start_bill'),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const NewBillScreen()),
+            ),
+            child: const Text('Start a bill'),
           ),
         ],
       ),
@@ -69,24 +81,28 @@ class _BillTile extends StatelessWidget {
     final controller = SplitsScope.of(context);
     final balances = protocol.netBalances(view.bill);
     final mine = balances[controller.me] ?? 0;
+    final people = view.bill.participants.length;
+    final expenses = view.bill.expenses.length;
 
-    return ListTile(
-      title: Text(view.bill.name.isEmpty ? 'Bill' : view.bill.name),
-      subtitle: Text(
-        '${view.bill.participants.length} people · '
-        '${view.bill.expenses.length} expenses',
+    return RowCard(
+      key: Key('splits_bill_row_${view.id}'),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => BillScreen(billId: view.id)),
       ),
-      trailing: Text(
+      child: CardLine(
+        leading: const Icon(Icons.receipt_long_outlined),
+        title: view.bill.name.isEmpty ? 'Bill' : view.bill.name,
+        subtitle: Text(
+          '$people ${people == 1 ? 'person' : 'people'} · '
+          '$expenses ${expenses == 1 ? 'expense' : 'expenses'}',
+        ),
         // What this device is owed, or owes. Both directions read the same
         // way, so the sign is the whole message and is never dropped.
-        mine == 0
+        trailing: mine == 0
             ? 'settled'
             : mine > 0
             ? 'owed ${formatAmount(mine, view.bill.currency)}'
             : 'owes ${formatAmount(-mine, view.bill.currency)}',
-      ),
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => BillScreen(billId: view.id)),
       ),
     );
   }
@@ -101,7 +117,7 @@ class _Empty extends StatelessWidget {
       padding: EdgeInsets.all(32),
       child: Text(
         'No bills yet.\n\n'
-        'Open one and share the code, or scan somebody else’s.',
+        'Start one and share the code, or join somebody else’s.',
         textAlign: TextAlign.center,
       ),
     ),

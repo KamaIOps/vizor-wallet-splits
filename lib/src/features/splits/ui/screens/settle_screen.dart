@@ -6,7 +6,9 @@ import 'package:splitz_core/host.dart' as splitz;
 import 'package:splitz_core/splitz_core.dart' as protocol;
 
 import '../state/splits_controller.dart';
+import '../view/chrome.dart';
 import '../view/naming.dart';
+import 'activity_screen.dart';
 import 'price_bill_screen.dart';
 import 'record_payment_screen.dart';
 import 'swap_screen.dart';
@@ -176,17 +178,63 @@ class _SettleScreenState extends State<SettleScreen> {
     String who(String id) =>
         view.bill.displayNameOf(id, creatorId: view.creatorId);
 
+    // The whole bill's plan, for the payments that come to this device: this
+    // screen sends what is owed and shows what is owed in return.
+    final plan = protocol.settleBill(view.bill).settlements;
+    final owedToMe = [
+      for (final s in plan)
+        if (s.to == controller.me) s,
+    ];
+    final between = [
+      for (final s in plan)
+        if (s.to != controller.me && s.from != controller.me) s,
+    ];
+
     return Scaffold(
       appBar: AppBar(title: const Text('Settle up')),
+      bottomNavigationBar: _owed?.uri == null
+          ? null
+          : BottomActions(
+              children: [
+                FilledButton(
+                  key: const Key('splits_settle_send'),
+                  // Nothing goes out while an earlier send is unresolved: it
+                  // may still land, and this one would pay the same debt
+                  // again.
+                  onPressed: controller.busy || _pending != null
+                      ? null
+                      : () => _send(view),
+                  child: Text(
+                    'Pay ${formatAmount(_owed!.carriedMinorUnits, currency)} '
+                    'in ZEC',
+                  ),
+                ),
+              ],
+            ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           if (_loading) const LinearProgressIndicator(),
+          if (!_loading)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                plan.isEmpty
+                    ? 'Everyone on this bill is square'
+                    : plan.length == 1
+                    ? 'One payment settles this bill'
+                    : '${plan.length} payments settle this bill',
+                key: const Key('splits_settle_plan'),
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
           if (_loadError != null)
-            Text(
-              'This bill cannot be settled from here: $_loadError',
+            NoticeCard(
               key: const Key('splits_settle_load_error'),
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
+              message: 'This bill cannot be settled from here: $_loadError',
+              error: true,
             ),
           if (_pending != null)
             _PendingSend(
@@ -201,20 +249,24 @@ class _SettleScreenState extends State<SettleScreen> {
             // sit unpriced for as long as it likes — but saying so without a
             // way through would leave a person reading an instruction they
             // cannot follow.
-            const Text(
-              'This bill has no price on it yet, so there is nothing to send.',
+            const NoticeCard(
+              message:
+                  'This bill has no price on it yet, so there is nothing to '
+                  'send.',
             ),
-            const SizedBox(height: 12),
-            FilledButton(
-              onPressed: () async {
-                await Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => PriceBillScreen(billId: widget.billId),
-                  ),
-                );
-                if (mounted) await _load();
-              },
-              child: const Text('Price it'),
+            const SizedBox(height: 8),
+            Center(
+              child: FilledButton(
+                onPressed: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => PriceBillScreen(billId: widget.billId),
+                    ),
+                  );
+                  if (mounted) await _load();
+                },
+                child: const Text('Price it'),
+              ),
             ),
           ],
           if (_settled != null) _SentResult(settled: _settled!),
@@ -229,59 +281,62 @@ class _SettleScreenState extends State<SettleScreen> {
           // is history, not a decision about where this money goes.
           for (final replaced in view.replacedAddresses)
             if (_owed?.carriedTo.containsKey(replaced.id) ?? false)
-              Card(
+              RowCard(
                 key: Key('splits_settle_replaced_${replaced.id}'),
                 color: Theme.of(context).colorScheme.errorContainer,
-                child: ListTile(
-                  dense: true,
-                  title: Text(
-                    '${who(replaced.id)} changed where they are '
-                    'paid',
-                  ),
+                child: CardLine(
+                  title: '${who(replaced.id)} changed where they are paid',
                   subtitle: Text(
                     'This request sends to the new address. Check it with '
                     'them before paying.\n'
                     'was ${_short(replaced.from)} · now '
                     '${_short(replaced.to)}',
                   ),
-                  isThreeLine: true,
                 ),
               ),
           if (_owed != null) ...[
             if (_owed!.settlements.isEmpty && _owed!.awaiting.isEmpty)
-              const Text('You owe nothing on this bill.'),
-            for (final s in _owed!.settlements)
-              ListTile(
-                dense: true,
-                title: Text('Pay ${who(s.to)}'),
-                subtitle: _explain(
-                  s,
-                  who,
-                  currency,
-                  refundAuthors: _refundAuthors(view),
-                  me: controller.me,
-                ),
-                trailing: Text(formatAmount(s.amount, currency)),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text('You owe nothing on this bill.'),
               ),
+            for (final s in _owed!.settlements)
+              if (!_owed!.unpayable.any((u) => u.id == s.to))
+                RowCard(
+                  key: Key('splits_settle_pay_${s.to}'),
+                  child: CardLine(
+                    title: 'You → ${who(s.to)}',
+                    subtitle:
+                        _explain(
+                          s,
+                          who,
+                          currency,
+                          refundAuthors: _refundAuthors(view),
+                          me: controller.me,
+                        ) ??
+                        const Text('Shielded ZEC, in the one payment below'),
+                    trailing: formatAmount(s.amount, currency),
+                  ),
+                ),
             for (final a in _owed!.awaiting) ...[
-              ListTile(
+              RowCard(
                 key: Key('splits_settle_awaiting_${a.to}'),
-                dense: true,
-                // Named by who the money went to. Under §6.3 that can be
-                // somebody other than who the debt is owed to, and the payer
-                // looks for a payment to them.
-                title: Text(
-                  'Waiting on ${a.paidTo.isEmpty ? who(a.to) : a.paidTo.map(who).join(', ')}',
+                child: CardLine(
+                  // Named by who the money went to. Under §6.3 that can be
+                  // somebody other than who the debt is owed to, and the payer
+                  // looks for a payment to them.
+                  title:
+                      'Waiting on ${a.paidTo.isEmpty ? who(a.to) : a.paidTo.map(who).join(', ')}',
+                  // §10.5: a record does not discharge a debt. Asking again
+                  // would send the same money twice.
+                  subtitle: Text(
+                    a.paidTo.isEmpty || a.paidTo.every((p) => p == a.to)
+                        ? 'already sent, not yet confirmed — not asked for again'
+                        : 'already sent for what you owe ${who(a.to)}, not yet '
+                              'confirmed — not asked for again',
+                  ),
+                  trailing: formatAmount(a.paid, currency),
                 ),
-                // §10.5: a record does not discharge a debt. Asking again
-                // would send the same money twice.
-                subtitle: Text(
-                  a.paidTo.isEmpty || a.paidTo.every((p) => p == a.to)
-                      ? 'already sent, not yet confirmed — not asked for again'
-                      : 'already sent for what you owe ${who(a.to)}, not yet '
-                            'confirmed — not asked for again',
-                ),
-                trailing: Text(formatAmount(a.paid, currency)),
               ),
               // The record of a payment that never left the wallet holds the
               // debt forever unless it can be taken back (§10.8). One control
@@ -300,70 +355,17 @@ class _SettleScreenState extends State<SettleScreen> {
                 ),
             ],
             for (final u in _owed!.unpayable)
-              ListTile(
-                key: Key('splits_settle_unpayable_${u.id}'),
-                dense: true,
-                title: Text('Cannot pay ${who(u.id)} here'),
-                // Reported, never dropped: a dropped output settles less than
-                // the plan says it does, and the payer cannot tell.
-                //
-                // A recipient excluded for a payout this request cannot carry
-                // is still owed, and settling them is a different lane rather
-                // than an impossibility. One who has published nothing is a
-                // dead end until they do, and is offered nothing.
-                subtitle: Text(switch (u.reason) {
-                  'no_address' => 'they have not shared an address',
-                  'bad_address' =>
-                    'the address they shared is not one a wallet can pay — '
-                        'ask them to share it again',
-                  // §8.5: more than one request can carry at this rate. The
-                  // debt stands; settling it is outside this request.
-                  'unpriceable' =>
-                    'more than one payment request can carry at this price — '
-                        'settle it another way',
-                  _ =>
-                    'they are not paid in shielded ZEC — settle it '
-                        'separately',
-                }),
-                // No address, or one no request can carry: a dead end until
-                // they publish one, so nothing is offered.
-                trailing:
-                    u.reason == 'no_address' ||
-                        u.reason == 'bad_address' ||
-                        u.reason == 'unpriceable'
-                    ? Text(formatAmount(u.minorUnits, currency))
-                    : TextButton(
-                        key: Key('splits_settle_apart_${u.id}'),
-                        // A swap payout goes to the swap flow, which quotes
-                        // it and sends the ZEC leg. Cash has nothing to send,
-                        // so it goes straight to the record.
-                        // Read again on return: a swap or a record made there
-                        // changes what is owed here, and a stale screen would
-                        // offer the same debt a second time.
-                        onPressed: () async {
-                          await Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) =>
-                                  _lane(view, u.id) == splitz.SettleLane.swap
-                                  ? SwapScreen(
-                                      billId: widget.billId,
-                                      to: u.id,
-                                      amountMinorUnits: u.minorUnits,
-                                    )
-                                  : RecordPaymentScreen(
-                                      billId: widget.billId,
-                                      to: u.id,
-                                      suggestedMinorUnits: u.minorUnits,
-                                    ),
-                            ),
-                          );
-                          if (mounted) await _load();
-                        },
-                        child: Text(formatAmount(u.minorUnits, currency)),
-                      ),
+              _Unpayable(
+                billId: widget.billId,
+                view: view,
+                debt: u,
+                who: who,
+                onReturn: () async {
+                  if (mounted) await _load();
+                },
               ),
             if (_owed!.uri != null) ...[
-              const SizedBox(height: 16),
+              const SizedBox(height: 8),
               if (!_owed!.isComplete)
                 Text(
                   'This sends ${formatAmount(_owed!.carriedMinorUnits, currency)} '
@@ -373,21 +375,34 @@ class _SettleScreenState extends State<SettleScreen> {
                 ),
               const SizedBox(height: 8),
               _RateLine(view: view, who: who),
-              const SizedBox(height: 8),
-              FilledButton(
-                key: const Key('splits_settle_send'),
-                // Nothing goes out while an earlier send is unresolved: it
-                // may still land, and this one would pay the same debt again.
-                onPressed: controller.busy || _pending != null
-                    ? null
-                    : () => _send(view),
-                child: Text(
-                  'Send ${formatAmount(_owed!.carriedMinorUnits, currency)} '
-                  'in one transaction',
-                ),
-              ),
             ],
           ],
+          for (final s in owedToMe)
+            RowCard(
+              key: Key('splits_settle_owed_${s.from}'),
+              // What reaches this device is confirmed in the activity, where
+              // each record waits for the person it pays (§10.5).
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => ActivityScreen(billId: widget.billId),
+                ),
+              ),
+              child: CardLine(
+                title: '${who(s.from)} → you',
+                subtitle: const Text('They owe you — confirm it when it arrives'),
+                trailing: formatAmount(s.amount, currency),
+                chevron: true,
+              ),
+            ),
+          for (final s in between)
+            RowCard(
+              key: Key('splits_settle_between_${s.from}_${s.to}'),
+              child: CardLine(
+                title: '${who(s.from)} → ${who(s.to)}',
+                subtitle: const Text('Between them — only they can settle it'),
+                trailing: formatAmount(s.amount, currency),
+              ),
+            ),
           if (controller.lastError != null)
             Padding(
               padding: const EdgeInsets.only(top: 16),
@@ -398,6 +413,93 @@ class _SettleScreenState extends State<SettleScreen> {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// A debt a payment request cannot carry (§8.5), and the way to settle it when
+/// there is one.
+///
+/// Reported, never dropped: a dropped output settles less than the plan says
+/// it does, and the payer cannot tell.
+class _Unpayable extends StatelessWidget {
+  const _Unpayable({
+    required this.billId,
+    required this.view,
+    required this.debt,
+    required this.who,
+    required this.onReturn,
+  });
+
+  final String billId;
+  final BillView view;
+  final protocol.Unpayable debt;
+  final String Function(String) who;
+  final Future<void> Function() onReturn;
+
+  @override
+  Widget build(BuildContext context) {
+    final u = debt;
+    final currency = view.bill.currency;
+    // No address, or one no request can carry: a dead end until they publish
+    // one, so nothing is offered.
+    final deadEnd =
+        u.reason == 'no_address' ||
+        u.reason == 'bad_address' ||
+        u.reason == 'unpriceable';
+    final line = CardLine(
+      title: 'Cannot pay ${who(u.id)} here',
+      // A recipient excluded for a payout this request cannot carry is still
+      // owed, and settling them is a different lane rather than an
+      // impossibility. One who has published nothing is a dead end until
+      // they do, and is offered nothing.
+      subtitle: Text(switch (u.reason) {
+        'no_address' => 'they have not shared an address',
+        'bad_address' =>
+          'the address they shared is not one a wallet can pay — ask them '
+              'to share it again',
+        // §8.5: more than one request can carry at this rate. The debt
+        // stands; settling it is outside this request.
+        'unpriceable' =>
+          'more than one payment request can carry at this price — settle '
+              'it another way',
+        _ =>
+          _lane(view, u.id) == splitz.SettleLane.swap
+              ? 'they are not paid in shielded ZEC — tap to swap to them'
+              : 'they are not paid in shielded ZEC — tap to record it',
+      }),
+      trailing: formatAmount(u.minorUnits, currency),
+      chevron: !deadEnd,
+    );
+    return RowCard(
+      key: Key('splits_settle_unpayable_${u.id}'),
+      // A swap payout goes to the swap flow, which quotes it and sends the
+      // ZEC leg. Cash has nothing to send, so it goes straight to the record.
+      // Read again on return: a swap or a record made there changes what is
+      // owed here, and a stale screen would offer the same debt a second time.
+      onTap: deadEnd
+          ? null
+          : () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => _lane(view, u.id) == splitz.SettleLane.swap
+                      ? SwapScreen(
+                          billId: billId,
+                          to: u.id,
+                          amountMinorUnits: u.minorUnits,
+                        )
+                      : RecordPaymentScreen(
+                          billId: billId,
+                          to: u.id,
+                          suggestedMinorUnits: u.minorUnits,
+                        ),
+                ),
+              );
+              await onReturn();
+            },
+      child: deadEnd
+          ? line
+          : KeyedSubtree(key: Key('splits_settle_apart_${u.id}'), child: line),
     );
   }
 }

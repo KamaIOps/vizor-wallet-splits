@@ -88,7 +88,7 @@ void main() {
 
 /// Opens the bill, settles the withheld row apart, and reads the result.
 Future<void> _payer(WidgetTester tester) async {
-  await _tapText(tester, 'New bill');
+  await _tapText(tester, 'Start a bill');
   await _typeInto(tester, 'What is it for', 'Apart');
   await _tapText(tester, 'Open the bill');
   await _settle(tester);
@@ -252,7 +252,7 @@ Future<void> _payee(WidgetTester tester) async {
   // 1 · Joining is reading a code, on the screen that reads codes. A whole
   //     bill opens straight onto itself; §11.2's invite would only take the
   //     key and leave the bill to arrive some other way.
-  await tester.tap(find.byTooltip('Scan a bill'));
+  await tester.tap(find.text('Join a bill'));
   await _settle(tester);
   await _typeIntoField(tester, 'Code', invite);
   await _tapText(tester, 'Read it');
@@ -313,11 +313,11 @@ Future<void> _payee(WidgetTester tester) async {
   logE2e('joined in the $_lane lane');
 
   // 4 · Something this device covered, so the payer owes it.
-  await _tapText(tester, 'Add an expense');
-  await _typeInto(tester, 'What for', 'Covered');
+  await _tapText(tester, 'Add expense');
+  await _typeInto(tester, 'What was it for?', 'Covered');
   await tester.enterText(find.byKey(const Key('splits_amount')), '60');
   await _settle(tester);
-  await _tapText(tester, 'Add it');
+  await _tapText(tester, 'Add');
   await _settle(tester);
   // Tapping a button that is disabled, or one whose form refuses what is in
   // it, throws nothing and leaves the screen where it was. The amount field
@@ -385,7 +385,8 @@ Future<void> _payee(WidgetTester tester) async {
 /// that names the wrong thing. So this walks back to the bill screen, and says
 /// so if it cannot find its way there.
 Future<void> _sync(WidgetTester tester) async {
-  final control = find.byTooltip('Sync');
+  // Sync sits in the bill screen's menu, and the menu is what is looked for.
+  final control = find.byKey(const Key('splits_bill_menu'));
   // Only pop while there is something to pop. `pageBack` looks for a back
   // button and fails outright when there is none, which is what a lane that
   // is already on the bill screen would hit.
@@ -405,6 +406,8 @@ Future<void> _sync(WidgetTester tester) async {
         'This screen shows: ${_visibleText(tester).join(' | ')}',
   );
   await tester.tap(control);
+  await _settle(tester);
+  await tester.tap(find.text('Sync now'));
   await _settle(tester);
   await pumpUntil(
     tester,

@@ -55,7 +55,7 @@ void main() {
       GoRouter.of(tester.element(find.byType(Scaffold).first)).push('/splits');
       await tester.pumpAndSettle(const Duration(seconds: 10));
       expect(
-        find.text('Bills'),
+        find.text('Split a bill'),
         findsOneWidget,
         reason: 'the feature opens on its own list',
       );
@@ -63,7 +63,7 @@ void main() {
       logE2e('splits opened, empty');
 
       // ── A new bill ───────────────────────────────────────────────────
-      await _tapText(tester, 'New bill');
+      await _tapText(tester, 'Start a bill');
       await _typeInto(tester, 'What is it for', 'Dinner');
       await _typeInto(tester, 'Currency', 'USD');
       await _tapText(tester, 'Open the bill');
@@ -89,11 +89,11 @@ void main() {
       await _back(tester);
 
       // ── An expense, typed in ─────────────────────────────────────────
-      await _tapText(tester, 'Add an expense');
-      await _typeInto(tester, 'What for', 'Dinner');
+      await _tapText(tester, 'Add expense');
+      await _typeInto(tester, 'What was it for?', 'Dinner');
       await tester.enterText(find.byKey(const Key('splits_amount')), '90');
       await tester.pump();
-      await _tapText(tester, 'Add it');
+      await _tapText(tester, 'Add');
       await _settle(tester);
       await _expenseWritten(tester);
       expect(
@@ -104,11 +104,11 @@ void main() {
       logE2e('90.00 on the bill');
 
       // ── A second one, then take it off again ─────────────────────────
-      await _tapText(tester, 'Add an expense');
-      await _typeInto(tester, 'What for', 'Drinks');
+      await _tapText(tester, 'Add expense');
+      await _typeInto(tester, 'What was it for?', 'Drinks');
       await tester.enterText(find.byKey(const Key('splits_amount')), '30');
       await tester.pump();
-      await _tapText(tester, 'Add it');
+      await _tapText(tester, 'Add');
       await _settle(tester);
       await _expenseWritten(tester);
       expect(find.text('Drinks'), findsWidgets);
