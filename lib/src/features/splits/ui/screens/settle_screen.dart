@@ -35,6 +35,10 @@ class _SettleScreenState extends State<SettleScreen> {
   bool _unpriced = false;
   bool _loading = true;
 
+  /// Whether this screen has already tried to price the bill itself. Once:
+  /// a feed that has no figure now will not have one on the next rebuild.
+  bool _autoPriced = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -49,8 +53,34 @@ class _SettleScreenState extends State<SettleScreen> {
     if (!mounted) return;
     setState(() => _pending = pending);
     try {
-      final owed = await controller.obligation(widget.billId);
+      var owed = await controller.obligation(widget.billId);
       if (!mounted) return;
+      // An unpriced bill is priced here from the wallet's live feed, so
+      // settling needs no separate step (§7). The figure is written onto the
+      // bill like any other rate, set by this device, and shown beside the
+      // send. With no live figure for the bill's currency it stays unpriced
+      // and a price is asked for.
+      if (owed == null && !_autoPriced) {
+        _autoPriced = true;
+        final view = controller.bills
+            .where((b) => b.id == widget.billId)
+            .firstOrNull;
+        final live = view == null
+            ? null
+            : await controller.quoteZec(view.bill.currency);
+        if (!mounted) return;
+        if (view != null && live != null) {
+          await controller.setRate(
+            billId: widget.billId,
+            currency: view.bill.currency,
+            minorUnitsPerZec: live,
+            source: 'feed',
+          );
+          if (!mounted) return;
+          owed = await controller.obligation(widget.billId);
+          if (!mounted) return;
+        }
+      }
       setState(() {
         _owed = owed;
         _unpriced = owed == null;
@@ -249,10 +279,11 @@ class _SettleScreenState extends State<SettleScreen> {
             // sit unpriced for as long as it likes — but saying so without a
             // way through would leave a person reading an instruction they
             // cannot follow.
-            const NoticeCard(
+            NoticeCard(
               message:
-                  'This bill has no price on it yet, so there is nothing to '
-                  'send.',
+                  'This bill has no price on it yet, and this phone has no '
+                  'live ZEC price in ${view.bill.currency}. Enter one to '
+                  'settle.',
             ),
             const SizedBox(height: 8),
             Center(

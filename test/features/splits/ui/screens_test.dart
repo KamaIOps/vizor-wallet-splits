@@ -57,7 +57,7 @@ void main() {
     await t.pumpAndSettle();
 
     expect(find.text('Dinner'), findsWidgets);
-    expect(find.text('People'), findsOneWidget);
+    expect(find.text('Add expense'), findsOneWidget);
     expect(find.text('Nothing on it yet.'), findsOneWidget);
     expect(find.text('Join'), findsNothing, reason: 'the opener has joined');
   });

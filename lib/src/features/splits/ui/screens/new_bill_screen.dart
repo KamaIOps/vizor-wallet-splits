@@ -18,7 +18,9 @@ class NewBillScreen extends StatefulWidget {
 
 class _NewBillScreenState extends State<NewBillScreen> {
   final _name = TextEditingController();
-  final _currency = TextEditingController(text: 'EUR');
+  // USD by default: it is the currency the wallet's own price feed quotes, so
+  // a bill in it is priced automatically when somebody settles.
+  final _currency = TextEditingController(text: 'USD');
   final _displayName = TextEditingController();
   final _form = GlobalKey<FormState>();
 
