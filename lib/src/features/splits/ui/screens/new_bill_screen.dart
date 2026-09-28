@@ -4,6 +4,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../view/currency_exponents.dart';
+import '../view/chrome.dart';
 import 'bill_screen.dart';
 import 'splits_scope.dart';
 
@@ -53,6 +54,15 @@ class _NewBillScreenState extends State<NewBillScreen> {
     final controller = SplitsScope.of(context);
     return Scaffold(
       appBar: AppBar(title: const Text('New bill')),
+      bottomNavigationBar: BottomActions(
+        children: [
+          FilledButton(
+            key: const Key('splits_new_bill_open'),
+            onPressed: controller.busy ? null : _open,
+            child: Text(controller.busy ? 'Opening…' : 'Open the bill'),
+          ),
+        ],
+      ),
       body: Form(
         key: _form,
         child: ListView(
@@ -67,7 +77,7 @@ class _NewBillScreenState extends State<NewBillScreen> {
               validator: (v) =>
                   (v ?? '').trim().isEmpty ? 'Give the bill a name' : null,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             TextFormField(
               controller: _currency,
               decoration: const InputDecoration(
@@ -92,7 +102,7 @@ class _NewBillScreenState extends State<NewBillScreen> {
                 return null;
               },
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             TextFormField(
               controller: _displayName,
               decoration: const InputDecoration(
@@ -100,19 +110,14 @@ class _NewBillScreenState extends State<NewBillScreen> {
                 hintText: 'optional',
               ),
             ),
-            const SizedBox(height: 24),
             if (controller.lastError != null)
               Padding(
-                padding: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.only(top: 16),
                 child: Text(
                   controller.lastError!,
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
-            FilledButton(
-              onPressed: controller.busy ? null : _open,
-              child: Text(controller.busy ? 'Opening…' : 'Open the bill'),
-            ),
           ],
         ),
       ),

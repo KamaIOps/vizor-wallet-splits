@@ -106,9 +106,9 @@ void main() {
     await t.pumpAndSettle();
     expect(find.text('Whole shares only'), findsOneWidget);
 
-    await t.ensureVisible(find.text('Add it'));
+    await t.ensureVisible(find.byKey(const Key('splits_expense_save')));
     await t.pumpAndSettle();
-    await t.tap(find.text('Add it'));
+    await t.tap(find.byKey(const Key('splits_expense_save')));
     await t.pumpAndSettle();
     expect(c.bills.single.bill.expenses, isEmpty);
   });

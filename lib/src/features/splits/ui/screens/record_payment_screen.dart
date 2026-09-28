@@ -16,6 +16,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../view/chrome.dart';
 import '../view/naming.dart';
 import 'add_expense_screen.dart' show figureRefusal, parseMinorUnits;
 import 'splits_scope.dart';
@@ -25,7 +26,7 @@ enum RecordMethod { cash, swap }
 
 extension RecordMethodText on RecordMethod {
   String get label =>
-      this == RecordMethod.cash ? 'Cash' : 'Swapped to another asset';
+      this == RecordMethod.cash ? 'Cash or offline' : 'Swapped to another asset';
 
   /// What a person is told they are asserting.
   ///
@@ -136,6 +137,15 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Record a payment')),
+      bottomNavigationBar: BottomActions(
+        children: [
+          FilledButton(
+            key: const Key('splits_record_save'),
+            onPressed: _saving ? null : () => _save(currency),
+            child: Text(_saving ? 'Recording…' : 'Record payment'),
+          ),
+        ],
+      ),
       body: Form(
         key: _form,
         child: ListView(
@@ -145,9 +155,9 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
             // suffix that tells two people of one name apart is the part an
             // app bar drops first.
             Text(
-              'To $who',
+              'You → $who',
               key: const Key('splits_record_to'),
-              style: Theme.of(context).textTheme.titleMedium,
+              style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -160,8 +170,8 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                 FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
               ],
               decoration: InputDecoration(
-                labelText: 'Amount',
-                prefixText: '$currency ',
+                hintText: 'Amount in $currency',
+                suffixText: currency,
               ),
               validator: (v) {
                 final parsed = parseMinorUnits(v ?? '', currency: currency);
@@ -172,26 +182,14 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                 return null;
               },
             ),
-            const SizedBox(height: 20),
-            Text('How', style: Theme.of(context).textTheme.titleSmall),
-            RadioGroup<RecordMethod>(
-              groupValue: _method,
-              onChanged: (value) {
-                if (_saving || value == null) return;
-                setState(() => _method = value);
-              },
-              child: Column(
-                children: [
-                  for (final method in RecordMethod.values)
-                    RadioListTile<RecordMethod>(
-                      key: Key('splits_record_${method.name}'),
-                      dense: true,
-                      value: method,
-                      title: Text(method.label),
-                    ),
-                ],
+            const SectionLabel('How did you pay?'),
+            for (final method in RecordMethod.values)
+              OptionPill(
+                key: Key('splits_record_${method.name}'),
+                label: method.label,
+                selected: _method == method,
+                onTap: _saving ? null : () => setState(() => _method = method),
               ),
-            ),
             if (_method == RecordMethod.swap) ...[
               const SizedBox(height: 8),
               TextFormField(
@@ -214,18 +212,10 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
             TextFormField(
               key: const Key('splits_record_note'),
               controller: _note,
-              decoration: const InputDecoration(
-                labelText: 'Note',
-                helperText: 'Optional',
-              ),
+              decoration: const InputDecoration(hintText: 'Note (optional)'),
             ),
             const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(_method.caveat),
-              ),
-            ),
+            NoticeCard(message: _method.caveat),
             if (controller.lastError != null)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
@@ -234,12 +224,6 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
-            const SizedBox(height: 16),
-            FilledButton(
-              key: const Key('splits_record_save'),
-              onPressed: _saving ? null : () => _save(currency),
-              child: Text(_saving ? 'Recording…' : 'Record it'),
-            ),
           ],
         ),
       ),

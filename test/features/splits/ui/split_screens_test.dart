@@ -65,7 +65,12 @@ void main() {
           reason: '${splitKindLabel(kind)} is not reachable',
         );
       }
-      expect(find.byType(ChoiceChip), findsNWidgets(SplitKind.values.length));
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is ChoiceChip && '${w.key}'.contains('splits_split_'),
+        ),
+        findsNWidgets(SplitKind.values.length),
+      );
     });
   });
 
@@ -81,9 +86,9 @@ void main() {
       await t.enterText(find.byKey(const Key('splits_figure_ben')), '30.00');
       await t.pumpAndSettle();
 
-      await t.ensureVisible(find.text('Add it'));
+      await t.ensureVisible(find.byKey(const Key('splits_expense_save')));
       await t.pumpAndSettle();
-      await t.tap(find.text('Add it'));
+      await t.tap(find.byKey(const Key('splits_expense_save')));
       await t.pumpAndSettle();
 
       final expense = c.bills
@@ -106,9 +111,9 @@ void main() {
       await t.enterText(find.byKey(Key('splits_figure_${c.me}')), '2');
       await t.pumpAndSettle();
 
-      await t.ensureVisible(find.text('Add it'));
+      await t.ensureVisible(find.byKey(const Key('splits_expense_save')));
       await t.pumpAndSettle();
-      await t.tap(find.text('Add it'));
+      await t.tap(find.byKey(const Key('splits_expense_save')));
       await t.pumpAndSettle();
 
       final expense = c.bills
@@ -160,9 +165,9 @@ void main() {
       await t.enterText(find.byKey(const Key('splits_figure_ben')), '66.67');
       await t.pumpAndSettle();
 
-      await t.ensureVisible(find.text('Add it'));
+      await t.ensureVisible(find.byKey(const Key('splits_expense_save')));
       await t.pumpAndSettle();
-      await t.tap(find.text('Add it'));
+      await t.tap(find.byKey(const Key('splits_expense_save')));
       await t.pumpAndSettle();
 
       final expense = c.bills
@@ -200,9 +205,9 @@ void main() {
       await t.enterText(find.byKey(const Key('splits_item_extra')), '10.00');
       await t.pumpAndSettle();
 
-      await t.ensureVisible(find.text('Add it'));
+      await t.ensureVisible(find.byKey(const Key('splits_expense_save')));
       await t.pumpAndSettle();
-      await t.tap(find.text('Add it'));
+      await t.tap(find.byKey(const Key('splits_expense_save')));
       await t.pumpAndSettle();
 
       final expense = c.bills
@@ -235,13 +240,10 @@ void main() {
       expect(find.byKey(const Key('splits_split_refusal')), findsOneWidget);
       // The button is disabled rather than the add being refused later: the
       // protocol's answer is shown before anything is written.
-      await t.ensureVisible(find.text('Add it'));
+      await t.ensureVisible(find.byKey(const Key('splits_expense_save')));
       await t.pumpAndSettle();
       final button = t.widget<FilledButton>(
-        find.ancestor(
-          of: find.text('Add it'),
-          matching: find.byType(FilledButton),
-        ),
+        find.byKey(const Key('splits_expense_save')),
       );
       expect(button.onPressed, isNull);
     });
@@ -283,9 +285,9 @@ void main() {
       final c = controllerFor(FakeWallet());
       final id = await billWithTwo(c);
       await openWith(t, c, id, amount);
-      await t.ensureVisible(find.text('Add it'));
+      await t.ensureVisible(find.byKey(const Key('splits_expense_save')));
       await t.pumpAndSettle();
-      await t.tap(find.text('Add it'));
+      await t.tap(find.byKey(const Key('splits_expense_save')));
       await t.pumpAndSettle();
       return c.bills.firstWhere((b) => b.id == id).bill.expenses;
     }
