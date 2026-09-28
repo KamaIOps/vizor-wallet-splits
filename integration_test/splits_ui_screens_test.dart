@@ -207,7 +207,22 @@ Future<void> _tapText(WidgetTester tester, String text) async {
   await _settle(tester);
 }
 
+const _billMenuItems = {
+  'splits_bill_people',
+  'splits_bill_activity',
+  'splits_bill_payout',
+  'splits_bill_price',
+  'splits_bill_sync_now',
+  'splits_bill_forget',
+};
+
 Future<void> _tapKey(WidgetTester tester, String key) async {
+  // People, Activity, How you get paid, Price, Sync now and Remove sit in
+  // the bill screen's menu, which is opened first when one is asked for.
+  if (_billMenuItems.contains(key) && !tester.any(find.byKey(Key(key)))) {
+    await tester.tap(find.byKey(const Key('splits_bill_menu')));
+    await _settle(tester);
+  }
   // A keyboard still opening moves the fold, so it finishes first; then the
   // control is scrolled fully into view before the tap.
   await _settle(tester);

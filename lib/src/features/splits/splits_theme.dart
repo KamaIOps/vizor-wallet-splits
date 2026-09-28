@@ -45,7 +45,7 @@ ThemeData splitsTheme(ThemeData base, AppColors c) {
         titleSmall: AppTypography.labelLarge.copyWith(
           color: c.text.secondary,
         ),
-        bodyLarge: AppTypography.bodyMedium.copyWith(color: c.text.primary),
+        bodyLarge: AppTypography.bodyLarge.copyWith(color: c.text.primary),
         bodyMedium: AppTypography.bodyMedium.copyWith(color: c.text.primary),
         bodySmall: AppTypography.bodySmall.copyWith(color: c.text.secondary),
       );

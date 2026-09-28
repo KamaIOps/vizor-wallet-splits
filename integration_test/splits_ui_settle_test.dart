@@ -283,7 +283,7 @@ Future<void> _payee(WidgetTester tester) async {
   );
   await _tapKey(tester, 'splits_bill_join_ok');
   // The notice going away is what says the join landed. What replaces it is
-  // not "nowhere yet": `_payoutSummary` reads that only for somebody with
+  // not "You haven’t said yet": `_payoutSummary` reads that only for somebody with
   // neither a payout nor an address, and the wallet gives every participant
   // its own address when it joins — so this device is already in the ZEC lane
   // before it chooses another.
@@ -301,9 +301,7 @@ Future<void> _payee(WidgetTester tester) async {
   await _settle(tester);
   if (_lane == 'swap') {
     await _tapKey(tester, 'splits_payout_swap');
-    await _typeText(tester, 'splits_payout_asset', 'USDC');
-    await _typeText(tester, 'splits_payout_chain', 'base');
-    await _typeText(tester, 'splits_payout_address', '0xpayee');
+    await _payInUsdc(tester, 'base', '0xpayee');
   } else {
     await _tapKey(tester, 'splits_payout_cash');
   }
@@ -586,7 +584,22 @@ Future<void> _reveal(WidgetTester tester, Finder target, String what) async {
   await pumpUntil(tester, () => tester.any(target), description: what);
 }
 
+const _billMenuItems = {
+  'splits_bill_people',
+  'splits_bill_activity',
+  'splits_bill_payout',
+  'splits_bill_price',
+  'splits_bill_sync_now',
+  'splits_bill_forget',
+};
+
 Future<void> _tapKey(WidgetTester tester, String key) async {
+  // People, Activity, How you get paid, Price, Sync now and Remove sit in
+  // the bill screen's menu, which is opened first when one is asked for.
+  if (_billMenuItems.contains(key) && !tester.any(find.byKey(Key(key)))) {
+    await tester.tap(find.byKey(const Key('splits_bill_menu')));
+    await _settle(tester);
+  }
   // After typing, the keyboard is still opening, and it moves the fold: a
   // control past it stays built but is off screen, where a tap lands on
   // whatever is behind it. Let it finish, then bring the control into view.
@@ -656,3 +669,33 @@ List<String> _visibleText(WidgetTester tester) => tester
     .where((t) => t.isNotEmpty && t.length < 40)
     .take(12)
     .toList();
+
+/// Declares USDC on [chain] as this device's payout.
+///
+/// Picked from the provider's list when it answers; typed when it cannot,
+/// which is what the screen falls back to.
+Future<void> _payInUsdc(
+  WidgetTester tester,
+  String chain,
+  String address,
+) async {
+  final pill = find.byKey(Key('splits_payout_chain_$chain'));
+  final typed = find.byKey(const Key('splits_payout_asset'));
+  await pumpUntil(
+    tester,
+    () => tester.any(pill) || tester.any(typed),
+    description: 'the USDC chain list, or the typed fallback',
+    timeout: const Duration(seconds: 60),
+  );
+  if (tester.any(pill)) {
+    await _tapKey(tester, 'splits_payout_chain_$chain');
+  } else {
+    await tester.enterText(typed, 'USDC');
+    await tester.enterText(find.byKey(const Key('splits_payout_chain')), chain);
+  }
+  await tester.enterText(
+    find.byKey(const Key('splits_payout_address')),
+    address,
+  );
+  await tester.pump();
+}
