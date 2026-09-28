@@ -32,6 +32,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:zcash_wallet/src/features/splits/ui/screens/share_bill_screen.dart'
+    show CodeImage;
 import 'package:zcash_wallet/app.dart';
 import 'package:zcash_wallet/src/features/splits/splits_relay.dart';
 
@@ -110,8 +112,8 @@ Future<void> _payer(WidgetTester tester) async {
     'the whole-bill code on the share screen',
   );
   final code = tester
-      .widgetList<SelectableText>(find.byType(SelectableText))
-      .map((w) => w.data!)
+      .widgetList<CodeImage>(find.byType(CodeImage))
+      .map((w) => w.value)
       .firstWhere(
         (c) => c.startsWith('splitz1:'),
         orElse: () => throw StateError('the share screen showed no bill code'),
@@ -148,11 +150,11 @@ Future<void> _payer(WidgetTester tester) async {
   //     flattening a lane the request cannot carry.
   await _reveal(
     tester,
-    find.textContaining('not paid in shielded ZEC'),
+    find.textContaining('— tap to'),
     'the withheld payee, reported rather than dropped',
   );
   expect(
-    find.textContaining('not paid in shielded ZEC'),
+    find.textContaining('— tap to'),
     findsOneWidget,
     reason: 'a payee in another lane is reported, never dropped',
   );

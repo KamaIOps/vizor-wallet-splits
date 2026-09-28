@@ -23,6 +23,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:splitz_core/host.dart' as splitz;
 import 'package:integration_test/integration_test.dart';
+import 'package:zcash_wallet/src/features/splits/ui/screens/share_bill_screen.dart'
+    show CodeImage;
 import 'package:zcash_wallet/app.dart';
 
 import 'support/mobile_regtest_flow.dart';
@@ -154,9 +156,9 @@ void main() {
       );
       if (tester.any(whole)) {
         final code = tester
-            .widgetList<SelectableText>(find.byType(SelectableText))
+            .widgetList<CodeImage>(find.byType(CodeImage))
             .first
-            .data!;
+            .value;
         // A code only this app can read is a code no wallet can scan, so it is
         // read back through the protocol rather than eyeballed.
         expect(
@@ -172,8 +174,8 @@ void main() {
       // The invite is offered either way, and is what a capped bill is sent as.
       await _scrollToText(tester, 'Just the invite');
       final invite = tester
-          .widgetList<SelectableText>(find.byType(SelectableText))
-          .map((w) => w.data!)
+          .widgetList<CodeImage>(find.byType(CodeImage))
+          .map((w) => w.value)
           .firstWhere(
             (c) => c.startsWith('splitz://'),
             orElse: () => throw StateError('no invite on the share screen'),

@@ -41,16 +41,9 @@ extension PayoutChoiceText on PayoutChoice {
   };
 
   String get detail => switch (this) {
-    PayoutChoice.zec =>
-      'Paid straight to your wallet. Several people can be paid in one '
-          'transaction.',
-    PayoutChoice.swap =>
-      'Whoever pays you swaps their ZEC to USDC through NEAR Intents, and it '
-          'arrives on the chain you pick. One swap each, so this is not '
-          'batched with anyone else.',
-    PayoutChoice.cash =>
-      'Settled between you, outside this app. Nothing verifies it, so '
-          'you have to say when it arrives.',
+    PayoutChoice.zec => 'Straight to your wallet',
+    PayoutChoice.swap => 'Swapped from ZEC with NEAR Intents',
+    PayoutChoice.cash => 'In person — you confirm when it arrives',
   };
 }
 
@@ -215,14 +208,6 @@ class _PayoutScreenState extends State<PayoutScreen> {
                 ? null
                 : () => setState(() => _pickedChain = a.chain),
           ),
-        if (_pickedChain == null)
-          const Padding(
-            padding: EdgeInsets.only(top: 4),
-            child: Text(
-              'Pick one: the wrong chain delivers USDC somewhere you cannot '
-              'reach it.',
-            ),
-          ),
       ],
     );
   }
@@ -292,7 +277,6 @@ class _PayoutScreenState extends State<PayoutScreen> {
                       value: choice,
                       title: Text(choice.label),
                       subtitle: Text(choice.detail),
-                      isThreeLine: true,
                     ),
                 ],
               ),

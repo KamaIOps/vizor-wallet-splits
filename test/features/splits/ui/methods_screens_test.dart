@@ -177,7 +177,7 @@ void main() {
       await t.pumpWidget(app(c, SettleScreen(billId: id)));
       await t.pumpAndSettle();
 
-      expect(find.textContaining('Cannot pay'), findsOneWidget);
+      expect(find.textContaining('You → '), findsOneWidget);
       expect(find.byKey(const Key('splits_settle_apart_ben')), findsOneWidget);
     });
 
@@ -208,7 +208,7 @@ void main() {
       await t.pumpWidget(app(c, SettleScreen(billId: id)));
       await t.pumpAndSettle();
 
-      expect(find.textContaining('have not shared an address'), findsOneWidget);
+      expect(find.textContaining('No Zcash address yet'), findsOneWidget);
       expect(find.byKey(const Key('splits_settle_apart_eve')), findsNothing);
     });
   });
