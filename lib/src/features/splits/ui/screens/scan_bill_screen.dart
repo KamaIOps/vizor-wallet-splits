@@ -62,8 +62,7 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
     return [
       'An invite to “${invite.name}”.',
       if (expired) 'Its sender marked it as expired.',
-      'Joining keeps its key on this device, and anyone else holding this '
-          'link can read the bill too.',
+      'Anyone with this link can read the bill.',
     ].join(' ');
   }
 
@@ -98,10 +97,7 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
         builder: (dialog) => AlertDialog(
           title: const Text('A different key for this bill'),
           content: const Text(
-            'This device already holds another key for this bill, from an '
-            'earlier code or link. Only one of them is the bill the others '
-            'use, and a link is text anyone can send. Use this one only if you '
-            'got it from the person who opened the bill.',
+            'This phone has another key for this bill. Keep the one you trust.',
           ),
           actions: [
             TextButton(
@@ -140,8 +136,7 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
           // hold. Without the bill id there is nothing to merge them into.
           setState(
             () => _message =
-                'This code carries changes to a bill, not a bill. Scan the '
-                'bill’s own code or its invite first.',
+                'This is an update, not a bill. Scan the bill first.',
           );
           return;
         }
@@ -181,10 +176,8 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
         }
         setState(
           () => _message = controller.hasRelay
-              ? 'Invite accepted, but the relay does not hold this bill yet. '
-                    'Ask for its code, or try again once it has been synced.'
-              : 'Invite accepted. The bill itself still has to arrive — scan '
-                    'its code.',
+              ? 'Joined. It hasn’t synced yet, so ask for its code.'
+              : 'Joined. Now scan the bill’s code.',
         );
 
       case splitz.ScanRefused(:final code):
@@ -222,10 +215,8 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
             scan == null
                 // No camera in this build. Said plainly rather than offering
                 // a button that leads nowhere.
-                ? 'Paste a bill code or an invite. A camera reads the same '
-                      'strings, so whatever it produces goes here.'
-                : 'Point the camera at a bill code or an invite, or paste one '
-                      'in.',
+                ? 'Paste a bill code or invite.'
+                : 'Scan or paste a bill code or invite.',
           ),
           const SizedBox(height: 16),
           TextField(
@@ -254,12 +245,8 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
   /// The code is kept in the message because it is the part that is the same
   /// in every wallet: it is what somebody can be asked to read out.
   static String _explain(String code) => switch (code) {
-    'payload_too_large' =>
-      'That bill is too big for one code ($code). Ask for an invite and '
-          'let sync bring the rest.',
-    'payload_damaged' =>
-      'That code did not come through cleanly ($code). Try scanning it '
-          'again.',
+    'payload_too_large' => 'Too big for one code ($code). Ask for an invite.',
+    'payload_damaged' => 'Couldn’t read that code ($code). Try again.',
     'invite_bad_expiry' || 'invite_missing_key' =>
       'That invite is not one this wallet can use ($code).',
     _ => 'That is not a bill code or an invite ($code).',

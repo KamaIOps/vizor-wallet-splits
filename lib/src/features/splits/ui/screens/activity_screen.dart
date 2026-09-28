@@ -64,8 +64,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
       builder: (dialog) => AlertDialog(
         title: const Text('Stop following this swap?'),
         content: const Text(
-          'The swap is not cancelled: the provider still delivers it or '
-          'refunds it. This phone just stops asking how it went.',
+          'The swap keeps going. This phone just stops checking it.',
         ),
         actions: [
           TextButton(
@@ -179,9 +178,7 @@ class _AwaitingTile extends StatelessWidget {
       builder: (dialog) => AlertDialog(
         title: const Text('It arrived?'),
         content: Text(
-          'This settles ${formatAmount(payment.amount, payment.currency)} of '
-          'what $who owes you, on every device on the bill. Check your '
-          'wallet shows it first.',
+          'This settles ${formatAmount(payment.amount, payment.currency)} for everyone. Check your wallet first.',
         ),
         actions: [
           TextButton(
@@ -215,9 +212,7 @@ class _AwaitingTile extends StatelessWidget {
       builder: (dialog) => AlertDialog(
         title: const Text('It did not arrive?'),
         content: Text(
-          'The record comes off the bill and $who is asked for '
-          '${formatAmount(payment.amount, payment.currency)} again. Tell them '
-          'first: if it is still on its way, they pay twice.',
+          '$who will owe ${formatAmount(payment.amount, payment.currency)} again. Tell them first.',
         ),
         actions: [
           TextButton(
@@ -332,8 +327,7 @@ class _ConfirmedTile extends StatelessWidget {
       builder: (dialog) => AlertDialog(
         title: const Text('Take it back?'),
         content: const Text(
-          'The payment goes back to waiting for you, and the debt it settled '
-          'is owed again.',
+          'It goes back to waiting, and the debt is owed again.',
         ),
         actions: [
           TextButton(
@@ -496,13 +490,9 @@ class _InFlightTile extends StatelessWidget {
     SwapState.awaitingDeposit =>
       'The provider has not seen the whole deposit yet',
     SwapState.processing => 'The provider is working on it',
-    SwapState.refunding =>
-      'It did not go through. The provider is returning the ZEC to your own '
-          'wallet.',
-    SwapState.delivered =>
-      'The provider says it was sent — they still confirm it arrived',
-    SwapState.failed =>
-      'It did not go through. Any refund returns to your own wallet.',
+    SwapState.refunding => 'Didn’t go through. The ZEC is coming back to you.',
+    SwapState.delivered => 'Sent. They confirm when it arrives.',
+    SwapState.failed => 'Didn’t go through. Any refund comes back to you.',
   };
 
   @override

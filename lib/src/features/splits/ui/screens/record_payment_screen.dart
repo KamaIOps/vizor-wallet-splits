@@ -25,20 +25,17 @@ import 'splits_scope.dart';
 enum RecordMethod { cash, swap }
 
 extension RecordMethodText on RecordMethod {
-  String get label =>
-      this == RecordMethod.cash ? 'Cash or offline' : 'Swapped to another asset';
+  String get label => this == RecordMethod.cash
+      ? 'Cash or offline'
+      : 'Swapped to another asset';
 
   /// What a person is told they are asserting.
   ///
   /// Neither sentence claims the debt is settled, because neither method
   /// settles one: §10.5 gives that to the payee alone.
   String get caveat => switch (this) {
-    RecordMethod.cash =>
-      'Nothing verifies cash. This records that you say you paid it, and '
-          'it settles when they confirm it arrived.',
-    RecordMethod.swap =>
-      'Only the ZEC leg is visible here. That the deposit was sent is not '
-          'that they were paid — they confirm that.',
+    RecordMethod.cash => 'Counts once they confirm it.',
+    RecordMethod.swap => 'Counts once they confirm it arrived.',
   };
 }
 

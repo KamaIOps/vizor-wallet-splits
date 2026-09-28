@@ -108,8 +108,8 @@ void main() {
 
       // The invite on its own is the other thing this screen offers, and it is
       // a heading further down the list rather than a control.
-      await _scrollToText(tester, 'Just the invite');
-      expect(find.text('Just the invite'), findsOneWidget);
+      await _scrollToText(tester, 'Lets someone join. The bill arrives when they sync.');
+      expect(find.textContaining('Lets someone join'), findsOneWidget);
       expect(
         find.text('Invite'),
         findsOneWidget,
@@ -177,7 +177,7 @@ void main() {
 
 /// Scrolls the screen until [text] is on it.
 ///
-/// The share screen is a `ListView`: "Just the invite" and the invite's own
+/// The share screen is a `ListView`: "Lets someone join" and the invite's own
 /// code sit below the fold, so a finder that waits for one waits forever.
 Future<void> _scrollToText(WidgetTester tester, String text) async {
   final target = find.text(text);

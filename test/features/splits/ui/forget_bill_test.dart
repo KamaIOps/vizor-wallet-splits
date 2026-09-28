@@ -40,7 +40,7 @@ void main() {
 
     // Backing out keeps it.
     await openRemove();
-    expect(find.textContaining('Everyone else keeps it'), findsOneWidget);
+    expect(find.textContaining('Others keep it'), findsOneWidget);
     await t.tap(find.text('Keep it'));
     await t.pumpAndSettle();
     expect(c.bills.map((b) => b.id), contains(id));

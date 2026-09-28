@@ -36,7 +36,7 @@ void main() {
     final c = controllerFor(FakeWallet(identitySecret: null));
     await c.load();
     await t.pumpWidget(app(c));
-    expect(find.textContaining('cannot be restored'), findsOneWidget);
+    expect(find.textContaining('can’t be restored'), findsOneWidget);
   });
 
   testWidgets('opening a bill lands on it, with the opener already on it', (
@@ -237,7 +237,7 @@ void main() {
       // A refusal names a figure that would be taken, or why none would.
       expect(figureRefusal('KWD'), contains('12.500'));
       expect(figureRefusal('JPY'), contains('1250'));
-      expect(figureRefusal('XAU'), contains('no minor unit'));
+      expect(figureRefusal('XAU'), contains('can’t be split here'));
     });
 
     test('a figure past 64 bits is refused, not wrapped', () {

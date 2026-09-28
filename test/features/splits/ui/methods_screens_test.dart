@@ -230,7 +230,7 @@ void main() {
 
       // The figure owed is already there, so the common case is one tap.
       expect(find.text('10.00'), findsOneWidget);
-      expect(find.textContaining('Nothing verifies cash'), findsOneWidget);
+      expect(find.textContaining('Counts once they confirm it.'), findsOneWidget);
 
       // The form outgrows a 600-pixel surface once the swap field shows.
       await t.drag(find.byType(ListView), const Offset(0, -300));
@@ -289,7 +289,7 @@ void main() {
       await t.pumpAndSettle();
 
       expect(find.textContaining('not a Zcash txid'), findsOneWidget);
-      expect(find.textContaining('Only the ZEC leg'), findsOneWidget);
+      expect(find.textContaining('confirm it arrived'), findsOneWidget);
 
       await t.enterText(
         find.byKey(const Key('splits_record_reference')),

@@ -58,34 +58,23 @@ class _ShareBillScreenState extends State<ShareBillScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text(
-            'The whole bill',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'One code that opens the bill on another phone, contents and all.',
-          ),
-          const SizedBox(height: 12),
-          if (_payload != null)
-            _Code(label: 'Bill code', value: _payload!)
-          else if (_tooBig)
+          if (_payload != null) ...[
+            _Code(
+              label: 'Bill code',
+              about: 'Opens the whole bill on another phone.',
+              value: _payload!,
+            ),
+            const SizedBox(height: 16),
+          ] else if (_tooBig)
             const _TooBig()
           else
             const _Loading(),
-          const SizedBox(height: 32),
-          Text(
-            'Just the invite',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'The bill’s name and its key, with none of its contents. The other '
-            'phone still needs the bill itself, from a code or from sync.',
-          ),
-          const SizedBox(height: 12),
           if (_invite != null)
-            _Code(label: 'Invite', value: _invite!)
+            _Code(
+              label: 'Invite',
+              about: 'Lets someone join. The bill arrives when they sync.',
+              value: _invite!,
+            )
           else
             const _Loading(),
         ],
@@ -102,13 +91,9 @@ class _TooBig extends StatelessWidget {
   const _TooBig();
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(12),
-    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-    child: const Text(
-      'This bill has outgrown a single code. Send the invite instead, and '
-      'let the other phone catch up through sync.',
-    ),
+  Widget build(BuildContext context) => const Padding(
+    padding: EdgeInsets.only(bottom: 12),
+    child: Text('Too big for one code, so share the invite.'),
   );
 }
 
@@ -128,9 +113,12 @@ class _Loading extends StatelessWidget {
 /// here. Every form carries the same string, which is what makes a scan, a
 /// paste and a shared message interchangeable.
 class _Code extends StatelessWidget {
-  const _Code({required this.label, required this.value});
+  const _Code({required this.label, required this.about, required this.value});
 
   final String label;
+
+  /// What the code is for, in a line.
+  final String about;
   final String value;
 
   @override
@@ -165,16 +153,14 @@ class _Code extends StatelessWidget {
                 ),
             ],
           ),
+          Text(about),
+          const SizedBox(height: 8),
           Center(
-            child: CodeImage(
-              key: Key('splits_qr_$label'),
-              value: value,
-            ),
+            child: CodeImage(key: Key('splits_qr_$label'), value: value),
           ),
           const SizedBox(height: 8),
           Text(
-            'Anyone who sees this code can read the bill and write to it. '
-            'Show it only to the people on the bill: it cannot be taken back.',
+            'Anyone with this code can read and add to the bill.',
             key: Key('splits_code_warning_$label'),
             style: Theme.of(context).textTheme.bodySmall,
           ),
