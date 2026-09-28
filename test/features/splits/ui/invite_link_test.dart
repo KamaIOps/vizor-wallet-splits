@@ -84,7 +84,7 @@ void main() {
 
     expect(find.byType(BillScreen), findsNothing);
     expect(
-      find.textContaining('the relay does not hold this bill'),
+      find.textContaining('hasn’t synced yet'),
       findsOneWidget,
     );
     expect(await keys.readBillKey(id), isNotNull);
@@ -108,7 +108,7 @@ void main() {
     await t.pumpAndSettle();
 
     expect(find.byType(BillScreen), findsNothing);
-    expect(find.textContaining('still has to arrive'), findsOneWidget);
+    expect(find.textContaining('Now scan the bill’s code'), findsOneWidget);
     expect(await keys.readBillKey(id), isNotNull);
   });
 

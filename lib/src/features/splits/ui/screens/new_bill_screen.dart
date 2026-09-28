@@ -84,9 +84,7 @@ class _NewBillScreenState extends State<NewBillScreen> {
               controller: _currency,
               decoration: const InputDecoration(
                 labelText: 'Currency',
-                helperText:
-                    'A bill has exactly one currency, and it cannot '
-                    'change once it is open.',
+                helperText: 'Can’t be changed later.',
               ),
               textCapitalization: TextCapitalization.characters,
               validator: (v) {

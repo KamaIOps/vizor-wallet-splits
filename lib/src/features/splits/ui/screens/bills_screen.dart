@@ -115,11 +115,7 @@ class _Empty extends StatelessWidget {
   Widget build(BuildContext context) => const Center(
     child: Padding(
       padding: EdgeInsets.all(32),
-      child: Text(
-        'No bills yet.\n\n'
-        'Start one and share the code, or join somebody else’s.',
-        textAlign: TextAlign.center,
-      ),
+      child: Text('No bills yet.', textAlign: TextAlign.center),
     ),
   );
 }
@@ -137,11 +133,7 @@ class _UnrecoverableIdentity extends StatelessWidget {
     width: double.infinity,
     color: Theme.of(context).colorScheme.surfaceContainerHighest,
     padding: const EdgeInsets.all(12),
-    child: const Text(
-      'This account signs with a key that cannot be restored from your '
-      'recovery phrase. Bills you are on would not recognise you on a new '
-      'device.',
-    ),
+    child: const Text('This account can’t be restored on a new phone.'),
   );
 }
 
