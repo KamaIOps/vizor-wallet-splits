@@ -71,7 +71,8 @@ ThemeData splitsTheme(ThemeData base, AppColors c) {
       outlineVariant: c.border.subtle,
       error: c.text.destructive,
       errorContainer: c.background.utilityDestructiveSubtle,
-      onErrorContainer: c.text.destructive,
+      // The tint carries the alarm; the text stays at body contrast.
+      onErrorContainer: c.text.primary,
     ),
     appBarTheme: AppBarTheme(
       backgroundColor: c.background.window,
@@ -172,7 +173,15 @@ ThemeData splitsTheme(ThemeData base, AppColors c) {
       selectedColor: primary.bg,
       secondarySelectedColor: primary.bg,
       checkmarkColor: primary.label,
-      labelStyle: AppTypography.bodyMedium.copyWith(color: c.text.primary),
+      // Resolved by state (chip.dart resolves the label colour), so a
+      // selected FilterChip reads on the dark fill as a ChoiceChip does.
+      labelStyle: AppTypography.bodyMedium.copyWith(
+        color: WidgetStateColor.resolveWith(
+          (s) => s.contains(WidgetState.selected)
+              ? primary.label
+              : c.text.primary,
+        ),
+      ),
       secondaryLabelStyle: AppTypography.bodyMedium.copyWith(
         color: primary.label,
       ),
