@@ -1,31 +1,31 @@
 # Building the shared-bill feature
 
-The splits feature is three repositories, not one. `pubspec.yaml` reaches the
-other two by relative path, so they must be checked out **as siblings of this
-one**, under names spelled exactly as below:
+The splits feature is two repositories. `pubspec.yaml` reaches the protocol by
+relative path, so it must be checked out **as a sibling of this one**, under
+the name spelled exactly as below:
 
 ```
 <parent>/
   Vizor-Wallet/        this repository
   Splitz-Protocol/     the protocol and the wallet plumbing
-  splitz-flutter/      the splits screens
 ```
 
-The three dependencies that require it:
+The screens are this repository's own, under `lib/src/features/splits/ui/`.
+
+The two dependencies that require it:
 
 | dependency | resolves to |
 |---|---|
 | `splitz_host` | `../Splitz-Protocol/splitz_host` |
 | `splitz_core` | `../Splitz-Protocol/dart` |
-| `splitz_flutter` | `../splitz-flutter` |
 
-`flutter pub get` fails with an unresolved path dependency if any of the three
-is missing or sits elsewhere. A parent directory holding only this repository
+`flutter pub get` fails with an unresolved path dependency if the sibling is
+missing or sits elsewhere. A parent directory holding only this repository
 cannot build the feature at all.
 
 ## Running the lanes
 
-Host tests and the analyzer need nothing but the three checkouts:
+Host tests and the analyzer need nothing but the two checkouts:
 
 ```bash
 fvm flutter pub get
