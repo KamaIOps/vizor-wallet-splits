@@ -88,13 +88,40 @@ class SplitsNavigatorState extends State<SplitsNavigator> {
         }
         Navigator.of(context).maybePop();
       },
-      child: Navigator(
-        key: _navigator,
-        onGenerateRoute: (settings) => MaterialPageRoute<void>(
-          settings: settings,
-          builder: (_) => const BillsScreen(),
+      child: ScrollConfiguration(
+        behavior: const _WithScrollbar(),
+        child: Navigator(
+          key: _navigator,
+          onGenerateRoute: (settings) => MaterialPageRoute<void>(
+            settings: settings,
+            builder: (_) => const BillsScreen(),
+          ),
         ),
       ),
     ),
   );
+}
+
+/// A visible scrollbar on every scrolling screen of the feature, on every
+/// platform: a bill's rows run past the fold, and the actions pinned at the
+/// foot give no hint that there is more above them.
+class _WithScrollbar extends MaterialScrollBehavior {
+  const _WithScrollbar();
+
+  @override
+  Widget buildScrollbar(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) {
+    if (details.direction == AxisDirection.left ||
+        details.direction == AxisDirection.right) {
+      return child;
+    }
+    return Scrollbar(
+      controller: details.controller,
+      thumbVisibility: true,
+      child: child,
+    );
+  }
 }

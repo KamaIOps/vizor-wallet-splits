@@ -127,9 +127,20 @@ void main() {
       await t.pumpAndSettle();
       await t.tap(find.byKey(const Key('splits_payout_swap')));
       await t.pumpAndSettle();
-      await t.enterText(find.byKey(const Key('splits_payout_asset')), 'USDC');
-      await t.enterText(find.byKey(const Key('splits_payout_chain')), 'base');
-      await t.enterText(find.byKey(const Key('splits_payout_address')), '0xme');
+      // With no swap provider the chains cannot be listed, so the asset and
+      // chain are typed.
+      for (final (key, text) in [
+        ('splits_payout_asset', 'USDC'),
+        ('splits_payout_chain', 'base'),
+        ('splits_payout_address', '0xme'),
+      ]) {
+        await t.dragUntilVisible(
+          find.byKey(Key(key)),
+          find.byType(ListView),
+          const Offset(0, -100),
+        );
+        await t.enterText(find.byKey(Key(key)), text);
+      }
       // The form scrolls; the button is below the fold on a short surface.
       await t.ensureVisible(find.byKey(const Key('splits_payout_save')));
       await t.pumpAndSettle();
