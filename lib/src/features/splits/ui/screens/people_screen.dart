@@ -79,38 +79,8 @@ class PeopleScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _add(BuildContext context, BillView view) async {
-    final controller = SplitsScope.read(context);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (dialog) => const _NameSheet(),
-    );
-    if (name == null || name.trim().isEmpty) return;
-    await controller.addPerson(
-      billId: billId,
-      id: _idFor(name.trim(), view),
-      name: name.trim(),
-    );
-  }
-
-  /// An id for somebody being added by hand.
-  ///
-  /// Derived from the name so the log reads plainly, and suffixed until it is
-  /// free: §9.1 refuses a duplicate, and two people called Sam are ordinary.
-  static String _idFor(String name, BillView view) {
-    final base = name
-        .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
-        .replaceAll(RegExp(r'^-+|-+$'), '');
-    final stem = base.isEmpty ? 'person' : base;
-    var candidate = stem;
-    var n = 1;
-    while (view.bill.participant(candidate) != null) {
-      n++;
-      candidate = '$stem-$n';
-    }
-    return candidate;
-  }
+  Future<void> _add(BuildContext context, BillView view) =>
+      askAndAddPerson(context, billId: billId, view: view);
 }
 
 class _PersonTile extends StatelessWidget {
@@ -144,44 +114,13 @@ class _PersonTile extends StatelessWidget {
     };
   }
 
-  Future<void> _remove(BuildContext context) async {
-    final controller = SplitsScope.read(context);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialog) => AlertDialog(
-        title: Text('Take ${participant.name} off the bill?'),
-        // Says the rule rather than letting it arrive as a refusal: §10.8
-        // will not remove somebody an expense still names.
-        content: const Text(
-          'This only works while nothing on the bill still names them. If '
-          'they paid for something or share an expense, take those off '
-          'first.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialog).pop(false),
-            child: const Text('Keep them'),
-          ),
-          FilledButton(
-            key: const Key('splits_people_remove_confirm'),
-            onPressed: () => Navigator.of(dialog).pop(true),
-            child: const Text('Take them off'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed ?? false) {
-      await controller.removePerson(billId: billId, id: participant.id);
-    }
-  }
+  Future<void> _remove(BuildContext context) =>
+      confirmAndRemovePerson(context, billId: billId, participant: participant);
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return RowCard(
-      padding: EdgeInsets.zero,
-      child: _tile(context, scheme),
-    );
+    return RowCard(padding: EdgeInsets.zero, child: _tile(context, scheme));
   }
 
   Widget _tile(BuildContext context, ColorScheme scheme) {
@@ -251,6 +190,83 @@ class _PersonTile extends StatelessWidget {
           : null,
     );
   }
+}
+
+/// Asks for a name and puts that person on the bill.
+///
+/// The name reaches every device on the bill. They are added unbound (§10.7)
+/// until they join from their own device.
+Future<void> askAndAddPerson(
+  BuildContext context, {
+  required String billId,
+  required BillView view,
+}) async {
+  final controller = SplitsScope.read(context);
+  final name = await showDialog<String>(
+    context: context,
+    builder: (dialog) => const _NameSheet(),
+  );
+  if (name == null || name.trim().isEmpty) return;
+  await controller.addPerson(
+    billId: billId,
+    id: _idFor(name.trim(), view),
+    name: name.trim(),
+  );
+}
+
+/// Takes [participant] off the bill, after saying what that needs.
+Future<void> confirmAndRemovePerson(
+  BuildContext context, {
+  required String billId,
+  required protocol.Participant participant,
+}) async {
+  final controller = SplitsScope.read(context);
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialog) => AlertDialog(
+      title: Text('Take ${participant.name} off the bill?'),
+      // Says the rule rather than letting it arrive as a refusal: §10.8
+      // will not remove somebody an expense still names.
+      content: const Text(
+        'This only works while nothing on the bill still names them. If '
+        'they paid for something or share an expense, take those off '
+        'first.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialog).pop(false),
+          child: const Text('Keep them'),
+        ),
+        FilledButton(
+          key: const Key('splits_people_remove_confirm'),
+          onPressed: () => Navigator.of(dialog).pop(true),
+          child: const Text('Take them off'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed ?? false) {
+    await controller.removePerson(billId: billId, id: participant.id);
+  }
+}
+
+/// An id for somebody being added by hand.
+///
+/// Derived from the name so the log reads plainly, and suffixed until it is
+/// free: §9.1 refuses a duplicate, and two people called Sam are ordinary.
+String _idFor(String name, BillView view) {
+  final base = name
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+      .replaceAll(RegExp(r'^-+|-+$'), '');
+  final stem = base.isEmpty ? 'person' : base;
+  var candidate = stem;
+  var n = 1;
+  while (view.bill.participant(candidate) != null) {
+    n++;
+    candidate = '$stem-$n';
+  }
+  return candidate;
 }
 
 class _NameSheet extends StatefulWidget {

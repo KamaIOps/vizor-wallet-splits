@@ -106,15 +106,15 @@ void main() {
     await t.pumpAndSettle();
     expect(find.text('Invite'), findsOneWidget);
     expect(find.byKey(const Key('splits_qr_Invite')), findsOneWidget);
-    // And the text is still there: a code that will not scan is still one
-    // somebody can copy.
+    // And it can still be copied: a code that will not scan is still one
+    // somebody can paste.
     expect(
       find.descendant(
         of: find.ancestor(
           of: find.byKey(const Key('splits_qr_Invite')),
           matching: find.byType(Card),
         ),
-        matching: find.byType(SelectableText),
+        matching: find.byTooltip('Copy'),
       ),
       findsOneWidget,
     );
@@ -139,10 +139,10 @@ void main() {
     await t.pumpAndSettle();
 
     final codes = t.widgetList<QrImageView>(find.byType(QrImageView)).toList();
-    // The text printed under each code is what the code carries.
+    // What each image carries.
     final texts = t
-        .widgetList<SelectableText>(find.byType(SelectableText))
-        .map((w) => w.data!)
+        .widgetList<CodeImage>(find.byType(CodeImage))
+      .map((w) => w.value)
         .toList();
     expect(codes, hasLength(2));
     expect(texts, hasLength(2));

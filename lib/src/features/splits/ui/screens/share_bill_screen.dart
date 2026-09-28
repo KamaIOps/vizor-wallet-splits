@@ -122,7 +122,7 @@ class _Loading extends StatelessWidget {
   );
 }
 
-/// A code, drawn, shown as text, and offered to copy or share.
+/// A code, drawn, and offered to copy or share.
 ///
 /// Reading a code needs a camera, which is the wallet's; drawing one is done
 /// here. Every form carries the same string, which is what makes a scan, a
@@ -165,23 +165,10 @@ class _Code extends StatelessWidget {
                 ),
             ],
           ),
-          // The code itself, drawn. §11.2 caps a payload at what a
-          // version-40 QR holds in byte mode at error correction M, so those
-          // are the settings: a lower version could not carry a payload the
-          // protocol says fits, and a higher correction level would cap it
-          // lower than the protocol does.
           Center(
-            child: QrImageView(
+            child: CodeImage(
               key: Key('splits_qr_$label'),
-              data: value,
-              version: QrVersions.auto,
-              errorCorrectionLevel: QrErrorCorrectLevel.M,
-              size: _qrSize,
-              padding: EdgeInsets.all(_quietZone(value)),
-              // White behind the modules whatever the theme is: a scanner
-              // reads contrast, and a dark-mode card behind a dark code is
-              // one that does not scan.
-              backgroundColor: const Color(0xFFFFFFFF),
+              value: value,
             ),
           ),
           const SizedBox(height: 8),
@@ -191,16 +178,6 @@ class _Code extends StatelessWidget {
             key: Key('splits_code_warning_$label'),
             style: Theme.of(context).textTheme.bodySmall,
           ),
-          const SizedBox(height: 12),
-          SelectableText(
-            value,
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${value.length} characters',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
         ],
       ),
     ),
@@ -208,6 +185,31 @@ class _Code extends StatelessWidget {
 }
 
 const double _qrSize = 240;
+
+/// A code drawn as a QR image, holding the string it draws.
+class CodeImage extends StatelessWidget {
+  const CodeImage({super.key, required this.value});
+
+  /// What the image encodes, byte for byte.
+  final String value;
+
+  // §11.2 caps a payload at what a version-40 QR holds in byte mode at error
+  // correction M, so those are the settings: a lower version could not carry
+  // a payload the protocol says fits, and a higher correction level would
+  // cap it lower than the protocol does.
+  @override
+  Widget build(BuildContext context) => QrImageView(
+    data: value,
+    version: QrVersions.auto,
+    errorCorrectionLevel: QrErrorCorrectLevel.M,
+    size: _qrSize,
+    padding: EdgeInsets.all(_quietZone(value)),
+    // White behind the modules whatever the theme is: a scanner reads
+    // contrast, and a dark-mode card behind a dark code is one that does
+    // not scan.
+    backgroundColor: const Color(0xFFFFFFFF),
+  );
+}
 
 /// The white margin around the code, in logical pixels: four modules on every
 /// side, which ISO/IEC 18004 requires for a scanner to find the finder
