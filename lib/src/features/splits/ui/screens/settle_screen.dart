@@ -12,6 +12,7 @@ import 'activity_screen.dart';
 import 'price_bill_screen.dart';
 import 'record_payment_screen.dart';
 import 'swap_screen.dart';
+import 'text_entry_screen.dart';
 import 'splits_scope.dart';
 
 /// What this device owes, what the request will carry, and what it will not.
@@ -165,11 +166,7 @@ class _SettleScreenState extends State<SettleScreen> {
       context: context,
       builder: (dialog) => AlertDialog(
         title: const Text('Withdraw the record?'),
-        content: const Text(
-          'Do this only if the payment never left your wallet, or came back '
-          'to it — a swap that failed and was refunded. The debt is asked for '
-          'again, and paying it twice cannot be undone.',
-        ),
+        content: const Text('Only if it never left your wallet.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialog).pop(false),
@@ -279,12 +276,7 @@ class _SettleScreenState extends State<SettleScreen> {
             // sit unpriced for as long as it likes — but saying so without a
             // way through would leave a person reading an instruction they
             // cannot follow.
-            NoticeCard(
-              message:
-                  'This bill has no price on it yet, and this phone has no '
-                  'live ZEC price in ${view.bill.currency}. Enter one to '
-                  'settle.',
-            ),
+            NoticeCard(message: 'This bill has no price on it yet.'),
             const SizedBox(height: 8),
             Center(
               child: FilledButton(
@@ -318,10 +310,7 @@ class _SettleScreenState extends State<SettleScreen> {
                 child: CardLine(
                   title: '${who(replaced.id)} changed where they are paid',
                   subtitle: Text(
-                    'This request sends to the new address. Check it with '
-                    'them before paying.\n'
-                    'was ${_short(replaced.from)} · now '
-                    '${_short(replaced.to)}',
+                    'Sends to their new address. Check with them.\nwas ${_short(replaced.from)} · now ${_short(replaced.to)}',
                   ),
                 ),
               ),
@@ -362,9 +351,8 @@ class _SettleScreenState extends State<SettleScreen> {
                   // would send the same money twice.
                   subtitle: Text(
                     a.paidTo.isEmpty || a.paidTo.every((p) => p == a.to)
-                        ? 'already sent, not yet confirmed — not asked for again'
-                        : 'already sent for what you owe ${who(a.to)}, not yet '
-                              'confirmed — not asked for again',
+                        ? 'Sent, waiting for them'
+                        : 'Sent for ${who(a.to)}, waiting for them',
                   ),
                   trailing: formatAmount(a.paid, currency),
                 ),
@@ -399,9 +387,7 @@ class _SettleScreenState extends State<SettleScreen> {
               const SizedBox(height: 8),
               if (!_owed!.isComplete)
                 Text(
-                  'This sends ${formatAmount(_owed!.carriedMinorUnits, currency)} '
-                  'and leaves ${formatAmount(_owed!.withheldMinorUnits, currency)} '
-                  'outstanding.',
+                  'Sends ${formatAmount(_owed!.carriedMinorUnits, currency)}, leaves ${formatAmount(_owed!.withheldMinorUnits, currency)} owed.',
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               const SizedBox(height: 8),
@@ -493,8 +479,7 @@ class _Unpayable extends StatelessWidget {
         'no_address' => 'No Zcash address yet',
         'bad_address' => 'Their address can’t be paid',
         // §8.5: more than one request can carry at this rate.
-        'unpriceable' =>
-          'Needs more than one payment request — settle it another way',
+        'unpriceable' => 'Needs more than one payment request',
         _ =>
           lane == splitz.SettleLane.swap
               ? 'Gets ${payout?.asset ?? 'another asset'}'
@@ -549,15 +534,23 @@ class _Unpayable extends StatelessWidget {
               icon: const Icon(Icons.qr_code_scanner, size: 18),
               label: Text('Add ${who(u.id)}’s address'),
               onPressed: () async {
-                final address = await showDialog<String>(
-                  context: context,
-                  builder: (_) => _AddressDialog(name: who(u.id)),
+                final address = await askForText(
+                  context,
+                  title: '${who(u.id)}’s address',
+                  hint: 'Zcash address',
+                  action: 'Save',
+                  fieldKey: const Key('splits_settle_address_field'),
+                  actionKey: const Key('splits_settle_address_save'),
+                  scannable: true,
+                  fromScan: _addressIn,
                 );
                 if (address == null || address.trim().isEmpty) return;
                 if (!context.mounted) return;
-                await SplitsScope.read(
-                  context,
-                ).setAddressFor(billId: billId, id: u.id, address: address);
+                await SplitsScope.read(context).setAddressFor(
+                  billId: billId,
+                  id: u.id,
+                  address: _addressIn(address),
+                );
                 await onReturn();
               },
             ),
@@ -572,73 +565,6 @@ class _Unpayable extends StatelessWidget {
   }
 }
 
-/// Asks for somebody's Zcash address, typed, pasted or scanned.
-class _AddressDialog extends StatefulWidget {
-  const _AddressDialog({required this.name});
-
-  final String name;
-
-  @override
-  State<_AddressDialog> createState() => _AddressDialogState();
-}
-
-class _AddressDialogState extends State<_AddressDialog> {
-  final _address = TextEditingController();
-
-  @override
-  void dispose() {
-    _address.dispose();
-    super.dispose();
-  }
-
-  /// The address in a scanned code: a bare address, or the one a `zcash:`
-  /// payment request names before its query.
-  static String _addressIn(String scanned) {
-    var text = scanned.trim();
-    if (text.toLowerCase().startsWith('zcash:')) {
-      text = text.substring('zcash:'.length);
-      final query = text.indexOf('?');
-      if (query >= 0) text = text.substring(0, query);
-    }
-    return text;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scan = SplitsScope.scannerOf(context);
-    return AlertDialog(
-      title: Text('${widget.name}’s Zcash address'),
-      content: TextField(
-        key: const Key('splits_settle_address_field'),
-        controller: _address,
-        autofocus: true,
-        decoration: const InputDecoration(hintText: 'u1…'),
-      ),
-      actions: [
-        if (scan != null)
-          TextButton(
-            key: const Key('splits_settle_address_scan'),
-            onPressed: () async {
-              final scanned = await scan(context);
-              if (scanned == null || !mounted) return;
-              setState(() => _address.text = _addressIn(scanned));
-            },
-            child: const Text('Scan'),
-          ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          key: const Key('splits_settle_address_save'),
-          onPressed: () => Navigator.of(context).pop(_addressIn(_address.text)),
-          child: const Text('Save'),
-        ),
-      ],
-    );
-  }
-}
-
 /// What a send produced, in the three states it can be in.
 class _SentResult extends StatelessWidget {
   const _SentResult({required this.settled});
@@ -648,18 +574,12 @@ class _SentResult extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (String title, String body) = switch (settled.result) {
-      splitz.SendResult.sent => (
-        'Sent',
-        'Transaction ${settled.txid}. It is recorded on the bill and waits '
-            'to be confirmed — a record is a claim, not a settlement.',
-      ),
+      splitz.SendResult.sent => ('Sent', 'Sent. Waiting for them to confirm.'),
       // Neither paid nor unpaid. Nothing was recorded and no retry is safe
       // until the wallet says which way it went.
       splitz.SendResult.pending => (
         'Built, not sent yet',
-        settled.detail ??
-            'The transaction was created but has not reached the network. '
-                'Check it before trying again.',
+        settled.detail ?? 'Not on the network yet. Check before retrying.',
       ),
       splitz.SendResult.failed => (
         'Not sent',
@@ -742,12 +662,9 @@ Widget? _explain(
         Builder(
           builder: (context) => Text(
             ownRefund
-                ? 'A refund you entered accounts for $amount of this; no '
-                      'shared debt does.'
+                ? 'Includes your refund of $amount.'
                 : others.isEmpty
-                ? 'No debt the bill records for you explains $amount of '
-                      'this. A negative expense — a refund — does this; '
-                      'check who entered it before paying.'
+                ? '$amount of this is a refund. Check who added it.'
                 : 'No debt the bill records for you explains $amount of '
                       'this. A refund entered by ${others.join(', ')} does '
                       'this; check it before paying.',
@@ -859,9 +776,7 @@ class _ReviewSend extends StatelessWidget {
                     if (paired &&
                         !view.identities.bound.containsKey(carried[i].to))
                       Text(
-                        '${who(carried[i].to)} has not joined from their own '
-                        'device, so anyone on the bill could have written '
-                        'this address. Check it with them.',
+                        '${who(carried[i].to)} hasn’t joined on their phone. Check this address with them.',
                         key: Key('splits_review_unbound_${carried[i].to}'),
                         style: TextStyle(color: error),
                       ),
@@ -880,9 +795,7 @@ class _ReviewSend extends StatelessWidget {
             if (live == null) ...[
               const SizedBox(height: 8),
               Text(
-                'No current price for ${view.bill.currency} is available to '
-                'check this rate against. Compare it with a price you trust '
-                'before sending.',
+                'No live price to compare. Check this rate yourself.',
                 key: const Key('splits_review_rate_unchecked'),
                 style: TextStyle(color: error),
               ),
@@ -902,8 +815,7 @@ class _ReviewSend extends StatelessWidget {
             if (setterIsPaid) ...[
               const SizedBox(height: 8),
               Text(
-                '${who(setter)} set this rate and is paid by this request. '
-                'Check it against a price you trust.',
+                '${who(setter)} set this rate and gets paid here. Check it.',
                 key: const Key('splits_review_setter_paid'),
                 style: TextStyle(color: error),
               ),
@@ -968,10 +880,7 @@ class _PendingSendState extends State<_PendingSend> {
       context: context,
       builder: (dialog) => AlertDialog(
         title: const Text('It did not go through?'),
-        content: const Text(
-          'Only if the wallet shows no transaction for it. If it lands later '
-          'and you send again, the debt is paid twice.',
-        ),
+        content: const Text('Only if your wallet shows no transaction.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialog).pop(false),
@@ -1002,10 +911,7 @@ class _PendingSendState extends State<_PendingSend> {
             style: Theme.of(context).textTheme.titleSmall,
           ),
           const SizedBox(height: 4),
-          const Text(
-            'It may still reach the network. Check the wallet’s history '
-            'before doing anything else.',
-          ),
+          const Text('It may still go through. Check your wallet first.'),
           for (final e in widget.intent.carried.entries)
             Text(
               '${widget.who(e.key)} · '
@@ -1016,9 +922,7 @@ class _PendingSendState extends State<_PendingSend> {
           // reached them, which is the one record that settles anything.
           if (_unreadable)
             const Text(
-              'This device can no longer read what that send carried. If it '
-              'went through, ask the people you paid to record it as '
-              'received; if it did not, say so below.',
+              'Send details lost. Ask who you paid to confirm.',
               key: Key('splits_pending_unreadable'),
             ),
           // A swap is recorded by the provider's reference, which this
@@ -1077,4 +981,16 @@ int? _percentOff(int? rate, int? live) {
   if (rate == null || live == null || live <= 0) return null;
   final diff = BigInt.from(rate) - BigInt.from(live);
   return (diff * BigInt.from(100) ~/ BigInt.from(live)).toInt();
+}
+
+/// The address in a scanned code: a bare address, or the one a `zcash:`
+/// payment request names before its query.
+String _addressIn(String scanned) {
+  var text = scanned.trim();
+  if (text.toLowerCase().startsWith('zcash:')) {
+    text = text.substring('zcash:'.length);
+    final query = text.indexOf('?');
+    if (query >= 0) text = text.substring(0, query);
+  }
+  return text;
 }

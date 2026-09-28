@@ -129,7 +129,7 @@ void main() {
         hasLength(1),
         reason: 'a second send would pay the debt twice if the first lands',
       );
-      expect(again.lastError, contains('has not been resolved'));
+      expect(again.lastError, contains('earlier send'));
     });
 
     test('found on chain, it is recorded as a sent one would be', () async {
@@ -139,7 +139,7 @@ void main() {
       await c.settle(id, (await c.obligation(id))!);
 
       await c.resolveSend(id, landed: true, txid: 'not a txid');
-      expect(c.lastError, contains('not a transaction id'));
+      expect(c.lastError, contains('Not a transaction id'));
       expect(await c.pendingSend(id), isNotNull);
 
       await c.resolveSend(id, landed: true, txid: _txid.toUpperCase());
@@ -223,7 +223,7 @@ void main() {
 
     await c.settle(id, shown);
     expect(wallet.sender.sent, isEmpty);
-    expect(c.lastError, contains('changed since'));
+    expect(c.lastError, contains('changed'));
   });
 
   group('before anything is sent', () {
@@ -340,7 +340,7 @@ void main() {
     expect(line, findsOneWidget);
     expect(
       find.textContaining(
-        'A refund you entered accounts for ${formatAmount(3000, 'USD')}',
+        'Includes your refund of ${formatAmount(3000, 'USD')}',
       ),
       findsOneWidget,
     );

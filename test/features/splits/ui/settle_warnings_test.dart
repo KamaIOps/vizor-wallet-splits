@@ -103,7 +103,7 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.textContaining('Check it with them before paying'),
+        find.textContaining('Check with them'),
         findsOneWidget,
       );
     });
@@ -140,7 +140,7 @@ void main() {
 
       expect(find.byKey(const Key('splits_settle_replaced_ben')), findsNothing);
       expect(
-        find.textContaining('Check it with them before paying'),
+        find.textContaining('Check with them'),
         findsNothing,
       );
     });

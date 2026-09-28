@@ -38,13 +38,9 @@ ThemeData splitsTheme(ThemeData base, AppColors c) {
         displayColor: c.text.primary,
       )
       .copyWith(
-        titleLarge: AppTypography.headlineSmall.copyWith(
-          color: c.text.primary,
-        ),
+        titleLarge: AppTypography.headlineSmall.copyWith(color: c.text.primary),
         titleMedium: AppTypography.labelLarge.copyWith(color: c.text.primary),
-        titleSmall: AppTypography.labelLarge.copyWith(
-          color: c.text.secondary,
-        ),
+        titleSmall: AppTypography.labelLarge.copyWith(color: c.text.secondary),
         bodyLarge: AppTypography.bodyLarge.copyWith(color: c.text.primary),
         bodyMedium: AppTypography.bodyMedium.copyWith(color: c.text.primary),
         bodySmall: AppTypography.bodySmall.copyWith(color: c.text.secondary),
@@ -177,9 +173,8 @@ ThemeData splitsTheme(ThemeData base, AppColors c) {
       // selected FilterChip reads on the dark fill as a ChoiceChip does.
       labelStyle: AppTypography.bodyMedium.copyWith(
         color: WidgetStateColor.resolveWith(
-          (s) => s.contains(WidgetState.selected)
-              ? primary.label
-              : c.text.primary,
+          (s) =>
+              s.contains(WidgetState.selected) ? primary.label : c.text.primary,
         ),
       ),
       secondaryLabelStyle: AppTypography.bodyMedium.copyWith(

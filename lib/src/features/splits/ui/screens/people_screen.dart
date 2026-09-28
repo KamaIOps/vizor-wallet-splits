@@ -20,6 +20,7 @@ import '../view/chrome.dart';
 import '../view/naming.dart';
 import 'payout_screen.dart';
 import 'share_bill_screen.dart';
+import 'text_entry_screen.dart';
 import 'splits_scope.dart';
 
 class PeopleScreen extends StatelessWidget {
@@ -159,8 +160,7 @@ class _PersonTile extends StatelessWidget {
               // signed and claimed. A join carrying no key is
               // indistinguishable from a name somebody typed, so the sentence
               // says the thing that is true of both.
-              'Hasn’t joined from their own phone yet. Until they do, '
-              'anyone on the bill can add entries in their name.',
+              'Not joined on their phone yet, so others can act for them.',
               style: TextStyle(color: scheme.error),
             ),
         ],
@@ -202,9 +202,13 @@ Future<void> askAndAddPerson(
   required BillView view,
 }) async {
   final controller = SplitsScope.read(context);
-  final name = await showDialog<String>(
-    context: context,
-    builder: (dialog) => const _NameSheet(),
+  final name = await askForText(
+    context,
+    title: 'Add a person',
+    hint: 'Their name',
+    action: 'Add',
+    fieldKey: const Key('splits_people_name'),
+    actionKey: const Key('splits_people_name_ok'),
   );
   if (name == null || name.trim().isEmpty) return;
   await controller.addPerson(
@@ -227,11 +231,7 @@ Future<void> confirmAndRemovePerson(
       title: Text('Take ${participant.name} off the bill?'),
       // Says the rule rather than letting it arrive as a refusal: §10.8
       // will not remove somebody an expense still names.
-      content: const Text(
-        'This only works while nothing on the bill still names them. If '
-        'they paid for something or share an expense, take those off '
-        'first.',
-      ),
+      content: const Text('Only if they’re on no expense or payment.'),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(dialog).pop(false),
@@ -267,44 +267,4 @@ String _idFor(String name, BillView view) {
     candidate = '$stem-$n';
   }
   return candidate;
-}
-
-class _NameSheet extends StatefulWidget {
-  const _NameSheet();
-
-  @override
-  State<_NameSheet> createState() => _NameSheetState();
-}
-
-class _NameSheetState extends State<_NameSheet> {
-  final _name = TextEditingController();
-
-  @override
-  void dispose() {
-    _name.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Who is joining?'),
-    content: TextField(
-      key: const Key('splits_people_name'),
-      controller: _name,
-      autofocus: true,
-      decoration: const InputDecoration(labelText: 'Their name'),
-      onSubmitted: (v) => Navigator.of(context).pop(v),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.of(context).pop(),
-        child: const Text('Cancel'),
-      ),
-      FilledButton(
-        key: const Key('splits_people_name_ok'),
-        onPressed: () => Navigator.of(context).pop(_name.text),
-        child: const Text('Add them'),
-      ),
-    ],
-  );
 }
