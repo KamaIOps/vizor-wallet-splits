@@ -30,7 +30,8 @@ Widget app(SplitsController c, Widget home) => SplitsScope(
 void main() {
   group('adding somebody by hand', () {
     testWidgets('they go on the bill, unbound and honest about it', (t) async {
-      final c = controllerFor(FakeWallet());
+      final wallet = FakeWallet();
+      final c = controllerFor(wallet);
       await c.load();
       final id = (await c.createBill(name: 'Dinner', currency: 'USD'))!;
 
@@ -49,7 +50,20 @@ void main() {
       // are. §10.7 binds nothing.
       expect(view.bill.participant('ben')!.identityKey, isNull);
       expect(view.identities.bound.containsKey('ben'), isFalse);
-      expect(find.textContaining('joined on their phone'), findsOneWidget);
+      // Not joined from their own phone: they are offered an invite, and an
+      // address can be added for them.
+      expect(find.byKey(const Key('splits_person_invite_ben')), findsOneWidget);
+      // A later entry, as it is on a phone whose clock moves.
+      wallet.tick();
+      await t.tap(find.byKey(const Key('splits_person_add_address_ben')));
+      await t.pumpAndSettle();
+      await t.enterText(find.byKey(const Key('splits_address_field')), 'u1ben');
+      await t.tap(find.byKey(const Key('splits_address_save')));
+      await t.pumpAndSettle();
+      expect(c.lastError, isNull);
+      final after = c.bills.firstWhere((b) => b.id == id);
+      expect(after.bill.participant('ben')!.payableAddress, 'u1ben');
+      expect(find.text('Gets paid in ZEC'), findsWidgets);
     });
 
     testWidgets('two people with one name get two ids', (t) async {
@@ -102,7 +116,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(const Key('splits_person_ben')),
-          matching: find.textContaining('joined on their phone'),
+          matching: find.text('Invite'),
         ),
         findsOneWidget,
       );

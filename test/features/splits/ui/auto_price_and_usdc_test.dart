@@ -224,10 +224,10 @@ void main() {
       await t.tap(find.byKey(const Key('splits_settle_add_address_eve')));
       await t.pumpAndSettle();
       await t.enterText(
-        find.byKey(const Key('splits_settle_address_field')),
+        find.byKey(const Key('splits_address_field')),
         'zcash:u1eve?amount=1',
       );
-      await t.tap(find.byKey(const Key('splits_settle_address_save')));
+      await t.tap(find.byKey(const Key('splits_address_save')));
       await t.pumpAndSettle();
 
       expect(c.lastError, isNull);
