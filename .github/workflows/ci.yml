@@ -5,18 +5,17 @@
 # upstream wallet's own, of which 80 fail on Linux for want of the native
 # bridge, the platform plugins and a Tor connection, and a red lane that tests
 # nothing we wrote teaches nobody anything. What runs is the host tests this
-# branch owns — test/features/splits/ and the incoming-link classifier — and
-# test/features/send/, which carries the send and broadcast status a splits
-# payment is reported by. The Rust job runs `cargo test --lib`; the tests under
+# branch owns — test/features/splits/, the bills screens under ui/ among
+# them, and the incoming-link classifier — and test/features/send/, which
+# carries the send and broadcast status a splits payment is reported by. The Rust job runs `cargo test --lib`; the tests under
 # rust/tests/ need a regtest node and are not run here. The
 # lanes that drive real screens are in integration_test/ and need a booted
 # simulator a hosted runner does not have; SPLITS.md says how to run them.
 #
-# The feature resolves three dependencies by relative path, so all three
-# repositories are checked out as siblings under the workspace. The other two
-# are private, which `GITHUB_TOKEN` cannot reach: it is scoped to this
-# repository alone. `SPLITS_REPOS_TOKEN` is a personal access token with read
-# access to both.
+# The feature resolves the protocol's two Dart packages by relative path, so
+# that repository is checked out as a sibling under the workspace. It is
+# private, which `GITHUB_TOKEN` cannot reach: it is scoped to this repository
+# alone. `SPLITS_REPOS_TOKEN` is a personal access token with read access to it.
 #
 # `dart format` is deliberately absent. This tree does not currently satisfy
 # either formatter, so the check would fail on arrival and say nothing about
@@ -38,21 +37,15 @@ jobs:
           path: Vizor-Wallet
           persist-credentials: false
 
-      # Sibling checkouts, spelled exactly as pubspec.yaml reaches them:
-      # ../Splitz-Protocol/splitz_host, ../Splitz-Protocol/dart and
-      # ../splitz-flutter. The token is used for the clone and not written
-      # into either .git/config: every later step — a third-party action,
-      # `pub get`, the tests — runs with those directories readable.
+      # The sibling checkout, spelled exactly as pubspec.yaml reaches it:
+      # ../Splitz-Protocol/splitz_host and ../Splitz-Protocol/dart. The token
+      # is used for the clone and not written into its .git/config: every
+      # later step — a third-party action, `pub get`, the tests — runs with
+      # that directory readable.
       - uses: actions/checkout@v4
         with:
           repository: KamaIOps/Splitz-Protocol
           path: Splitz-Protocol
-          token: ${{ secrets.SPLITS_REPOS_TOKEN }}
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          repository: KamaIOps/splitz-flutter
-          path: splitz-flutter
           token: ${{ secrets.SPLITS_REPOS_TOKEN }}
           persist-credentials: false
 
@@ -67,9 +60,9 @@ jobs:
       - run: flutter pub get
         working-directory: Vizor-Wallet
 
-      # Not a thin check: it type checks this repository against both
-      # sibling packages, so a change to
-      # a screen's signature or to the protocol's public surface fails here
+      # Not a thin check: it type checks this repository against the
+      # protocol's packages, so a change to a screen's signature or to the
+      # protocol's public surface fails here
       # rather than on a device twenty minutes later.
       - run: flutter analyze
         working-directory: Vizor-Wallet
