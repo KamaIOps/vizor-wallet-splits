@@ -481,6 +481,46 @@ class SplitsController extends ChangeNotifier {
     });
   }
 
+  /// Sets where [id] is paid in ZEC, for somebody who has not joined from a
+  /// device of their own.
+  ///
+  /// Written as them and unsigned, as [addPerson] writes them: their record
+  /// is one anyone on the bill can write until §10.7 binds a key to it, and a
+  /// payer is told so before sending. Once they have joined themselves, the
+  /// address is theirs to set and this refuses.
+  Future<void> setAddressFor({
+    required String billId,
+    required String id,
+    required String address,
+  }) async {
+    await _guard(() async {
+      final view = bills.where((b) => b.id == billId).firstOrNull;
+      final who = view?.bill.participant(id);
+      if (view == null || who == null) {
+        throw const SplitsRefusal('That person is not on this bill.');
+      }
+      if (view.identities.bound.containsKey(id)) {
+        throw SplitsRefusal(
+          '${who.name} joined from their own phone, so only they can set '
+          'where they are paid.',
+        );
+      }
+      final trimmed = address.trim();
+      if (trimmed.isEmpty) {
+        throw const SplitsRefusal('Nobody can be paid without an address.');
+      }
+      final seed = await _requireIdentity();
+      final host = _host(seed);
+      final entry = splitz.joinBill(
+        host: _HostAs(host, id),
+        name: who.name,
+        payTo: trimmed,
+      );
+      await _store.merge(billId, [entry]);
+      await _refresh();
+    });
+  }
+
   /// Takes somebody off the bill (§10.8).
   ///
   /// Refused with `participant_still_named` while any surviving entry names

@@ -186,4 +186,72 @@ void main() {
       expect(c.bills.single.bill.participant(c.me)!.payouts, isEmpty);
     });
   });
+
+  group('adding an address for somebody', () {
+    /// A priced bill on which this device owes Eve, who was added by name
+    /// and has shared no address.
+    Future<String> owingEve(SplitsController c) async {
+      await c.load();
+      final id = (await c.createBill(name: 'Dinner', currency: 'USD'))!;
+      final eve = otherHost('eve');
+      await c.accept(id, [
+        entries.joinBill(host: eve, name: 'Eve'),
+        entries.addExpense(
+          host: eve,
+          expenseId: 'x1',
+          paidBy: 'eve',
+          amount: 2000,
+          split: <String, dynamic>{
+            'type': 'equal',
+            'among': [c.me, 'eve']..sort(),
+          },
+        ),
+      ]);
+      await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+      return id;
+    }
+
+    testWidgets('an address added on the settle screen makes them payable', (
+      t,
+    ) async {
+      final c = controllerFor();
+      final id = await owingEve(c);
+      await t.pumpWidget(app(c, SettleScreen(billId: id)));
+      await t.pumpAndSettle();
+      expect(find.text('You → Eve'), findsOneWidget);
+      expect(find.byKey(const Key('splits_settle_send')), findsNothing);
+
+      await t.tap(find.byKey(const Key('splits_settle_add_address_eve')));
+      await t.pumpAndSettle();
+      await t.enterText(
+        find.byKey(const Key('splits_settle_address_field')),
+        'zcash:u1eve?amount=1',
+      );
+      await t.tap(find.byKey(const Key('splits_settle_address_save')));
+      await t.pumpAndSettle();
+
+      expect(c.lastError, isNull);
+      expect(
+        c.bills.single.bill.participant('eve')!.payableAddress,
+        'u1eve',
+      );
+      expect(find.byKey(const Key('splits_settle_send')), findsOneWidget);
+    });
+
+    testWidgets('somebody who joined from their own phone sets their own', (
+      t,
+    ) async {
+      final c = controllerFor();
+      await c.load();
+      final id = (await c.createBill(name: 'Dinner', currency: 'USD'))!;
+      final ben = await SignedPeer.named('ben');
+      await c.accept(id, [await ben.join(id, name: 'Ben', payTo: '')]);
+      await c.setAddressFor(billId: id, id: ben.id, address: 'u1other');
+      expect(c.lastError, contains('only they can set'));
+      expect(
+        c.bills.single.bill.participant(ben.id)!.payableAddress,
+        isNot('u1other'),
+      );
+    });
+  });
 }

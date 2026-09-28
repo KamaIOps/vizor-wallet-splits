@@ -268,7 +268,8 @@ class _BillScreenState extends State<BillScreen> {
                   'More than one person on this bill is called $name. Check '
                   'which is which before you pay either of them.',
             ),
-          const SizedBox(height: 8),
+          _People(billId: billId, view: view),
+          const SectionLabel('Expenses'),
           if (view.bill.expenses.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 24),
@@ -317,7 +318,6 @@ class _BillScreenState extends State<BillScreen> {
       ),
     );
   }
-
 }
 
 class _JoinPrompt extends StatelessWidget {
@@ -609,5 +609,69 @@ class _SyncNotice extends StatelessWidget {
           '${state.received == 1 ? 'entry' : 'entries'}';
     }
     return 'Synced — up to date';
+  }
+}
+
+/// Who is on the bill, in reach from the bill itself: a person is added here,
+/// and taken off by whoever opened the bill (§10.8). Tapping one opens the
+/// full list, with how each is paid.
+class _People extends StatelessWidget {
+  const _People({required this.billId, required this.view});
+
+  final String billId;
+  final BillView view;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = SplitsScope.of(context);
+    final canRemove = view.creatorId == controller.me;
+    void open() => Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => PeopleScreen(billId: billId)),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Expanded(child: SectionLabel('People')),
+            TextButton.icon(
+              key: const Key('splits_bill_add_person'),
+              onPressed: controller.busy
+                  ? null
+                  : () => askAndAddPerson(context, billId: billId, view: view),
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Add'),
+            ),
+          ],
+        ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final p in view.bill.participants)
+              InputChip(
+                key: Key('splits_bill_person_${p.id}'),
+                label: Text(
+                  p.id == controller.me
+                      ? '${view.bill.displayNameOf(p.id, creatorId: view.creatorId)} (you)'
+                      : view.bill.displayNameOf(
+                          p.id,
+                          creatorId: view.creatorId,
+                        ),
+                ),
+                onPressed: open,
+                onDeleted: canRemove && p.id != controller.me
+                    ? () => confirmAndRemovePerson(
+                        context,
+                        billId: billId,
+                        participant: p,
+                      )
+                    : null,
+                deleteButtonTooltipMessage: 'Take off the bill',
+              ),
+          ],
+        ),
+      ],
+    );
   }
 }
