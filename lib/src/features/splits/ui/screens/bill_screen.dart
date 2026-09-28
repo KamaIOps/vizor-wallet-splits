@@ -632,20 +632,20 @@ class _People extends StatelessWidget {
           children: [
             const Expanded(child: SectionLabel('People')),
             IconButton(
-              key: const Key('splits_bill_remove_person'),
-              tooltip: 'Remove someone',
-              icon: const Icon(Icons.remove),
-              onPressed: controller.busy
-                  ? null
-                  : () => _removeSomebody(context),
-            ),
-            IconButton(
               key: const Key('splits_bill_add_person'),
               tooltip: 'Add someone',
               icon: const Icon(Icons.add),
               onPressed: controller.busy
                   ? null
                   : () => askAndAddPerson(context, billId: billId, view: view),
+            ),
+            IconButton(
+              key: const Key('splits_bill_remove_person'),
+              tooltip: 'Remove someone',
+              icon: const Icon(Icons.remove),
+              onPressed: controller.busy
+                  ? null
+                  : () => _removeSomebody(context),
             ),
           ],
         ),
