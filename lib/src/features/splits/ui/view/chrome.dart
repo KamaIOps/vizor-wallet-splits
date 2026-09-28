@@ -13,14 +13,20 @@ class BottomActions extends StatelessWidget {
 
   final List<Widget> children;
 
+  /// Lifted by the keyboard's height: a bottom bar is laid out against the
+  /// screen's edge, so without this an open keyboard covers the action the
+  /// field is being filled in for.
   @override
-  Widget build(BuildContext context) => SafeArea(
-    top: false,
-    minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      spacing: 8,
-      children: [for (final c in children) Center(child: c)],
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+    child: SafeArea(
+      top: false,
+      minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        spacing: 8,
+        children: [for (final c in children) Center(child: c)],
+      ),
     ),
   );
 }
@@ -111,9 +117,18 @@ class CardLine extends StatelessWidget {
             ],
           ),
         ),
+        // Flexible, and sharing the row with the title: a figure that cannot
+        // shrink crushes the name beside it to a letter a line and is clipped
+        // itself at a large text size.
         if (trailing != null) ...[
           const SizedBox(width: 12),
-          Text(trailing!, style: text.bodyLarge),
+          Flexible(
+            child: Text(
+              trailing!,
+              style: text.bodyLarge,
+              textAlign: TextAlign.end,
+            ),
+          ),
         ],
         if (chevron) ...[
           const SizedBox(width: 4),
