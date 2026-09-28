@@ -266,9 +266,8 @@ Future<void> _addWithFigures(
 
 /// The per-person figure fields on screen, in the order they are rendered.
 ///
-/// A participant's id is the wallet account id it was assigned on its own
-/// device, so the keys cannot be written down here — they are read off the
-/// tree instead.
+/// A participant's id is the one its own device's key derives (§10.7), so the
+/// keys cannot be written down here — they are read off the tree instead.
 List<Key> _figureKeys(WidgetTester tester) => tester
     .widgetList<Widget>(
       find.byWidgetPredicate(
@@ -282,8 +281,8 @@ List<Key> _figureKeys(WidgetTester tester) => tester
 
 /// Widget keys on screen that begin with [prefix], in render order.
 ///
-/// A participant's id is the account id its own device was given, so a key
-/// naming one cannot be written down here — it is read off the tree.
+/// A participant's id is the one its own device's key derives (§10.7), so a
+/// key naming one cannot be written down here — it is read off the tree.
 List<Key> _keysWithPrefix(WidgetTester tester, String prefix) => tester
     .widgetList<Widget>(
       find.byWidgetPredicate(
@@ -297,23 +296,14 @@ List<Key> _keysWithPrefix(WidgetTester tester, String prefix) => tester
 
 /// Reveals a chip in the horizontal list the split kinds live in.
 ///
-/// `add_expense_screen.dart` puts them in a `ListView`, which builds lazily —
-/// the kinds past the fold are not in the tree at all until the row is
-/// dragged, so a finder that waits for one waits forever.
+/// `add_expense_screen.dart` puts them in one horizontally scrolling row. A
+/// chip past the edge is built but off screen, where a tap lands on nothing,
+/// so the row is scrolled until the chip is in view.
 Future<void> _revealChip(WidgetTester tester, String key) async {
   final target = find.byKey(Key(key));
-  for (var i = 0; i < 8 && !tester.any(target); i++) {
-    await tester.drag(
-      find.byKey(const Key('splits_split_equal')),
-      const Offset(-220, 0),
-    );
-    await tester.pump(const Duration(milliseconds: 150));
-  }
-  expect(
-    target,
-    findsOneWidget,
-    reason: 'the $key chip after scrolling the row',
-  );
+  expect(target, findsOneWidget, reason: 'the $key chip in the row');
+  await tester.ensureVisible(target);
+  await tester.pump(const Duration(milliseconds: 150));
 }
 
 Future<void> _settle(WidgetTester tester) async {

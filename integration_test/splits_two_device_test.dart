@@ -183,8 +183,8 @@ Future<void> _deviceA(
   logE2e('INVITE $invite');
   await publish('invite', invite);
 
-  // 1 · B joins. Its participant id is the wallet account id it was assigned
-  //     on its own device, so it is read off the bill rather than guessed.
+  // 1 · B joins. Its participant id is the one its own key derives (§10.7),
+  //     so it is read off the bill rather than guessed.
   await _syncUntil(
     tester,
     controller,

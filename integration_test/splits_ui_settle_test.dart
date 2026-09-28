@@ -275,7 +275,13 @@ Future<void> _payee(WidgetTester tester) async {
     'the notice that this device is not on the bill',
   );
   expect(find.text('You are not on this bill yet.'), findsOneWidget);
-  await _tapText(tester, 'Join');
+  // Joining asks what to be called; the name reaches every device.
+  await _tapKey(tester, 'splits_bill_join');
+  await tester.enterText(
+    find.byKey(const Key('splits_bill_join_name')),
+    'Payee',
+  );
+  await _tapKey(tester, 'splits_bill_join_ok');
   // The notice going away is what says the join landed. What replaces it is
   // not "nowhere yet": `_payoutSummary` reads that only for somebody with
   // neither a payout nor an address, and the wallet gives every participant
@@ -356,6 +362,14 @@ Future<void> _payee(WidgetTester tester) async {
     timeout: const Duration(minutes: 20),
   );
   await _tapText(tester, 'It arrived');
+  // One tap asks; the dialog's own button is what settles the debt.
+  final sure = find.byWidgetPredicate(
+    (w) =>
+        w.key is ValueKey<String> &&
+        (w.key! as ValueKey<String>).value.startsWith('splits_confirm_sure_'),
+  );
+  await pumpUntil(tester, () => tester.any(sure), description: 'the confirm');
+  await tester.tap(sure.first);
   await _settle(tester);
   await _sync(tester);
   logE2e('vouched for the payment');
