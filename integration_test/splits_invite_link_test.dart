@@ -23,7 +23,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:splitz_flutter/splitz_flutter.dart';
+import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 import 'package:zcash_wallet/app.dart';
 import 'package:zcash_wallet/src/features/splits/splits_invite_intake.dart';
 import 'package:zcash_wallet/src/providers/app_security_provider.dart';
