@@ -75,6 +75,23 @@ void main() {
         );
       },
     );
+
+    test('two accounts of one mnemonic are two identities, and the first '
+        'keeps the one it had', () {
+      final first = splitsIdentitySecret(mnemonic: 'ab', passphrase: 'c');
+      expect(
+        splitsIdentitySecret(mnemonic: 'ab', passphrase: 'c', accountIndex: 0),
+        first,
+      );
+      expect(
+        splitsIdentitySecret(mnemonic: 'ab', passphrase: 'c', accountIndex: 1),
+        [0x61, 0x62, 0, 0x63, 0, 0, 0, 0, 1],
+      );
+      expect(
+        splitsIdentitySecret(mnemonic: 'ab', passphrase: 'c', accountIndex: 1),
+        isNot(first),
+      );
+    });
   });
 
   group('the clock', () {

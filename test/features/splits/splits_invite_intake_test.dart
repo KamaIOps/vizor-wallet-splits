@@ -15,4 +15,20 @@ void main() {
     expect(intake.take(), isNull);
     expect(container.read(splitsInviteIntakeProvider), isNull);
   });
+
+  test('an open bills screen is known, so a link does not open another', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final intake = container.read(splitsInviteIntakeProvider.notifier);
+
+    expect(intake.screenOpen, isFalse);
+    intake.screenOpened();
+    expect(intake.screenOpen, isTrue);
+    intake.screenClosed();
+    expect(intake.screenOpen, isFalse);
+    // A close with nothing open does not leave the count below zero.
+    intake.screenClosed();
+    intake.screenOpened();
+    expect(intake.screenOpen, isTrue);
+  });
 }
