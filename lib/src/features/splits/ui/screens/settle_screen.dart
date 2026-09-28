@@ -420,7 +420,9 @@ class _SettleScreenState extends State<SettleScreen> {
               ),
               child: CardLine(
                 title: '${who(s.from)} → you',
-                subtitle: const Text('They owe you — confirm it when it arrives'),
+                subtitle: const Text(
+                  'They owe you — confirm it when it arrives',
+                ),
                 trailing: formatAmount(s.amount, currency),
                 chevron: true,
               ),
@@ -472,65 +474,167 @@ class _Unpayable extends StatelessWidget {
   Widget build(BuildContext context) {
     final u = debt;
     final currency = view.bill.currency;
-    // No address, or one no request can carry: a dead end until they publish
-    // one, so nothing is offered.
-    final deadEnd =
-        u.reason == 'no_address' ||
-        u.reason == 'bad_address' ||
-        u.reason == 'unpriceable';
+    // No address, or one no request can carry: nothing to send until one is
+    // there, so the row offers to add it instead.
+    final needsAddress = u.reason == 'no_address' || u.reason == 'bad_address';
+    final deadEnd = needsAddress || u.reason == 'unpriceable';
+    final lane = _lane(view, u.id);
+    final payout = view.bill.participant(u.id)?.payouts.firstOrNull;
+    // Their record is anyone's to write until they join from their own
+    // device (§10.7), so an address can be added for them here.
+    final canAddAddress =
+        needsAddress && !view.identities.bound.containsKey(u.id);
     final line = CardLine(
-      title: 'Cannot pay ${who(u.id)} here',
+      title: 'You → ${who(u.id)}',
       // A recipient excluded for a payout this request cannot carry is still
       // owed, and settling them is a different lane rather than an
-      // impossibility. One who has published nothing is a dead end until
-      // they do, and is offered nothing.
+      // impossibility.
       subtitle: Text(switch (u.reason) {
-        'no_address' => 'they have not shared an address',
-        'bad_address' =>
-          'the address they shared is not one a wallet can pay — ask them '
-              'to share it again',
-        // §8.5: more than one request can carry at this rate. The debt
-        // stands; settling it is outside this request.
+        'no_address' => 'No Zcash address yet',
+        'bad_address' => 'Their address can’t be paid',
+        // §8.5: more than one request can carry at this rate.
         'unpriceable' =>
-          'more than one payment request can carry at this price — settle '
-              'it another way',
+          'Needs more than one payment request — settle it another way',
         _ =>
-          _lane(view, u.id) == splitz.SettleLane.swap
-              ? 'they are not paid in shielded ZEC — tap to swap to them'
-              : 'they are not paid in shielded ZEC — tap to record it',
+          lane == splitz.SettleLane.swap
+              ? 'Gets ${payout?.asset ?? 'another asset'}'
+                    '${payout?.chain == null ? '' : ' on ${payout!.chain}'}'
+                    ' — tap to pay'
+              : 'Gets cash — tap to record it',
       }),
       trailing: formatAmount(u.minorUnits, currency),
       chevron: !deadEnd,
     );
-    return RowCard(
-      key: Key('splits_settle_unpayable_${u.id}'),
-      // A swap payout goes to the swap flow, which quotes it and sends the
-      // ZEC leg. Cash has nothing to send, so it goes straight to the record.
-      // Read again on return: a swap or a record made there changes what is
-      // owed here, and a stale screen would offer the same debt a second time.
-      onTap: deadEnd
-          ? null
-          : () async {
-              await Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => _lane(view, u.id) == splitz.SettleLane.swap
-                      ? SwapScreen(
-                          billId: billId,
-                          to: u.id,
-                          amountMinorUnits: u.minorUnits,
-                        )
-                      : RecordPaymentScreen(
-                          billId: billId,
-                          to: u.id,
-                          suggestedMinorUnits: u.minorUnits,
-                        ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        RowCard(
+          key: Key('splits_settle_unpayable_${u.id}'),
+          // A swap payout goes to the swap flow, which quotes it and sends
+          // the ZEC leg. Cash has nothing to send, so it goes straight to the
+          // record. Read again on return: a swap or a record made there
+          // changes what is owed here.
+          onTap: deadEnd
+              ? null
+              : () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => lane == splitz.SettleLane.swap
+                          ? SwapScreen(
+                              billId: billId,
+                              to: u.id,
+                              amountMinorUnits: u.minorUnits,
+                            )
+                          : RecordPaymentScreen(
+                              billId: billId,
+                              to: u.id,
+                              suggestedMinorUnits: u.minorUnits,
+                            ),
+                    ),
+                  );
+                  await onReturn();
+                },
+          child: deadEnd
+              ? line
+              : KeyedSubtree(
+                  key: Key('splits_settle_apart_${u.id}'),
+                  child: line,
                 ),
-              );
-              await onReturn();
+        ),
+        if (canAddAddress)
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              key: Key('splits_settle_add_address_${u.id}'),
+              icon: const Icon(Icons.qr_code_scanner, size: 18),
+              label: Text('Add ${who(u.id)}’s address'),
+              onPressed: () async {
+                final address = await showDialog<String>(
+                  context: context,
+                  builder: (_) => _AddressDialog(name: who(u.id)),
+                );
+                if (address == null || address.trim().isEmpty) return;
+                if (!context.mounted) return;
+                await SplitsScope.read(
+                  context,
+                ).setAddressFor(billId: billId, id: u.id, address: address);
+                await onReturn();
+              },
+            ),
+          )
+        else if (needsAddress)
+          Padding(
+            padding: const EdgeInsets.only(left: 16, bottom: 4),
+            child: Text('Ask ${who(u.id)} to add one in the app.'),
+          ),
+      ],
+    );
+  }
+}
+
+/// Asks for somebody's Zcash address, typed, pasted or scanned.
+class _AddressDialog extends StatefulWidget {
+  const _AddressDialog({required this.name});
+
+  final String name;
+
+  @override
+  State<_AddressDialog> createState() => _AddressDialogState();
+}
+
+class _AddressDialogState extends State<_AddressDialog> {
+  final _address = TextEditingController();
+
+  @override
+  void dispose() {
+    _address.dispose();
+    super.dispose();
+  }
+
+  /// The address in a scanned code: a bare address, or the one a `zcash:`
+  /// payment request names before its query.
+  static String _addressIn(String scanned) {
+    var text = scanned.trim();
+    if (text.toLowerCase().startsWith('zcash:')) {
+      text = text.substring('zcash:'.length);
+      final query = text.indexOf('?');
+      if (query >= 0) text = text.substring(0, query);
+    }
+    return text;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scan = SplitsScope.scannerOf(context);
+    return AlertDialog(
+      title: Text('${widget.name}’s Zcash address'),
+      content: TextField(
+        key: const Key('splits_settle_address_field'),
+        controller: _address,
+        autofocus: true,
+        decoration: const InputDecoration(hintText: 'u1…'),
+      ),
+      actions: [
+        if (scan != null)
+          TextButton(
+            key: const Key('splits_settle_address_scan'),
+            onPressed: () async {
+              final scanned = await scan(context);
+              if (scanned == null || !mounted) return;
+              setState(() => _address.text = _addressIn(scanned));
             },
-      child: deadEnd
-          ? line
-          : KeyedSubtree(key: Key('splits_settle_apart_${u.id}'), child: line),
+            child: const Text('Scan'),
+          ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('splits_settle_address_save'),
+          onPressed: () => Navigator.of(context).pop(_addressIn(_address.text)),
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }
