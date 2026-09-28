@@ -29,6 +29,8 @@ import '../../providers/account_provider.dart';
 import 'dev_accounts_import.dart';
 import 'splits_send.dart';
 import 'splits_wallet_adapter.dart';
+import 'splits_theme.dart';
+import '../../core/theme/app_theme.dart';
 
 class SplitsEntryScreen extends ConsumerStatefulWidget {
   const SplitsEntryScreen({super.key});
@@ -200,7 +202,7 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
     final error = _error;
     if (error != null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Bills')),
+        appBar: AppBar(title: const Text('Split a bill')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(32),
@@ -216,16 +218,19 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
     // `SplitsNavigator` rather than the scope directly: the feature is pushed
     // as one route here, so its own screens must push onto a navigator that
     // sits under its scope.
-    return SplitsNavigator(
-      key: _navigator,
-      controller: controller,
-      initialCode: _openingInvite,
-      // The wallet's own scanner. Without it the screens still work from a
-      // paste; with it they read the same strings from a camera.
-      scan: scanSplitsCode,
-      // The platform's share sheet, so a code reaches a message as well as a
-      // camera or a clipboard.
-      share: shareSplitsCode,
+    return Theme(
+      data: splitsTheme(Theme.of(context), context.colors),
+      child: SplitsNavigator(
+        key: _navigator,
+        controller: controller,
+        initialCode: _openingInvite,
+        // The wallet's own scanner. Without it the screens still work from a
+        // paste; with it they read the same strings from a camera.
+        scan: scanSplitsCode,
+        // The platform's share sheet, so a code reaches a message as well as
+        // a camera or a clipboard.
+        share: shareSplitsCode,
+      ),
     );
   }
 }

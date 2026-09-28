@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../state/splits_controller.dart';
 import '../view/naming.dart';
 import 'add_expense_screen.dart' show figureRefusal, parseMinorUnits;
+import '../view/chrome.dart';
 import 'splits_scope.dart';
 
 /// Snapshots what one ZEC costs onto the bill (§7).
@@ -138,6 +139,19 @@ class _PriceBillScreenState extends State<PriceBillScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Price this bill')),
+      bottomNavigationBar: BottomActions(
+        children: [
+          FilledButton(
+            key: const Key('splits_price_apply'),
+            onPressed: controller.busy ? null : () => _apply(currency),
+            child: Text(
+              existing == null
+                  ? 'Put this price on the bill'
+                  : 'Reprice the bill',
+            ),
+          ),
+        ],
+      ),
       body: Form(
         key: _form,
         child: ListView(
@@ -201,14 +215,6 @@ class _PriceBillScreenState extends State<PriceBillScreen> {
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
-            FilledButton(
-              onPressed: controller.busy ? null : () => _apply(currency),
-              child: Text(
-                existing == null
-                    ? 'Put this price on the bill'
-                    : 'Reprice the bill',
-              ),
-            ),
             // §10.8: the creator may withdraw any `setRate`, which is what
             // takes one dated far ahead off the bill.
             if (existing != null &&

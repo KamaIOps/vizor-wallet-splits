@@ -6,6 +6,7 @@ import 'package:splitz_core/host.dart' as splitz;
 
 import '../state/splits_controller.dart';
 import 'bill_screen.dart';
+import '../view/chrome.dart';
 import 'splits_scope.dart';
 
 /// Takes a scanned or pasted code and does whatever it turns out to be.
@@ -198,7 +199,22 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
     final controller = SplitsScope.of(context);
     final scan = SplitsScope.scannerOf(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Scan a bill')),
+      appBar: AppBar(title: const Text('Join a bill')),
+      bottomNavigationBar: BottomActions(
+        children: [
+          if (scan != null)
+            SecondaryButton(
+              key: const Key('splits_scan_camera'),
+              onPressed: controller.busy ? null : () => _scan(scan),
+              child: const Text('Scan a code'),
+            ),
+          FilledButton(
+            key: const Key('splits_scan_read'),
+            onPressed: controller.busy ? null : _read,
+            child: Text(widget.initialCode == null ? 'Read it' : 'Join'),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -211,15 +227,6 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
                 : 'Point the camera at a bill code or an invite, or paste one '
                       'in.',
           ),
-          if (scan != null) ...[
-            const SizedBox(height: 16),
-            FilledButton.tonalIcon(
-              key: const Key('splits_scan_camera'),
-              onPressed: controller.busy ? null : () => _scan(scan),
-              icon: const Icon(Icons.qr_code_scanner),
-              label: const Text('Scan a code'),
-            ),
-          ],
           const SizedBox(height: 16),
           TextField(
             controller: _text,
@@ -228,7 +235,6 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
             decoration: const InputDecoration(
               labelText: 'Code',
               hintText: 'splitz1:… or zcash:…?',
-              border: OutlineInputBorder(),
             ),
             style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
           ),
@@ -238,11 +244,6 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
               padding: const EdgeInsets.only(bottom: 16),
               child: Text(_message!),
             ),
-          FilledButton(
-            key: const Key('splits_scan_read'),
-            onPressed: controller.busy ? null : _read,
-            child: Text(widget.initialCode == null ? 'Read it' : 'Join'),
-          ),
         ],
       ),
     );

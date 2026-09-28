@@ -7,6 +7,7 @@ import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:splitz_host/splitz_host.dart';
 
 import '../state/splits_controller.dart';
+import '../view/chrome.dart';
 import '../view/naming.dart';
 import 'activity_screen.dart';
 import 'add_expense_screen.dart';
@@ -106,6 +107,13 @@ class _BillScreenState extends State<BillScreen> {
     final balances = protocol.netBalances(view.bill);
     final joined = view.bill.participants.any((p) => p.id == controller.me);
 
+    final mine = balances[controller.me] ?? 0;
+    final currency = view.bill.currency;
+    final total = view.bill.expenses.fold<int>(0, (sum, e) => sum + e.amount);
+    final people = view.bill.participants.length;
+    String who(String id) =>
+        view.bill.displayNameOf(id, creatorId: view.creatorId);
+
     return Scaffold(
       appBar: AppBar(
         title: Text(view.bill.name.isEmpty ? 'Bill' : view.bill.name),
@@ -119,19 +127,25 @@ class _BillScreenState extends State<BillScreen> {
               ),
             ),
           ),
-          IconButton(
-            tooltip: 'Sync',
-            icon: const Icon(Icons.sync),
-            onPressed: controller.busy
-                ? null
-                : () => controller.syncBill(billId),
-          ),
           PopupMenuButton<String>(
             key: const Key('splits_bill_menu'),
-            // After the menu has closed, so the dialog is not popped with it.
-            onSelected: (_) => _forget(context),
-            itemBuilder: (_) => const [
+            icon: const Icon(Icons.more_horiz),
+            // After the menu has closed, so a dialog is not popped with it.
+            onSelected: (choice) {
+              if (choice == 'sync') {
+                controller.syncBill(billId);
+              } else {
+                _forget(context);
+              }
+            },
+            itemBuilder: (_) => [
               PopupMenuItem<String>(
+                key: const Key('splits_bill_sync_now'),
+                value: 'sync',
+                enabled: !controller.busy,
+                child: const Text('Sync now'),
+              ),
+              const PopupMenuItem<String>(
                 key: Key('splits_bill_forget'),
                 value: 'forget',
                 child: Text('Remove from this phone'),
@@ -140,159 +154,176 @@ class _BillScreenState extends State<BillScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => AddExpenseScreen(billId: billId),
+      bottomNavigationBar: BottomActions(
+        children: [
+          FilledButton(
+            key: const Key('splits_bill_add_expense'),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => AddExpenseScreen(billId: billId),
+              ),
+            ),
+            child: const Text('Add expense'),
           ),
-        ),
-        icon: const Icon(Icons.add),
-        label: const Text('Add an expense'),
+          SecondaryButton(
+            key: const Key('splits_bill_settle'),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => SettleScreen(billId: billId),
+              ),
+            ),
+            child: const Text('Settle up'),
+          ),
+        ],
       ),
       body: ListView(
-        padding: const EdgeInsets.only(bottom: 96),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
         children: [
+          Text(
+            mine == 0
+                ? 'All square'
+                : mine > 0
+                ? "You're owed ${formatAmount(mine, currency)}"
+                : 'You owe ${formatAmount(-mine, currency)}',
+            key: const Key('splits_bill_headline'),
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '$people ${people == 1 ? 'person' : 'people'} · '
+            '${formatAmount(total, currency)} total',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          _SyncNotice(state: controller.syncStateOf(billId)),
           if (controller.lastError != null)
-            _Notice(message: controller.lastError!, tone: _Tone.error),
+            NoticeCard(message: controller.lastError!, error: true),
           if (!joined) _JoinPrompt(billId: billId),
           for (final replaced in view.replacedAddresses)
-            _Notice(
+            NoticeCard(
               // §13: a wallet MUST show a changed pay-to address before it
               // settles to one. Buried in a list it is not shown.
               message:
-                  '${view.bill.displayNameOf(replaced.id, creatorId: view.creatorId)} '
-                  'changed where they are paid. Check it is really them before '
-                  'you send.',
-              tone: _Tone.warning,
+                  '${who(replaced.id)} changed where they are paid. Check it '
+                  'is really them before you send.',
+              error: true,
             ),
           for (final name in view.bill.sharedNames)
-            _Notice(
+            NoticeCard(
               key: Key('splits_bill_shared_name_$name'),
               // Two people answering to one name is how somebody who read the
               // invite passes for a person already on the bill.
               message:
                   'More than one person on this bill is called $name. Check '
                   'which is which before you pay either of them.',
-              tone: _Tone.warning,
             ),
-          _SyncNotice(state: controller.syncStateOf(billId)),
-          _Section(
-            title: 'People',
-            child: Column(
-              children: [
-                for (final p in view.bill.participants)
-                  ListTile(
-                    dense: true,
-                    title: Text(
-                      view.bill.displayNameOf(p.id, creatorId: view.creatorId),
-                    ),
-                    subtitle: Text(
-                      p.payableAddress == null
-                          ? 'no address yet — cannot be paid in ZEC'
-                          : _short(p.payableAddress!),
-                    ),
-                    trailing: Text(
-                      _owes(balances[p.id] ?? 0, view.bill.currency),
-                    ),
-                  ),
-                ListTile(
-                  key: const Key('splits_bill_people'),
-                  dense: true,
-                  leading: const Icon(Icons.group_outlined),
-                  title: Text(_peopleSummary(view)),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => PeopleScreen(billId: billId),
-                    ),
-                  ),
-                ),
-              ],
+          const SizedBox(height: 8),
+          if (view.bill.expenses.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Text('Nothing on it yet.'),
+            )
+          else
+            for (final e in view.bill.expenses.reversed)
+              _ExpenseTile(
+                billId: billId,
+                view: view,
+                expense: e,
+                // §10.4 and §10.8: an expense is corrected by whoever wrote
+                // it, and withdrawn by them or the bill's creator — not by
+                // whoever paid. One not theirs is shown and not offered,
+                // rather than offered and refused by the fold.
+                canEdit: view.expenseAuthors[e.id] == controller.me,
+                canWithdraw:
+                    view.expenseAuthors[e.id] == controller.me ||
+                    view.creatorId == controller.me,
+              ),
+          if (view.bill.payments.isNotEmpty) ...[
+            const SectionLabel('Payments'),
+            for (final p in view.bill.payments)
+              _Line(
+                title: '${who(p.from)} → ${who(p.to)}',
+                // §10.5: a record is a claim, not a settlement. Saying "paid"
+                // here would move money on the screen that has not moved on
+                // the bill.
+                detail: view.bill.confirmedPayments.contains(p.id)
+                    ? 'confirmed'
+                    : 'sent, waiting to be confirmed',
+                figure: formatAmount(p.amount, currency),
+              ),
+          ],
+          const SectionLabel('Balances'),
+          for (final p in view.bill.participants)
+            _Line(
+              title: who(p.id),
+              detail: p.payableAddress == null
+                  ? 'no address yet — cannot be paid in ZEC'
+                  : _short(p.payableAddress!),
+              figure: _owes(balances[p.id] ?? 0, currency),
+            ),
+          if (view.setAside.isNotEmpty) ...[
+            const SectionLabel('Not applied'),
+            // Shown rather than dropped: an entry that vanished silently is
+            // indistinguishable from one that was never sent.
+            for (final aside in view.setAside)
+              _Line(
+                title: _whyNotApplied(aside.code),
+                detail: '${aside.code} · entry ${BillNaming.shortId(aside.id)}',
+              ),
+          ],
+          const SizedBox(height: 16),
+          RowCard(
+            key: const Key('splits_bill_people'),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => PeopleScreen(billId: billId),
+              ),
+            ),
+            child: CardLine(
+              title: 'People',
+              subtitle: Text(_peopleSummary(view)),
+              chevron: true,
             ),
           ),
-          _Section(
-            title: 'Expenses',
-            child: view.bill.expenses.isEmpty
-                ? const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text('Nothing on it yet.'),
-                  )
-                : Column(
-                    children: [
-                      for (final e in view.bill.expenses)
-                        _ExpenseTile(
-                          billId: billId,
-                          view: view,
-                          expense: e,
-                          // §10.4 and §10.8: an expense is corrected by
-                          // whoever wrote it, and withdrawn by them or the
-                          // bill's creator — not by whoever paid. One not
-                          // theirs is shown and not offered, rather than
-                          // offered and refused by the fold.
-                          canEdit: view.expenseAuthors[e.id] == controller.me,
-                          canWithdraw:
-                              view.expenseAuthors[e.id] == controller.me ||
-                              view.creatorId == controller.me,
-                        ),
-                    ],
-                  ),
+          RowCard(
+            key: const Key('splits_bill_activity'),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => ActivityScreen(billId: billId),
+              ),
+            ),
+            child: CardLine(
+              title: 'Activity',
+              subtitle: Text(_activitySummary(view, controller.me)),
+              chevron: true,
+            ),
           ),
-          if (view.bill.payments.isNotEmpty)
-            _Section(
-              title: 'Payments',
-              child: Column(
-                children: [
-                  for (final p in view.bill.payments)
-                    ListTile(
-                      dense: true,
-                      title: Text(
-                        '${view.bill.displayNameOf(p.from, creatorId: view.creatorId)}'
-                        ' → '
-                        '${view.bill.displayNameOf(p.to, creatorId: view.creatorId)}',
-                      ),
-                      // §10.5: a record is a claim, not a settlement. Saying
-                      // "paid" here would move money on the screen that has
-                      // not moved on the bill.
-                      subtitle: Text(
-                        view.bill.confirmedPayments.contains(p.id)
-                            ? 'confirmed'
-                            : 'sent, waiting to be confirmed',
-                      ),
-                      trailing: Text(
-                        formatAmount(p.amount, view.bill.currency),
-                      ),
-                    ),
-                ],
+          RowCard(
+            key: const Key('splits_bill_payout'),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => PayoutScreen(billId: billId),
               ),
             ),
-          if (view.setAside.isNotEmpty)
-            _Section(
-              title: 'Not applied',
-              child: Column(
-                children: [
-                  // Shown rather than dropped: an entry that vanished silently
-                  // is indistinguishable from one that was never sent.
-                  for (final aside in view.setAside)
-                    ListTile(
-                      dense: true,
-                      title: Text(_whyNotApplied(aside.code)),
-                      subtitle: Text(
-                        '${aside.code} · entry ${BillNaming.shortId(aside.id)}',
-                      ),
-                    ),
-                ],
+            child: CardLine(
+              title: 'How you get paid',
+              subtitle: Text(_payoutSummary(view, controller.me)),
+              chevron: true,
+            ),
+          ),
+          RowCard(
+            key: const Key('splits_bill_price'),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => PriceBillScreen(billId: billId),
               ),
             ),
-          _Section(
-            title: 'Price',
-            child: ListTile(
-              dense: true,
-              title: Text(
-                view.bill.rate == null
-                    ? 'Not priced yet'
-                    : 'One ZEC is '
-                          '${formatAmount(view.bill.rate!.minorUnitsPerZec, view.bill.currency)}',
-              ),
+            child: CardLine(
+              title: view.bill.rate == null
+                  ? 'Not priced yet'
+                  : 'One ZEC is '
+                        '${formatAmount(view.bill.rate!.minorUnitsPerZec, currency)}',
               // A bill with no rate is an ordinary bill, not a broken one:
               // there is no §12 code for unpriced. It simply cannot be
               // settled until somebody puts a figure on it.
@@ -303,51 +334,7 @@ class _BillScreenState extends State<BillScreen> {
                     : 'snapshotted onto the bill'
                           '${view.bill.rate!.source == null ? '' : ' (${view.bill.rate!.source})'}',
               ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => PriceBillScreen(billId: billId),
-                ),
-              ),
-            ),
-          ),
-          Card(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: ListTile(
-              key: const Key('splits_bill_activity'),
-              title: const Text('Activity'),
-              subtitle: Text(_activitySummary(view, controller.me)),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => ActivityScreen(billId: billId),
-                ),
-              ),
-            ),
-          ),
-          Card(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: ListTile(
-              key: const Key('splits_bill_payout'),
-              title: const Text('How you get paid'),
-              subtitle: Text(_payoutSummary(view, controller.me)),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => PayoutScreen(billId: billId),
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: FilledButton.tonal(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => SettleScreen(billId: billId),
-                ),
-              ),
-              child: const Text('Settle up'),
+              chevron: true,
             ),
           ),
         ],
@@ -441,48 +428,22 @@ class _JoinNameState extends State<_JoinName> {
   );
 }
 
-enum _Tone { warning, error }
-
-class _Notice extends StatelessWidget {
-  const _Notice({super.key, required this.message, required this.tone});
-
-  final String message;
-  final _Tone tone;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final background = tone == _Tone.error
-        ? scheme.errorContainer
-        : scheme.surfaceContainerHighest;
-    final foreground = tone == _Tone.error
-        ? scheme.onErrorContainer
-        : scheme.onSurface;
-    return Container(
-      width: double.infinity,
-      color: background,
-      padding: const EdgeInsets.all(12),
-      child: Text(message, style: TextStyle(color: foreground)),
-    );
-  }
-}
-
-class _Section extends StatelessWidget {
-  const _Section({required this.title, required this.child});
+/// A plain row: what, a line under it, and a figure on the right.
+class _Line extends StatelessWidget {
+  const _Line({required this.title, this.detail, this.figure});
 
   final String title;
-  final Widget child;
+  final String? detail;
+  final String? figure;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
-        child: Text(title, style: Theme.of(context).textTheme.titleSmall),
-      ),
-      child,
-    ],
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: CardLine(
+      title: title,
+      subtitle: detail == null ? null : Text(detail!),
+      trailing: figure,
+    ),
   );
 }
 
@@ -583,17 +544,8 @@ class _ExpenseTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final entryId = _entryId;
-    final tile = ListTile(
+    final tile = InkWell(
       key: Key('splits_expense_${expense.id}'),
-      dense: true,
-      title: Text(
-        expense.description.isEmpty ? 'Expense' : expense.description,
-      ),
-      subtitle: Text(
-        'paid by '
-        '${view.bill.displayNameOf(expense.paidBy, creatorId: view.creatorId)}',
-      ),
-      trailing: Text(formatAmount(expense.amount, view.bill.currency)),
       onTap: canEdit && entryId != null
           ? () => Navigator.of(context).push(
               MaterialPageRoute<void>(
@@ -602,6 +554,21 @@ class _ExpenseTile extends StatelessWidget {
               ),
             )
           : null,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: CardLine(
+          title: expense.description.isEmpty ? 'Expense' : expense.description,
+          subtitle: Text(
+            '${view.bill.displayNameOf(expense.paidBy, creatorId: view.creatorId)}'
+            ' paid',
+          ),
+          trailing: formatAmount(
+            expense.amount,
+            view.bill.currency,
+            withCurrency: false,
+          ),
+        ),
+      ),
     );
     if (!canWithdraw || entryId == null) return tile;
 
@@ -691,7 +658,7 @@ class _SyncNotice extends StatelessWidget {
 
     return Padding(
       key: const Key('splits_bill_sync'),
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Text(text, style: TextStyle(color: colour, fontSize: 12)),
     );
   }

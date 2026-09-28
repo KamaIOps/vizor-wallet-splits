@@ -43,7 +43,7 @@ void main() {
       GoRouter.of(tester.element(find.byType(Scaffold).first)).push('/splits');
       await tester.pumpAndSettle(const Duration(seconds: 10));
 
-      await _tapText(tester, 'New bill');
+      await _tapText(tester, 'Start a bill');
       await _typeInto(tester, 'What is it for', 'Methods');
       await _tapText(tester, 'Open the bill');
       await _settle(tester);
@@ -63,8 +63,8 @@ void main() {
       logE2e('two people on the bill');
 
       // ── Equally, which needs no figures ──────────────────────────────
-      await _tapText(tester, 'Add an expense');
-      await _typeInto(tester, 'What for', 'Dinner');
+      await _tapText(tester, 'Add expense');
+      await _typeInto(tester, 'What was it for?', 'Dinner');
       await tester.enterText(find.byKey(const Key('splits_amount')), '30');
       await tester.pump();
       expect(find.byKey(const Key('splits_split_equal')), findsOneWidget);
@@ -73,7 +73,7 @@ void main() {
         isEmpty,
         reason: 'an equal split asks for no figures',
       );
-      await _tapText(tester, 'Add it');
+      await _tapText(tester, 'Add');
       await _settle(tester);
       await _expenseWritten(tester);
       await _reveal(tester, find.text('Dinner'), 'the equal-split expense');
@@ -81,8 +81,8 @@ void main() {
       logE2e('equal: 30.00 added');
 
       // ── Exact, which is refused until the figures add up ─────────────
-      await _tapText(tester, 'Add an expense');
-      await _typeInto(tester, 'What for', 'Exactly');
+      await _tapText(tester, 'Add expense');
+      await _typeInto(tester, 'What was it for?', 'Exactly');
       await tester.enterText(find.byKey(const Key('splits_amount')), '30');
       await tester.pump();
       await _revealChip(tester, 'splits_split_exact');
@@ -103,7 +103,7 @@ void main() {
         findsNothing,
         reason: '12.00 and 18.00 come to the 30.00 the form was given',
       );
-      await _tapText(tester, 'Add it');
+      await _tapText(tester, 'Add');
       await _settle(tester);
       await _expenseWritten(tester);
       await _reveal(tester, find.text('Exactly'), 'the exact-split expense');
@@ -141,8 +141,8 @@ void main() {
       logE2e('shares: two to one');
 
       // ── By item, with a cost apportioned across the items ────────────
-      await _tapText(tester, 'Add an expense');
-      await _typeInto(tester, 'What for', 'Itemised');
+      await _tapText(tester, 'Add expense');
+      await _typeInto(tester, 'What was it for?', 'Itemised');
       // The total is still typed. `_splitRefusal` is computed against it, and an
       // empty Amount makes it null — which enables the submit button and makes
       // every refusal check on this form vacuous, whatever the items say.
@@ -200,7 +200,7 @@ void main() {
         reason: 'every item is shared by somebody, so the draft divides',
       );
 
-      await _tapText(tester, 'Add it');
+      await _tapText(tester, 'Add');
       await _settle(tester);
       await _expenseWritten(tester);
       await _reveal(tester, find.text('Itemised'), 'the itemised expense');
@@ -239,8 +239,8 @@ Future<void> _addWithFigures(
   String chip,
   List<String> values,
 ) async {
-  await _tapText(tester, 'Add an expense');
-  await _typeInto(tester, 'What for', what);
+  await _tapText(tester, 'Add expense');
+  await _typeInto(tester, 'What was it for?', what);
   await tester.enterText(find.byKey(const Key('splits_amount')), amount);
   await tester.pump();
   await _revealChip(tester, chip);
@@ -257,7 +257,7 @@ Future<void> _addWithFigures(
   await tester.pump();
   await _settle(tester);
   expect(find.byKey(const Key('splits_split_refusal')), findsNothing);
-  await _tapText(tester, 'Add it');
+  await _tapText(tester, 'Add');
   await _settle(tester);
   await _expenseWritten(tester);
   await _reveal(tester, find.text(what), 'the expense "$what" on the bill');

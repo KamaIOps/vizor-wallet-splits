@@ -14,6 +14,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:splitz_core/splitz_core.dart' as splitz;
 
+import '../view/chrome.dart';
 import 'splits_scope.dart';
 
 /// The three ways a person can ask to be paid.
@@ -132,6 +133,15 @@ class _PayoutScreenState extends State<PayoutScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('How you get paid')),
+      bottomNavigationBar: BottomActions(
+        children: [
+          FilledButton(
+            key: const Key('splits_payout_save'),
+            onPressed: _saving ? null : _save,
+            child: Text(_saving ? 'Saving…' : 'Save'),
+          ),
+        ],
+      ),
       body: Form(
         key: _form,
         child: ListView(
@@ -210,12 +220,6 @@ class _PayoutScreenState extends State<PayoutScreen> {
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
-            const SizedBox(height: 16),
-            FilledButton(
-              key: const Key('splits_payout_save'),
-              onPressed: _saving ? null : _save,
-              child: Text(_saving ? 'Saving…' : 'Save'),
-            ),
           ],
         ),
       ),

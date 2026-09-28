@@ -11,6 +11,7 @@ import 'package:splitz_host/splitz_host.dart';
 
 import '../state/splits_controller.dart';
 import '../view/currency_exponents.dart';
+import '../view/chrome.dart';
 import '../view/naming.dart';
 import 'splits_scope.dart';
 
@@ -187,7 +188,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       return Scaffold(
         appBar: AppBar(
           title: Text(
-            widget.isEditing ? 'Correct this expense' : 'Add an expense',
+            widget.isEditing ? 'Correct this expense' : 'Add expense',
           ),
         ),
         body: const Center(
@@ -208,8 +209,17 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.isEditing ? 'Correct this expense' : 'Add an expense',
+          widget.isEditing ? 'Correct this expense' : 'Add expense',
         ),
+      ),
+      bottomNavigationBar: BottomActions(
+        children: [
+          FilledButton(
+            key: const Key('splits_expense_save'),
+            onPressed: controller.busy || _splitRefusal != null ? null : _add,
+            child: Text(widget.isEditing ? 'Save' : 'Add'),
+          ),
+        ],
       ),
       body: Form(
         key: _form,
@@ -217,11 +227,16 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             TextFormField(
+              key: const Key('splits_description'),
+              controller: _description,
+              decoration: const InputDecoration(hintText: 'What was it for?'),
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
               key: const Key('splits_amount'),
               controller: _amount,
               decoration: InputDecoration(
-                labelText: 'Amount',
-                suffixText: view.bill.currency,
+                hintText: 'Amount in ${view.bill.currency}',
               ),
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
@@ -248,37 +263,24 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                 return null;
               },
             ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _description,
-              decoration: const InputDecoration(
-                labelText: 'What for',
-                hintText: 'optional',
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text('Paid by', style: Theme.of(context).textTheme.titleSmall),
-            RadioGroup<String>(
-              groupValue: _paidBy,
-              onChanged: (v) => setState(() => _paidBy = v),
-              child: Column(
-                children: [
-                  for (final p in view.bill.participants)
-                    RadioListTile<String>(
-                      dense: true,
-                      value: p.id,
-                      title: Text(
-                        view.bill.displayNameOf(
-                          p.id,
-                          creatorId: view.creatorId,
-                        ),
-                      ),
+            const SectionLabel('Paid by'),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final p in view.bill.participants)
+                  ChoiceChip(
+                    key: Key('splits_paid_by_${p.id}'),
+                    showCheckmark: false,
+                    label: Text(
+                      view.bill.displayNameOf(p.id, creatorId: view.creatorId),
                     ),
-                ],
-              ),
+                    selected: _paidBy == p.id,
+                    onSelected: (_) => setState(() => _paidBy = p.id),
+                  ),
+              ],
             ),
-            const SizedBox(height: 16),
-            Text('Split', style: Theme.of(context).textTheme.titleSmall),
+            const SectionLabel('How it splits'),
             // One scrolling row, as tall as its chips: at a large text scale a
             // chip is taller than any fixed row height, and clips.
             SingleChildScrollView(
@@ -307,7 +309,15 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 8),
+            if (_draft.kind == SplitKind.itemized)
+              const SizedBox(height: 8)
+            else
+              SectionLabel(
+                'Who shared this?',
+                trailing:
+                    '${_draft.participants.length} of '
+                    '${view.bill.participants.length}',
+              ),
             if (_draft.kind == SplitKind.itemized)
               _Items(
                 draft: _draft,
@@ -345,19 +355,14 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
-            const SizedBox(height: 24),
             if (controller.lastError != null)
               Padding(
-                padding: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.only(top: 16),
                 child: Text(
                   controller.lastError!,
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
-            FilledButton(
-              onPressed: controller.busy || _splitRefusal != null ? null : _add,
-              child: Text(widget.isEditing ? 'Save it' : 'Add it'),
-            ),
           ],
         ),
       ),

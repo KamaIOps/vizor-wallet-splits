@@ -63,7 +63,7 @@ void main() {
       expect(find.text('Correct this expense'), findsOneWidget);
       expect(find.text('90.00'), findsOneWidget);
       expect(find.text('dinner'), findsOneWidget);
-      expect(find.text('Save it'), findsOneWidget);
+      expect(find.text('Save'), findsOneWidget);
     });
 
     testWidgets('a correction replaces the expense and keeps its description', (
@@ -80,9 +80,9 @@ void main() {
       await t.pumpAndSettle();
       await t.enterText(find.byKey(const Key('splits_amount')), '60.00');
       await t.pumpAndSettle();
-      await t.ensureVisible(find.text('Save it'));
+      await t.ensureVisible(find.byKey(const Key('splits_expense_save')));
       await t.pumpAndSettle();
-      await t.tap(find.text('Save it'));
+      await t.tap(find.byKey(const Key('splits_expense_save')));
       await t.pumpAndSettle();
 
       final after = c.bills.firstWhere((b) => b.id == id);
@@ -103,14 +103,14 @@ void main() {
         app(c, AddExpenseScreen(billId: id, editingEntryId: entryId)),
       );
       await t.pumpAndSettle();
-      final ben = find.widgetWithText(RadioListTile<String>, 'ben');
+      final ben = find.byKey(const Key('splits_paid_by_ben'));
       await t.ensureVisible(ben);
       await t.pumpAndSettle();
       await t.tap(ben);
       await t.pumpAndSettle();
-      await t.ensureVisible(find.text('Save it'));
+      await t.ensureVisible(find.byKey(const Key('splits_expense_save')));
       await t.pumpAndSettle();
-      await t.tap(find.text('Save it'));
+      await t.tap(find.byKey(const Key('splits_expense_save')));
       await t.pumpAndSettle();
 
       final after = c.bills.firstWhere((b) => b.id == id);
@@ -144,7 +144,7 @@ void main() {
       await t.pumpAndSettle();
 
       expect(find.text('their dinner'), findsOneWidget);
-      final tile = t.widget<ListTile>(
+      final tile = t.widget<InkWell>(
         find.byKey(const Key('splits_expense_x-ben')),
       );
       expect(tile.onTap, isNull);
@@ -181,7 +181,7 @@ void main() {
         await t.pumpWidget(app(c, BillScreen(billId: id)));
         await t.pumpAndSettle();
 
-        final tile = t.widget<ListTile>(
+        final tile = t.widget<InkWell>(
           find.byKey(Key('splits_expense_${expense.id}')),
         );
         expect(tile.onTap, isNotNull);

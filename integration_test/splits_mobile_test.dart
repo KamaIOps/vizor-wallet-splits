@@ -58,11 +58,11 @@ void main() {
     GoRouter.of(context).push('/splits');
     await tester.pumpAndSettle(const Duration(seconds: 10));
 
-    expect(find.text('Bills'), findsOneWidget);
+    expect(find.text('Split a bill'), findsOneWidget);
     expect(find.textContaining('No bills yet'), findsOneWidget);
 
     logE2e('opening a bill');
-    await tester.tap(find.text('New bill'));
+    await tester.tap(find.text('Start a bill'));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.widgetWithText(TextFormField, 'What is it for'),
@@ -78,22 +78,22 @@ void main() {
     expect(find.text('Join'), findsNothing);
 
     logE2e('adding an expense');
-    await tester.tap(find.text('Add an expense'));
+    await tester.tap(find.text('Add expense'));
     await tester.pumpAndSettle();
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Amount'),
+      find.byKey(const Key('splits_amount')),
       '90.00',
     );
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'What for'),
+      find.widgetWithText(TextFormField, 'What was it for?'),
       'Pizza',
     );
-    await tester.tap(find.text('Add it'));
+    await tester.tap(find.text('Add'));
     await tester.pumpAndSettle();
     await _expenseWritten(tester);
 
     expect(find.text('Pizza'), findsOneWidget);
-    expect(find.text('90.00 EUR'), findsOneWidget);
+    expect(find.text('90.00'), findsOneWidget);
 
     logE2e('pricing it');
     await tester.scrollUntilVisible(find.text('Settle up'), 200);

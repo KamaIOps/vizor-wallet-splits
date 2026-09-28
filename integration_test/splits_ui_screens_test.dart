@@ -57,9 +57,9 @@ void main() {
       //
       // The §12 code stays in the sentence because it is the part that reads the
       // same in every wallet: it is what somebody can be asked to read out.
-      await tester.tap(find.byTooltip('Scan a bill'));
+      await tester.tap(find.text('Join a bill'));
       await _settle(tester);
-      expect(find.text('Scan a bill'), findsWidgets);
+      expect(find.text('Join a bill'), findsWidgets);
       await _typeIntoField(tester, 'Code', 'splitz1:notacode');
       await _tapText(tester, 'Read it');
       await _settle(tester);
@@ -72,7 +72,7 @@ void main() {
       await _back(tester);
 
       // ── A bill of this device's own ──────────────────────────────────
-      await _tapText(tester, 'New bill');
+      await _tapText(tester, 'Start a bill');
       await _typeInto(tester, 'What is it for', 'By code');
       await _tapText(tester, 'Open the bill');
       await _settle(tester);
@@ -132,7 +132,7 @@ void main() {
 
       // ── The scanner takes the code this device just showed ───────────
       await _back(tester);
-      await tester.tap(find.byTooltip('Scan a bill'));
+      await tester.tap(find.text('Join a bill'));
       await _settle(tester);
       await _typeIntoField(tester, 'Code', payload);
       await _tapText(tester, 'Read it');

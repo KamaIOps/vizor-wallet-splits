@@ -16,8 +16,10 @@ import 'package:splitz_core/host.dart' as hostapi;
 import 'package:splitz_core/splitz_core.dart' as protocol;
 
 import '../state/splits_controller.dart';
+import '../view/chrome.dart';
 import '../view/naming.dart';
 import 'payout_screen.dart';
+import 'share_bill_screen.dart';
 import 'splits_scope.dart';
 
 class PeopleScreen extends StatelessWidget {
@@ -35,16 +37,26 @@ class PeopleScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('People')),
-      floatingActionButton: FloatingActionButton.extended(
-        key: const Key('splits_people_add'),
-        onPressed: () => _add(context, view),
-        icon: const Icon(Icons.person_add),
-        label: const Text('Add someone'),
+      bottomNavigationBar: BottomActions(
+        children: [
+          FilledButton(
+            key: const Key('splits_people_add'),
+            onPressed: () => _add(context, view),
+            child: const Text('Add someone'),
+          ),
+          SecondaryButton(
+            key: const Key('splits_people_invite'),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => ShareBillScreen(billId: billId),
+              ),
+            ),
+            child: const Text('Invite someone'),
+          ),
+        ],
       ),
       body: ListView(
-        // Room below the last row for the button floating over it, so its
-        // controls are never under the button.
-        padding: const EdgeInsets.only(bottom: 96),
+        padding: const EdgeInsets.all(16),
         children: [
           for (final p in view.bill.participants)
             _PersonTile(
@@ -164,6 +176,13 @@ class _PersonTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    return RowCard(
+      padding: EdgeInsets.zero,
+      child: _tile(context, scheme),
+    );
+  }
+
+  Widget _tile(BuildContext context, ColorScheme scheme) {
     return ListTile(
       key: Key('splits_person_${participant.id}'),
       title: Row(
