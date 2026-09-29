@@ -173,7 +173,14 @@ fi
 echo "funding $address with $fund"
 "$root/scripts/regtest/fund-wallet.sh" "$address" "$fund"
 
+# A regtest chain mines nothing by itself, and the ZEC payee confirms only
+# once its wallet holds the payer's transaction mined. One block every ten
+# seconds until every device is done.
+( while true; do "$root/scripts/regtest/mine.sh" 1 >/dev/null 2>&1; sleep 10; done ) &
+miner=$!
+
 wait "${PIDS[@]}" 2>/dev/null || true
+kill "$miner" 2>/dev/null || true
 
 failed=0
 for name in "${PHASES[@]}"; do

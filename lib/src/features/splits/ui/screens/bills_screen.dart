@@ -2,11 +2,13 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:splitz_core/host.dart' as splitz;
 import 'package:splitz_core/splitz_core.dart' as protocol;
 
 import '../state/splits_controller.dart';
 import '../view/chrome.dart';
 import '../view/naming.dart';
+import 'arrivals_screen.dart';
 import 'bill_screen.dart';
 import 'new_bill_screen.dart';
 import 'scan_bill_screen.dart';
@@ -42,6 +44,9 @@ class BillsScreen extends StatelessWidget {
                 : ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     children: [
+                      if (controller.arrived.isNotEmpty)
+                        _Arrived(count: controller.arrived.length),
+                      if (controller.bills.length > 1) const _Totals(),
                       for (final view in controller.bills)
                         _BillTile(view: view),
                     ],
@@ -105,6 +110,67 @@ class _BillTile extends StatelessWidget {
             : 'owes ${formatAmount(-mine, view.bill.currency)}',
       ),
     );
+  }
+}
+
+/// Payments the wallet has received and nobody has confirmed yet.
+class _Arrived extends StatelessWidget {
+  const _Arrived({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) => RowCard(
+    key: const Key('splits_arrivals'),
+    onTap: () => Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const ArrivalsScreen())),
+    child: CardLine(
+      leading: const Icon(Icons.call_received),
+      title: count == 1 ? '1 payment received' : '$count payments received',
+      subtitle: const Text('Check and confirm'),
+      chevron: true,
+    ),
+  );
+}
+
+/// What this device and each person owe each other across every bill, one
+/// line per person and currency.
+class _Totals extends StatelessWidget {
+  const _Totals();
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = SplitsScope.of(context);
+    final standings = controller.totals.standings
+        .where((s) => s.net != 0)
+        .toList();
+    if (standings.isEmpty) return const SizedBox.shrink();
+    return RowCard(
+      key: const Key('splits_totals'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final s in standings)
+            CardLine(
+              key: Key('splits_total_${s.withId}_${s.currency}'),
+              title: _nameOf(controller, s),
+              trailing: s.net > 0
+                  ? 'owes you ${formatAmount(s.net, s.currency)}'
+                  : 'you owe ${formatAmount(-s.net, s.currency)}',
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// The name they go by on the first bill that names them.
+  static String _nameOf(SplitsController controller, splitz.Standing s) {
+    for (final view in controller.bills) {
+      if (!s.billIds.contains(view.id)) continue;
+      return view.bill.displayNameOf(s.withId, creatorId: view.creatorId);
+    }
+    return s.withId;
   }
 }
 

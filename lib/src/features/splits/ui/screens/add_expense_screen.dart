@@ -10,7 +10,6 @@ import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:splitz_host/splitz_host.dart';
 
 import '../state/splits_controller.dart';
-import '../view/currency_exponents.dart';
 import '../view/chrome.dart';
 import '../view/naming.dart';
 import 'splits_scope.dart';

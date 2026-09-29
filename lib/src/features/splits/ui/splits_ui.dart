@@ -33,5 +33,4 @@ export 'screens/splits_navigator.dart';
 export 'screens/swap_screen.dart';
 export 'screens/splits_scope.dart';
 export 'state/splits_controller.dart';
-export 'view/currency_exponents.dart';
 export 'view/naming.dart';

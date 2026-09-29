@@ -377,6 +377,14 @@ class MainActivity : FlutterFragmentActivity() {
         if ("splitz".equals(scheme, ignoreCase = true)) {
             return "join".equals(data.host, ignoreCase = true)
         }
+        // The same invite as an https link; the invite rides in the fragment.
+        if ("https".equals(scheme, ignoreCase = true) &&
+            SPLITS_INVITE_HOST.equals(data.host, ignoreCase = true)
+        ) {
+            val path = data.path ?: return false
+            return data.userInfo == null && data.port == -1 &&
+                (path == "/join" || path.startsWith("/join/"))
+        }
         return "https".equals(scheme, ignoreCase = true) &&
             DEEPLINK_HOST.equals(data.host, ignoreCase = true) &&
             data.userInfo == null &&
@@ -456,6 +464,8 @@ class MainActivity : FlutterFragmentActivity() {
         private const val SCREEN_AWAKE_CHANNEL = "com.zcash.wallet/screen_awake"
         private const val INCOMING_URI_CHANNEL = "com.zcash.wallet/payment_uri"
         private val DEEPLINK_HOST = BuildConfig.VIZOR_DEEPLINK_HOST
+        /** Bill invites shared as https links; assetlinks.json there claims this app. */
+        private const val SPLITS_INVITE_HOST = "kamaiops.github.io"
         /**
          * Sanity ceiling, set far above every link this app actually accepts.
          *

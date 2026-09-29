@@ -3,6 +3,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:splitz_core/host.dart' as splitz;
+import 'package:splitz_core/splitz_core.dart' show isInviteExpired;
 
 import '../state/splits_controller.dart';
 import 'bill_screen.dart';
@@ -51,14 +52,12 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
       _ => null,
     };
     if (invite == null) return null;
-    final expiry = invite.expiry;
-    // §11.1: `x` is a hint the sender wrote, compared here against this
-    // device's clock and shown rather than enforced.
-    // Compared in seconds: `x` may be any of nineteen digits, and scaling it
-    // to milliseconds would overflow.
-    final nowSeconds =
-        SplitsScope.read(context).now().millisecondsSinceEpoch ~/ 1000;
-    final expired = expiry != null && expiry < nowSeconds;
+    // §11.1: `x` is a hint the sender wrote, compared against this device's
+    // clock and shown rather than enforced.
+    final expired = isInviteExpired(
+      invite,
+      SplitsScope.read(context).now().millisecondsSinceEpoch ~/ 1000,
+    );
     return [
       'An invite to “${invite.name}”.',
       if (expired) 'Its sender marked it as expired.',

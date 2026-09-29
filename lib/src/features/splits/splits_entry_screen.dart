@@ -17,6 +17,7 @@ import '../../core/network/network_http_client.dart';
 
 import 'testnet_accounts.dart';
 import 'splits_prices.dart';
+import 'splits_received.dart';
 import 'splits_relay.dart';
 import 'splits_scanner.dart';
 import 'splits_invite_intake.dart';
@@ -159,14 +160,16 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
       // closed rather than being the one path that quietly leaves in the
       // clear.
       relay: splitsRelay(),
-      // The wallet's own feed, so the price a bill is fixed at is the price
-      // every other screen shows. It answers for USD alone; any other
-      // currency stays unpriced until somebody types a figure.
-      prices: WalletZecPrices(ref.read),
+      // The wallet's own feed for USD, so the price a bill is fixed at is the
+      // price every other screen shows; the market for any other currency.
+      prices: splitsZecPrices(ref.read, http: NetworkHttpClient()),
       // A debt owed in another asset settles through a swap. The default
       // client honours this wallet's privacy setting, so a quote goes out the
       // same way every other request does.
       swaps: splitsSwaps(http: NetworkHttpClient()),
+      // What the wallet received, so a payment that arrived can be confirmed
+      // from the transaction rather than looked up by hand.
+      received: () => splitsReceived(ref: ref, accountUuid: accountUuid),
     );
     await controller.load();
     if (!mounted) return;

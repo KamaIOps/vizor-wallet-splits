@@ -3878,6 +3878,23 @@ fn build_send_request_from_uri(payment_uri: &str) -> Result<TransactionRequest, 
     TransactionRequest::from_uri(payment_uri).map_err(|e| format!("Bad payment request: {e:?}"))
 }
 
+/// The payments `payment_uri` asks for, as this wallet reads it: the same
+/// reading `propose_send_multi` builds a transaction from, as each payment's
+/// encoded recipient and zatoshi. A payment with no amount answers zero.
+pub(crate) fn payment_uri_outputs(payment_uri: &str) -> Result<Vec<(String, u64)>, String> {
+    let request = build_send_request_from_uri(payment_uri)?;
+    Ok(request
+        .payments()
+        .values()
+        .map(|p| {
+            (
+                p.recipient_address().encode(),
+                p.amount().map(u64::from).unwrap_or(0),
+            )
+        })
+        .collect())
+}
+
 /// Rejects payment requests that parse but cannot be settled.
 ///
 /// ZIP 321 permits a payment with no amount — the payer chooses one — which is

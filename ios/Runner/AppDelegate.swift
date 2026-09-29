@@ -912,6 +912,9 @@ final class IncomingUriChannelBridge {
     (Bundle.main.object(forInfoDictionaryKey: "VizorDeeplinkHost") as? String)?
     .lowercased() ?? "link.vizor.cash"
   private static let paymentLinkPath = "/payment-links/open"
+  /// The host bill invites are shared under as https links; its
+  /// `apple-app-site-association` claims `/join*` for this app.
+  static let splitsInviteHost = "kamaiops.github.io"
   /// Sanity ceiling, set far above every link this app actually accepts.
   ///
   /// Dart owns the real size limits -- `VizorPaymentLink.maxEncodedLength` and
@@ -972,6 +975,16 @@ final class IncomingUriChannelBridge {
     // key, and like every link here it is held in memory until Dart takes it.
     if url.scheme?.lowercased() == "splitz" {
       return url.host?.lowercased() == "join"
+    }
+    // The same invite as an https link: the invite rides in the fragment,
+    // and only the host and the `/join` path are checked here.
+    if url.scheme?.lowercased() == "https",
+      url.host?.lowercased() == Self.splitsInviteHost,
+      url.user == nil,
+      url.port == nil,
+      url.path == "/join" || url.path.hasPrefix("/join/")
+    {
+      return true
     }
     guard
       url.scheme?.lowercased() == "https",

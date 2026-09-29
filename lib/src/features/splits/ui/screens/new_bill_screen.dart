@@ -3,7 +3,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../view/currency_exponents.dart';
+import 'package:splitz_host/splitz_host.dart' show currencyExponent;
 import '../view/chrome.dart';
 import 'bill_screen.dart';
 import 'splits_scope.dart';

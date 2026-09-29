@@ -2,6 +2,8 @@
 library;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:splitz_core/host.dart' as splitz;
+import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:splitz_host/splitz_host.dart';
 
 import '../../core/storage/wallet_paths.dart';
@@ -29,6 +31,13 @@ Future<WalletSendOutcome> proposeAndBroadcastSplitsBatch({
 }) async {
   final syncNotifier = ref.read(syncProvider.notifier);
   return sendSplitsBatch(
+    // What this wallet reads from the request is held against the request
+    // before anything is built (§14.6): a reader that kept fewer payments
+    // would sign less than the payer was shown.
+    verify: () async => splitsProposalMismatch(
+      paymentRequestUri,
+      await rust_sync.paymentUriOutputs(paymentUri: paymentRequestUri),
+    ),
     propose: () => syncNotifier.runWithAuthoritativeSpendable(
       accountUuid: accountUuid,
       operation: () async {
@@ -62,7 +71,23 @@ Future<WalletSendOutcome> proposeAndBroadcastSplitsBatch({
 Future<WalletSendOutcome> sendSplitsBatch<P>({
   required Future<P> Function() propose,
   required Future<SendBroadcastOutcome> Function(P proposal) broadcast,
+  Future<String?> Function()? verify,
 }) async {
+  // Before anything is built, so a refusal here spends nothing (§14.3).
+  if (verify != null) {
+    final String? why;
+    try {
+      why = await verify();
+    } on Object catch (error) {
+      return WalletSendOutcome(
+        phase: WalletSendPhase.failed,
+        error: 'The wallet could not read this payment: $error',
+      );
+    }
+    if (why != null) {
+      return WalletSendOutcome(phase: WalletSendPhase.failed, error: why);
+    }
+  }
   final P proposal;
   try {
     proposal = await propose();
@@ -120,4 +145,31 @@ Future<SendBroadcastOutcome> _broadcast({
     args: args,
     confirmSaplingParamsDownload: () async => true,
   );
+}
+
+/// Why the payments this wallet read from [paymentRequestUri] are not the ones
+/// it asks for, or null when they are (§14.6).
+///
+/// [read] is what the wallet's own ZIP 321 reader produced — the reading a
+/// proposal is built from. A request this protocol did not write is refused
+/// with its code's sentence.
+String? splitsProposalMismatch(
+  String paymentRequestUri,
+  List<rust_sync.PaymentUriOutput> read,
+) {
+  final splitz.ProposalCheck check;
+  try {
+    check = splitz.checkProposal(paymentRequestUri, [
+      for (final o in read)
+        // An amount past what an integer holds cannot match any payment.
+        splitz.ProposedOutput(
+          o.address,
+          o.zatoshi.isValidInt ? o.zatoshi.toInt() : -1,
+        ),
+    ]);
+  } on protocol.SplitError catch (e) {
+    return protocol.describeCode(e.code) ?? e.code;
+  }
+  if (check.matches) return null;
+  return 'Your wallet read this payment differently. Nothing was sent.';
 }

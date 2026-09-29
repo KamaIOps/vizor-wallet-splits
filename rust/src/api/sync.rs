@@ -1216,6 +1216,24 @@ pub fn propose_send_multi(
     })
 }
 
+/// One payment a request asks for, as this wallet reads it.
+pub struct PaymentUriOutput {
+    pub address: String,
+    pub zatoshi: u64,
+}
+
+/// The payments `payment_uri` asks for, read exactly as `propose_send_multi`
+/// reads it, so a caller can hold what will be signed against the request it
+/// was shown before proposing.
+pub fn payment_uri_outputs(payment_uri: String) -> Result<Vec<PaymentUriOutput>, String> {
+    catch(|| {
+        Ok(wallet_sync::payment_uri_outputs(&payment_uri)?
+            .into_iter()
+            .map(|(address, zatoshi)| PaymentUriOutput { address, zatoshi })
+            .collect())
+    })
+}
+
 /// Estimate the fee for a transfer without storing a proposal.
 pub fn estimate_fee(
     db_path: String,

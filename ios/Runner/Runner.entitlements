@@ -9,6 +9,7 @@
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>applinks:$(VIZOR_DEEPLINK_HOST)</string>
+		<string>applinks:kamaiops.github.io</string>
 	</array>
 </dict>
 </plist>

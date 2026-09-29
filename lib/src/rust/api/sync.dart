@@ -321,6 +321,14 @@ Future<ProposalResult> proposeSendMulti({
   paymentUri: paymentUri,
 );
 
+/// The payments `payment_uri` asks for, read exactly as `propose_send_multi`
+/// reads it, so a caller can hold what will be signed against the request it
+/// was shown before proposing.
+Future<List<PaymentUriOutput>> paymentUriOutputs({
+  required String paymentUri,
+}) =>
+    RustLib.instance.api.crateApiSyncPaymentUriOutputs(paymentUri: paymentUri);
+
 /// Estimate the fee for a transfer without storing a proposal.
 Future<BigInt> estimateFee({
   required String dbPath,
@@ -2420,6 +2428,25 @@ class PaymentLinkSpendEvidence {
           conflictedTxids == other.conflictedTxids &&
           localClaimTxids == other.localClaimTxids &&
           verifiedHeight == other.verifiedHeight;
+}
+
+/// One payment a request asks for, as this wallet reads it.
+class PaymentUriOutput {
+  final String address;
+  final BigInt zatoshi;
+
+  const PaymentUriOutput({required this.address, required this.zatoshi});
+
+  @override
+  int get hashCode => address.hashCode ^ zatoshi.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PaymentUriOutput &&
+          runtimeType == other.runtimeType &&
+          address == other.address &&
+          zatoshi == other.zatoshi;
 }
 
 class ProposalResult {

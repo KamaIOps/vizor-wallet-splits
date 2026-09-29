@@ -5,9 +5,12 @@
 /// anything of its own.
 library;
 
+import 'dart:convert';
+
 import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
+import '../../core/network/network_http_client.dart';
 import '../../providers/zec_price_change_provider.dart';
 
 /// The wallet's live ZEC price, as §7 wants it.
@@ -59,3 +62,55 @@ class WalletZecPrices implements ZecPrices {
     return cents;
   }
 }
+
+/// The wallet's own feed where it prices a currency, and the market for the
+/// rest.
+///
+/// USD comes from [wallet], so the figure fixed onto a bill is the one every
+/// other screen shows. Any other currency the ISO 4217 register gives an
+/// exponent is read from [market]. A market that cannot be reached answers
+/// empty here: the bill then asks for a price by hand, which is an ordinary
+/// state (§15.6), rather than a screen raising over a figure it never needed.
+class SplitsZecPrices implements ZecPrices {
+  const SplitsZecPrices({required this.wallet, required this.market});
+
+  final ZecPrices wallet;
+  final ZecPrices market;
+
+  @override
+  Future<int?> minorUnitsPerZec(String currency) async {
+    final own = await wallet.minorUnitsPerZec(currency);
+    if (own != null) return own;
+    try {
+      return await market.minorUnitsPerZec(currency);
+    } on Object {
+      return null;
+    }
+  }
+}
+
+/// The prices the splits screens use: [SplitsZecPrices] over the wallet's
+/// feed and CoinGecko, fetched through the wallet's own HTTP client so a
+/// build routing through Tor sends this the same way.
+ZecPrices splitsZecPrices(
+  T Function<T>(ProviderListenable<T>) read, {
+  required NetworkHttpClient http,
+}) => SplitsZecPrices(
+  wallet: WalletZecPrices(read),
+  market: CoinGeckoZecPrices(
+    origin: Uri.parse(kVizorCoinGeckoPriceBaseUrl),
+    get: (url) async {
+      final response = await http.request(
+        'GET',
+        url,
+        headers: const {'Accept': 'application/json'},
+      );
+      if (response.statusCode != 200) {
+        throw ZecPriceException(
+          'The price feed answered ${response.statusCode}',
+        );
+      }
+      return utf8.decode(response.bodyBytes);
+    },
+  ),
+);

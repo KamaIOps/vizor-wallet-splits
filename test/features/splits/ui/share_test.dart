@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:splitz_core/host.dart' as splitz;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'support/fake_wallet.dart';
@@ -17,7 +18,8 @@ SplitsController controllerFor(FakeWallet wallet) => SplitsController(
 );
 
 void main() {
-  testWidgets('each code shares exactly the string it shows', (t) async {
+  testWidgets('the bill code shares as shown; the invite as a link that reads '
+      'as the same invite', (t) async {
     final c = controllerFor(FakeWallet());
     await c.load();
     final id = (await c.createBill(name: 'Dinner', currency: 'USD'))!;
@@ -46,8 +48,17 @@ void main() {
     await t.tap(find.byKey(const Key('splits_share_Invite')));
     await t.pump();
 
-    expect(shared, [await c.shareableBill(id), await c.inviteFor(id)]);
-    expect(shared.last, startsWith('splitz://join?'));
+    final invite = await c.inviteFor(id);
+    expect(shared.first, await c.shareableBill(id));
+    // A chat app shows an https link as one to tap; the invite rides in its
+    // fragment, and every reader takes it as the invite the code shows.
+    expect(shared.last, 'https://kamaiops.github.io/join#$invite');
+    final read = splitz.readScan(shared.last);
+    expect(read, isA<splitz.ScannedInvite>());
+    expect(
+      (read as splitz.ScannedInvite).invite.key,
+      (splitz.readScan(invite) as splitz.ScannedInvite).invite.key,
+    );
     // An iPad anchors the sheet's popover here; a missing rect crashes it.
     expect(origins, everyElement(isNotNull));
     expect(origins.every((r) => !r!.isEmpty), isTrue);

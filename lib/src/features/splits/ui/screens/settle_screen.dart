@@ -4,6 +4,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:splitz_core/host.dart' as splitz;
 import 'package:splitz_core/splitz_core.dart' as protocol;
+import 'package:splitz_host/splitz_host.dart' show PendingSend;
 
 import '../state/splits_controller.dart';
 import '../view/chrome.dart';
@@ -31,7 +32,7 @@ class SettleScreen extends StatefulWidget {
 class _SettleScreenState extends State<SettleScreen> {
   splitz.PayerObligation? _owed;
   splitz.Settled? _settled;
-  PayIntent? _pending;
+  PendingSend? _pending;
   String? _loadError;
   bool _unpriced = false;
   bool _loading = true;
@@ -841,7 +842,7 @@ class _PendingSend extends StatefulWidget {
     required this.onResolve,
   });
 
-  final PayIntent intent;
+  final PendingSend intent;
   final String Function(String) who;
   final String currency;
   final bool busy;
