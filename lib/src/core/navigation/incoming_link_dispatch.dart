@@ -21,6 +21,7 @@
 library;
 
 import 'vizor_deep_link.dart';
+import '../../features/splits/splits_invite_link.dart';
 
 /// What an incoming link turned out to be.
 sealed class IncomingLinkTarget {
@@ -86,7 +87,7 @@ IncomingLinkTarget classifyIncomingLink(String raw) {
         }
     }
 
-    if (uri.scheme.toLowerCase() == _splitzScheme) {
+    if (uri.scheme.toLowerCase() == _splitzScheme || isSplitsInviteLink(uri)) {
       return IncomingSplitsInviteLink(trimmed);
     }
     if (uri.scheme.toLowerCase() == _zcashScheme) {

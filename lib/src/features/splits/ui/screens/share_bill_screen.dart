@@ -4,6 +4,9 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:splitz_core/splitz_core.dart' as protocol;
+
+import '../../splits_invite_link.dart';
 
 import 'splits_scope.dart';
 
@@ -24,6 +27,7 @@ class ShareBillScreen extends StatefulWidget {
 
 class _ShareBillScreenState extends State<ShareBillScreen> {
   String? _invite;
+  String? _inviteLink;
   String? _payload;
   bool _tooBig = false;
   bool _loaded = false;
@@ -44,6 +48,10 @@ class _ShareBillScreenState extends State<ShareBillScreen> {
     if (!mounted) return;
     setState(() {
       _invite = invite;
+      _inviteLink = protocol.renderInviteLink(
+        protocol.parseInvite(invite),
+        splitsInviteLinkBase,
+      );
       _payload = payload;
       // Null is a state, not a failure: §11.2 caps a payload, and a bill with
       // several addressed people reaches that cap quickly.
@@ -74,6 +82,9 @@ class _ShareBillScreenState extends State<ShareBillScreen> {
               label: 'Invite',
               about: 'Lets someone join. The bill arrives when they sync.',
               value: _invite!,
+              // A chat app shows an https link as one to tap; the code keeps
+              // the short form, which every scanner here reads the same.
+              shared: _inviteLink,
             )
           else
             const _Loading(),
@@ -110,16 +121,25 @@ class _Loading extends StatelessWidget {
 /// A code, drawn, and offered to copy or share.
 ///
 /// Reading a code needs a camera, which is the wallet's; drawing one is done
-/// here. Every form carries the same string, which is what makes a scan, a
-/// paste and a shared message interchangeable.
+/// here. A scan, a paste and a shared message are interchangeable because
+/// every reader accepts both the code and the link it is shared as.
 class _Code extends StatelessWidget {
-  const _Code({required this.label, required this.about, required this.value});
+  const _Code({
+    required this.label,
+    required this.about,
+    required this.value,
+    this.shared,
+  });
 
   final String label;
 
   /// What the code is for, in a line.
   final String about;
   final String value;
+
+  /// What copying and sharing hand on, when it is not [value] itself: an
+  /// invite goes out as an https link that reads as the same invite.
+  final String? shared;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -139,7 +159,8 @@ class _Code extends StatelessWidget {
               IconButton(
                 tooltip: 'Copy',
                 icon: const Icon(Icons.copy),
-                onPressed: () => Clipboard.setData(ClipboardData(text: value)),
+                onPressed: () =>
+                    Clipboard.setData(ClipboardData(text: shared ?? value)),
               ),
               if (SplitsScope.sharerOf(context) case final share?)
                 Builder(
@@ -147,8 +168,11 @@ class _Code extends StatelessWidget {
                     key: Key('splits_share_$label'),
                     tooltip: 'Share',
                     icon: const Icon(Icons.share),
-                    onPressed: () =>
-                        share(button, value, origin: _globalRect(button)),
+                    onPressed: () => share(
+                      button,
+                      shared ?? value,
+                      origin: _globalRect(button),
+                    ),
                   ),
                 ),
             ],

@@ -2,6 +2,7 @@
 /// that did not resolve leaves behind.
 library;
 
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -130,6 +131,90 @@ void main() {
         reason: 'a second send would pay the debt twice if the first lands',
       );
       expect(again.lastError, contains('earlier send'));
+    });
+
+    test(
+      'a note an earlier version wrote still blocks after an update',
+      () async {
+        final storage = InMemoryBillStorage();
+        final wallet = FakeWallet(outcome: _pending);
+        final c = controllerFor(wallet, storage);
+        final id = await owingBen(c);
+        // Exactly what the earlier pay-intent note wrote.
+        await storage.write(
+          'payintent/$id',
+          jsonEncode({
+            'billId': id,
+            'uri': 'zcash:u1ben?amount=0.1',
+            'carried': {'ben': 1000},
+            'at': '2026-10-28T19:30:00.000Z',
+            'sent': {'ben': 10000000},
+            'rate': {
+              'currency': 'USD',
+              'minorUnitsPerZec': 10000,
+              'at': '2026-10-28T19:00:00.000Z',
+            },
+          }),
+        );
+
+        final again = controllerFor(wallet, storage);
+        await again.load();
+        final held = await again.pendingSend(id);
+        expect(held?.carried, {'ben': 1000});
+        expect(held?.rate?.minorUnitsPerZec, 10000);
+        expect(await storage.keys('payintent/'), isEmpty);
+        await again.settle(id, (await again.obligation(id))!);
+        expect(wallet.sender.sent, isEmpty, reason: 'the note still blocks');
+        expect(again.lastError, contains('earlier send'));
+      },
+    );
+
+    test('a damaged note an earlier version wrote still blocks', () async {
+      final storage = InMemoryBillStorage();
+      final wallet = FakeWallet(outcome: _pending);
+      final c = controllerFor(wallet, storage);
+      final id = await owingBen(c);
+      await storage.write('payintent/$id', 'not json');
+
+      final again = controllerFor(wallet, storage);
+      await again.load();
+      expect((await again.pendingSend(id))?.damaged, isTrue);
+      await again.settle(id, (await again.obligation(id))!);
+      expect(wallet.sender.sent, isEmpty);
+    });
+
+    test('a note an earlier version wrote that will not read blocks once, '
+        'and moves across whole once it reads', () async {
+      final storage = _Unreadable();
+      final wallet = FakeWallet(outcome: _pending);
+      final id = await owingBen(controllerFor(wallet, storage));
+      await storage.write('payintent/$id', jsonEncode(_legacyNote(id)));
+      storage.unreadable = 'payintent/$id';
+
+      final first = controllerFor(wallet, storage);
+      await first.load();
+      expect((await first.pendingSend(id))?.damaged, isTrue);
+      expect(
+        await storage.keys('payintent/'),
+        ['payintent/$id'],
+        reason: 'the details are kept for a load that can read them',
+      );
+      await first.resolveSend(id);
+      expect(await first.pendingSend(id), isNull);
+
+      final second = controllerFor(wallet, storage);
+      await second.load();
+      expect(
+        await second.pendingSend(id),
+        isNull,
+        reason: 'a note the person resolved is not raised again',
+      );
+
+      storage.unreadable = null;
+      final third = controllerFor(wallet, storage);
+      await third.load();
+      expect((await third.pendingSend(id))?.carried, {'ben': 1000});
+      expect(await storage.keys('payintent/'), isEmpty);
     });
 
     test('found on chain, it is recorded as a sent one would be', () async {
@@ -571,7 +656,7 @@ void main() {
     final storage = InMemoryBillStorage();
     final c = controllerFor(FakeWallet(), storage);
     final id = await owingBen(c);
-    await storage.write('payintent/$id', 'not json');
+    await storage.write('pendingsend/$id', 'not json');
 
     await t.pumpWidget(app(c, SettleScreen(billId: id)));
     await t.pumpAndSettle();
@@ -596,7 +681,7 @@ void main() {
       ...unpriceable(ben, c.me),
     ]);
     await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
-    await storage.write('payintent/$id', 'not json');
+    await storage.write('pendingsend/$id', 'not json');
 
     await t.pumpWidget(app(c, SettleScreen(billId: id)));
     await t.pumpAndSettle();
@@ -615,4 +700,25 @@ class _Price implements ZecPrices {
 
   @override
   Future<int?> minorUnitsPerZec(String currency) async => minorUnits;
+}
+
+/// What the earlier pay-intent note wrote.
+Map<String, dynamic> _legacyNote(String id) => {
+  'billId': id,
+  'uri': 'zcash:u1ben?amount=0.1',
+  'carried': {'ben': 1000},
+  'at': '2026-10-28T19:30:00.000Z',
+  'sent': {'ben': 10000000},
+};
+
+/// Storage that refuses to read one key, as a file the platform will not
+/// open.
+class _Unreadable extends InMemoryBillStorage {
+  String? unreadable;
+
+  @override
+  Future<String?> read(String key) async {
+    if (key == unreadable) throw BillStorageUnreadable(key, 'locked');
+    return super.read(key);
+  }
 }
