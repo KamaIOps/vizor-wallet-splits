@@ -63,6 +63,16 @@ class _PayoutScreenState extends State<PayoutScreen> {
   final _address = TextEditingController();
 
   PayoutChoice _choice = PayoutChoice.zec;
+
+  /// Ways a payer may use instead of [_choice], after it and in this order:
+  /// the wallet's own Zcash address, then cash (§9.1, §14.8).
+  bool _alsoZec = false;
+  bool _alsoCash = false;
+
+  /// Later payouts this screen does not edit — a swap declared after the
+  /// first — written back as they were so saving never drops them.
+  List<splitz.Payout> _kept = const [];
+
   bool _loaded = false;
   bool _saving = false;
 
@@ -101,6 +111,13 @@ class _PayoutScreenState extends State<PayoutScreen> {
     _loaded = true;
     final first = me.payouts.isEmpty ? null : me.payouts.first;
     if (first == null) return;
+    final later = me.payouts.skip(1);
+    _alsoZec = later.any((p) => p.type == 'zec');
+    _alsoCash = later.any((p) => p.type == 'cash');
+    _kept = [
+      for (final p in later)
+        if (p.type != 'zec' && p.type != 'cash') p,
+    ];
     switch (first.type) {
       case 'swap':
         _choice = PayoutChoice.swap;
@@ -119,10 +136,28 @@ class _PayoutScreenState extends State<PayoutScreen> {
     }
   }
 
-  List<splitz.Payout> _declared() => switch (_choice) {
-    // A `zec` payout with no address is nobody to pay, so the wallet's
-    // own address is what stands behind this choice. `joinBill` writes it
-    // as `payTo`; declaring the list empty keeps that the single source.
+  /// The list this device declares, most preferred first.
+  ///
+  /// Zcash alone is an empty list: `joinBill` writes the wallet's address as
+  /// `payTo`, and that stays the single source. With anything after it, Zcash
+  /// is written out with that same address, since a list's first entry is
+  /// what decides the lane.
+  List<splitz.Payout> _declared(String? walletAddress) {
+    final zec = walletAddress == null
+        ? null
+        : splitz.Payout(type: 'zec', address: walletAddress);
+    final backups = [
+      if (_choice != PayoutChoice.zec && _alsoZec && zec != null) zec,
+      if (_choice != PayoutChoice.cash && _alsoCash)
+        const splitz.Payout(type: 'cash'),
+      ..._kept,
+    ];
+    final first = _first();
+    if (first.isEmpty && backups.isEmpty) return const [];
+    return [if (first.isEmpty && zec != null) zec else ...first, ...backups];
+  }
+
+  List<splitz.Payout> _first() => switch (_choice) {
     PayoutChoice.zec => const <splitz.Payout>[],
     PayoutChoice.swap => [
       splitz.Payout(
@@ -143,7 +178,10 @@ class _PayoutScreenState extends State<PayoutScreen> {
     setState(() => _saving = true);
     final controller = SplitsScope.read(context);
     final navigator = Navigator.of(context);
-    await controller.setPayouts(billId: widget.billId, payouts: _declared());
+    await controller.setPayouts(
+      billId: widget.billId,
+      payouts: _declared(controller.payToAddress),
+    );
     if (!mounted) return;
     setState(() => _saving = false);
     if (controller.lastError == null) navigator.pop();
@@ -313,6 +351,34 @@ class _PayoutScreenState extends State<PayoutScreen> {
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
                 child: Text('You confirm cash when it arrives.'),
+              ),
+            // A payer who cannot use the first way — no route to the asset,
+            // too far away for cash — may pay by one of these instead.
+            const SectionLabel('Also accept, if that doesn’t work'),
+            if (_choice != PayoutChoice.zec && controller.payToAddress != null)
+              CheckboxListTile(
+                key: const Key('splits_payout_also_zec'),
+                value: _alsoZec,
+                title: const Text('Zcash'),
+                subtitle: const Text('Straight to your wallet'),
+                onChanged: _saving
+                    ? null
+                    : (v) => setState(() => _alsoZec = v ?? false),
+              ),
+            if (_choice != PayoutChoice.cash)
+              CheckboxListTile(
+                key: const Key('splits_payout_also_cash'),
+                value: _alsoCash,
+                title: const Text('Cash'),
+                subtitle: const Text('In person — you confirm when it arrives'),
+                onChanged: _saving
+                    ? null
+                    : (v) => setState(() => _alsoCash = v ?? false),
+              ),
+            for (final p in _kept)
+              ListTile(
+                title: Text('${p.asset} on ${p.chain}'),
+                subtitle: const Text('Kept from before'),
               ),
             if (controller.lastError != null)
               Padding(
