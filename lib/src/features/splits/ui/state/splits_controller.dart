@@ -1616,6 +1616,43 @@ class SplitsController extends ChangeNotifier {
     ];
   }
 
+  /// Why this device cannot settle to [payout], or null when it can.
+  ///
+  /// `zec` needs an address a payment request can carry (§8.3); `swap` needs
+  /// its asset, chain and address, and a provider that delivers that asset on
+  /// that chain; `cash` is always payable. Null as well when the provider
+  /// cannot be asked: not knowing is no reason to pass over a payee's
+  /// preference.
+  Future<String?> cannotPayBy(protocol.Payout payout) async {
+    switch (payout.type) {
+      case 'zec':
+        final payable = protocol.Participant(
+          id: '',
+          name: '',
+          payouts: [payout],
+        ).payableAddress;
+        return payable == null ? 'their Zcash address can’t be paid' : null;
+      case 'swap':
+        final (asset, chain) = (payout.asset, payout.chain);
+        if (asset == null || chain == null || payout.address == null) {
+          return 'their ${asset ?? 'swap'} payout is incomplete';
+        }
+        final List<TradableAsset> carried;
+        try {
+          carried = await _swaps.tradableAssets();
+        } on Object {
+          return null;
+        }
+        return carried.any((a) => a.answers(asset, chain))
+            ? null
+            : '$asset on $chain can’t be delivered';
+      case 'cash':
+        return null;
+      default:
+        return 'this app can’t pay by ${payout.type}';
+    }
+  }
+
   /// The key this bill's contents are sealed under, creating one if this
   /// device opened the bill and has not needed it yet.
   Future<String> billKey(String billId) => _keys.ensureBillKey(billId);
