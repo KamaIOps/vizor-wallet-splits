@@ -989,7 +989,14 @@ class SplitsController extends ChangeNotifier {
   }
 
   /// What this device owes on [billId], or null when the bill has no rate.
-  Future<splitz.PayerObligation?> obligation(String billId) async {
+  ///
+  /// [via] is the payer's choice of payout for recipients it names, as
+  /// indices into what each declared (§14.8); [payoutIndexes] builds it from
+  /// the payouts a person picked.
+  Future<splitz.PayerObligation?> obligation(
+    String billId, {
+    Map<String, int> via = const {},
+  }) async {
     final view = _bills.where((b) => b.id == billId).firstOrNull;
     if (view == null) return null;
     final seed = _identitySeed;
@@ -1003,7 +1010,50 @@ class SplitsController extends ChangeNotifier {
             signer: _signer,
             seed: seed,
           );
-    return splitz.obligationFor(_host(seed), folded);
+    return splitz.obligationVia(_host(seed), folded, via);
+  }
+
+  /// Where each payout in [chosen] now sits in its participant's declared
+  /// list on [bill], keyed by participant id.
+  ///
+  /// A choice is held as the payout itself and not its position: a payee who
+  /// edits their list moves every position after the edit, and an index kept
+  /// across that would pay an address nobody picked. A choice [bill] no longer
+  /// declares is left out, so the payee's first preference applies again.
+  static Map<String, int> payoutIndexes(
+    protocol.Bill bill,
+    Map<String, protocol.Payout> chosen,
+  ) => {
+    for (final MapEntry(key: id, value: payout) in chosen.entries)
+      id: ?_declaredAt(bill.participant(id), payout),
+  };
+
+  /// [to] on [bill] as a payment to them reads them: with [chosen] first
+  /// when the payer picked it (§14.8), and null when [to] is not on the bill
+  /// or no longer declares [chosen].
+  static protocol.Participant? _paidBy(
+    protocol.Bill bill,
+    String to,
+    protocol.Payout? chosen,
+  ) {
+    if (chosen == null) return bill.participant(to);
+    final via = payoutIndexes(bill, {to: chosen});
+    if (via.isEmpty) return null;
+    return protocol.choosePayouts(bill, via).participant(to);
+  }
+
+  static int? _declaredAt(protocol.Participant? who, protocol.Payout payout) {
+    final payouts = who?.payouts ?? const <protocol.Payout>[];
+    for (var i = 0; i < payouts.length; i++) {
+      final p = payouts[i];
+      if (p.type == payout.type &&
+          p.address == payout.address &&
+          p.asset == payout.asset &&
+          p.chain == payout.chain) {
+        return i;
+      }
+    }
+    return null;
   }
 
   /// Sends what this device owes and records that it did.
@@ -1017,10 +1067,13 @@ class SplitsController extends ChangeNotifier {
   /// as pending, or one the app died during, leaves a [PendingSend] behind, and
   /// no further send from this bill goes out until [resolveSend] settles
   /// which way it went.
+  ///
+  /// [via] is the payout choice [owed] was read with (§14.8).
   Future<splitz.Settled?> settle(
     String billId,
-    splitz.PayerObligation owed,
-  ) async {
+    splitz.PayerObligation owed, {
+    Map<String, int> via = const {},
+  }) async {
     splitz.Settled? settled;
     await _guard(() async {
       if (!_sending.add(billId)) {
@@ -1029,7 +1082,7 @@ class SplitsController extends ChangeNotifier {
         );
       }
       try {
-        settled = await _settle(billId, owed);
+        settled = await _settle(billId, owed, via);
       } finally {
         _sending.remove(billId);
       }
@@ -1041,6 +1094,7 @@ class SplitsController extends ChangeNotifier {
   Future<splitz.Settled> _settle(
     String billId,
     splitz.PayerObligation owed,
+    Map<String, int> via,
   ) async {
     {
       if (await _sends.of(billId) != null) {
@@ -1048,7 +1102,7 @@ class SplitsController extends ChangeNotifier {
           'An earlier send isn’t resolved. Check your wallet.',
         );
       }
-      final now = await obligation(billId);
+      final now = await obligation(billId, via: via);
       if (now?.uri != owed.uri) {
         throw const SplitsRefusal('The bill changed. Check the amounts.');
       }
@@ -1228,10 +1282,14 @@ class SplitsController extends ChangeNotifier {
   /// **The asset and the chain are matched together.** One symbol exists on
   /// many chains, and a provider matched on the symbol alone delivers the
   /// right token to a network the recipient cannot reach.
+  ///
+  /// [payout] is a lower preference [to] declared, chosen by the payer
+  /// (§14.8); absent, their first decides.
   Future<SwapQuote?> quoteSwap({
     required String billId,
     required String to,
     required int amountMinorUnits,
+    protocol.Payout? payout,
   }) async {
     SwapQuote? quote;
     await _guard(() async {
@@ -1239,14 +1297,14 @@ class SplitsController extends ChangeNotifier {
       final rate = view?.bill.rate;
       if (view == null || rate == null) return;
 
-      final payee = view.bill.participant(to);
+      final payee = _paidBy(view.bill, to, payout);
       if (payee == null || splitz.laneFor(payee) != splitz.SettleLane.swap) {
         return;
       }
-      final payout = payee.payouts.first;
-      final asset = payout.asset;
-      final chain = payout.chain;
-      final address = payout.address;
+      final chosen = payee.payouts.first;
+      final asset = chosen.asset;
+      final chain = chosen.chain;
+      final address = chosen.address;
       if (asset == null || chain == null || address == null) {
         throw const SwapException(
           'That payout has no asset, chain or address.',
@@ -1299,11 +1357,14 @@ class SplitsController extends ChangeNotifier {
   ///
   /// The record is a claim, not a settlement. That the deposit was sent is
   /// not that the recipient was paid — only they can say that (§10.5).
+  ///
+  /// [payout] is the one [quote] was asked for, as [quoteSwap] took it.
   Future<WalletSendOutcome?> sendSwap({
     required String billId,
     required String to,
     required int amountMinorUnits,
     required SwapQuote quote,
+    protocol.Payout? payout,
   }) async {
     WalletSendOutcome? outcome;
     await _guard(() async {
@@ -1313,7 +1374,7 @@ class SplitsController extends ChangeNotifier {
         );
       }
       try {
-        outcome = await _sendSwap(billId, to, amountMinorUnits, quote);
+        outcome = await _sendSwap(billId, to, amountMinorUnits, quote, payout);
       } finally {
         _sending.remove(billId);
       }
@@ -1327,6 +1388,7 @@ class SplitsController extends ChangeNotifier {
     String to,
     int amountMinorUnits,
     SwapQuote quote,
+    protocol.Payout? chosen,
   ) async {
     {
       if (quote.hasExpired(
@@ -1338,7 +1400,14 @@ class SplitsController extends ChangeNotifier {
       // The debt this quote pays must still be owed, and not already paid
       // and waiting: a screen left open after a first deposit would
       // otherwise send a second one.
-      final now = await obligation(billId);
+      final held = _bills.where((b) => b.id == billId).firstOrNull?.bill;
+      final via = held == null || chosen == null
+          ? const <String, int>{}
+          : payoutIndexes(held, {to: chosen});
+      if (chosen != null && via.isEmpty) {
+        throw const SplitsRefusal('Their payout changed. Choose again.');
+      }
+      final now = await obligation(billId, via: via);
       final stillOwed =
           now != null &&
           now.unpayable.any(
@@ -1351,13 +1420,9 @@ class SplitsController extends ChangeNotifier {
       // The quote delivers to the address it was asked for. A payee who has
       // since replaced their payout is owed at the new one, and a deposit on
       // the old quote pays an address they no longer use.
-      final payout = _bills
-          .where((b) => b.id == billId)
-          .firstOrNull
-          ?.bill
-          .participant(to)
-          ?.payouts
-          .firstOrNull;
+      final payout = held == null
+          ? null
+          : _paidBy(held, to, chosen)?.payouts.firstOrNull;
       if (payout?.address == null || quote.recipient != payout!.address) {
         throw const SplitsRefusal('Their address changed. Get a new quote.');
       }
