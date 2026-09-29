@@ -172,7 +172,10 @@ void main() {
       }
 
       // The invite is offered either way, and is what a capped bill is sent as.
-      await _scrollToText(tester, 'Lets someone join. The bill arrives when they sync.');
+      await _scrollToText(
+        tester,
+        'Lets someone join. The bill arrives when they sync.',
+      );
       final invite = tester
           .widgetList<CodeImage>(find.byType(CodeImage))
           .map((w) => w.value)
@@ -372,9 +375,17 @@ Future<void> _payInUsdc(
     await tester.enterText(typed, 'USDC');
     await tester.enterText(find.byKey(const Key('splits_payout_chain')), chain);
   }
-  await tester.enterText(
-    find.byKey(const Key('splits_payout_address')),
-    address,
-  );
+  // The address sits below one pill per listed chain, past the fold of a
+  // lazily built list.
+  final field = find.byKey(const Key('splits_payout_address'));
+  if (!tester.any(field)) {
+    await tester.scrollUntilVisible(
+      field,
+      200,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await _settle(tester);
+  }
+  await tester.enterText(field, address);
   await tester.pump();
 }

@@ -87,6 +87,11 @@ void main() {
       await tester.pump();
       await _revealChip(tester, 'splits_split_exact');
       await _tapKey(tester, 'splits_split_exact');
+      await _reveal(
+        tester,
+        find.byKey(const Key('splits_split_refusal')),
+        'the refusal for an exact draft with no figures',
+      );
       expect(
         find.byKey(const Key('splits_split_refusal')),
         findsOneWidget,
@@ -98,6 +103,7 @@ void main() {
       await tester.enterText(find.byKey(figures[1]), '18');
       await tester.pump();
       await _settle(tester);
+      await _showRefusalSpot(tester);
       expect(
         find.byKey(const Key('splits_split_refusal')),
         findsNothing,
@@ -256,12 +262,25 @@ Future<void> _addWithFigures(
   }
   await tester.pump();
   await _settle(tester);
+  await _showRefusalSpot(tester);
   expect(find.byKey(const Key('splits_split_refusal')), findsNothing);
   await _tapText(tester, 'Add');
   await _settle(tester);
   await _expenseWritten(tester);
   await _reveal(tester, find.text(what), 'the expense "$what" on the bill');
   expect(find.text(what), findsWidgets);
+}
+
+/// Scrolls the last figure field into view, so the place a split refusal is
+/// drawn — directly below the per-person rows — is built.
+///
+/// A `ListView` does not build what is far past the viewport, so without this
+/// an absent refusal and an unbuilt one read the same.
+Future<void> _showRefusalSpot(WidgetTester tester) async {
+  final figures = _figureKeys(tester);
+  expect(figures, isNotEmpty, reason: 'a split with figures has rows');
+  await tester.ensureVisible(find.byKey(figures.last));
+  await _settle(tester);
 }
 
 /// The per-person figure fields on screen, in the order they are rendered.
