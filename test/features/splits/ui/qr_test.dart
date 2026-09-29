@@ -142,7 +142,7 @@ void main() {
     // What each image carries.
     final texts = t
         .widgetList<CodeImage>(find.byType(CodeImage))
-      .map((w) => w.value)
+        .map((w) => w.value)
         .toList();
     expect(codes, hasLength(2));
     expect(texts, hasLength(2));

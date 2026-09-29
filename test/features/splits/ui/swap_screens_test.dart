@@ -319,10 +319,7 @@ void main() {
         c.bills.firstWhere((b) => b.id == id).bill.confirmedPayments,
         isNot(contains(payment.reference)),
       );
-      expect(
-        find.textContaining('confirms when it arrives'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('confirms when it arrives'), findsOneWidget);
     });
 
     testWidgets('a send that did not reach the network records NOTHING', (
@@ -349,10 +346,7 @@ void main() {
 
       expect(c.bills.firstWhere((b) => b.id == id).bill.payments, isEmpty);
       expect(find.text('Not confirmed'), findsOneWidget);
-      expect(
-        find.textContaining('Don’t send again'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Don’t send again'), findsOneWidget);
     });
 
     testWidgets('a failed send records nothing and says nothing was spent', (
@@ -500,10 +494,7 @@ void main() {
       );
       await t.pumpAndSettle();
 
-      expect(
-        find.textContaining('Any refund comes back'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Any refund comes back'), findsOneWidget);
       expect(await c.swapsInFlight(id), isEmpty);
     });
 
@@ -520,10 +511,7 @@ void main() {
       );
       await t.pumpAndSettle();
 
-      expect(
-        find.textContaining('coming back to you'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('coming back to you'), findsOneWidget);
       expect(find.textContaining('working on it'), findsNothing);
       expect(await c.swapsInFlight(id), hasLength(1));
     });
