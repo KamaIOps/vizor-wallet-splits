@@ -6,7 +6,7 @@
 /// into the binary, printed by every tool that dumps a build's defines, and
 /// kept in whatever log or screenshot the run produced.
 ///
-///     python3 <splitz_wallet>/tool/seed-driver.py <seed-file> --port 39200
+///     python3 <splitz_host>/tool/seed-driver.py <seed-file> --port 39200
 ///     flutter run --dart-define=SPLITS_SEED_DRIVER_URL=http://127.0.0.1:39200
 ///
 /// With no `SPLITS_SEED_DRIVER_URL` this asks for nothing and does nothing,
