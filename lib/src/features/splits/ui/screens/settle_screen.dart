@@ -258,6 +258,16 @@ class _SettleScreenState extends State<SettleScreen> {
                 ),
               ),
             ),
+          if ((_owed == null ? null : payerSummary(_owed!, view))
+              case final line?)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                line,
+                key: const Key('splits_settle_summary'),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
           if (_loadError != null)
             NoticeCard(
               key: const Key('splits_settle_load_error'),
@@ -595,6 +605,37 @@ class _SentResult extends StatelessWidget {
 
 extension<T> on Iterable<T> {
   T? get firstOrNull => isEmpty ? null : first;
+}
+
+/// Everything this device owes on the bill, by how it travels, in one line:
+/// `0.21 ZEC + 9.00 INR by swap + 5.00 INR in cash`.
+///
+/// The ZEC is what the request sends. A swap's part is in the bill's currency:
+/// what arrives in the other asset is only known once it is quoted. Null when
+/// everything owed travels one way: the pay button already says what that is.
+String? payerSummary(splitz.PayerObligation owed, BillView view) {
+  final currency = view.bill.currency;
+  final zatoshi = owed.carriedZatoshi.values.fold(0, (a, b) => a + b);
+  var swap = 0;
+  var cash = 0;
+  var none = 0;
+  for (final u in owed.unpayable) {
+    switch (_lane(view, u.id)) {
+      case splitz.SettleLane.swap:
+        swap += u.minorUnits;
+      case splitz.SettleLane.cash:
+        cash += u.minorUnits;
+      case splitz.SettleLane.zec || splitz.SettleLane.none:
+        none += u.minorUnits;
+    }
+  }
+  final parts = [
+    if (zatoshi > 0) '${protocol.renderAmount(zatoshi)} ZEC',
+    if (swap > 0) '${formatAmount(swap, currency)} by swap',
+    if (cash > 0) '${formatAmount(cash, currency)} in cash',
+    if (none > 0) '${formatAmount(none, currency)} not payable yet',
+  ];
+  return parts.length < 2 ? null : parts.join(' + ');
 }
 
 /// The lane [id] is paid in (§9.1), or none when they are not on the bill.

@@ -36,6 +36,20 @@ Future<List<IncomingTransaction>> splitsReceived({
   ];
 }
 
+/// Every transaction id this account's history holds, in the byte order a
+/// send reports: what a pasted id is compared with to learn its order.
+Future<Set<String>> splitsKnownTxids({
+  required WidgetRef ref,
+  required String accountUuid,
+}) async {
+  final history = await rust_sync.getTransactionHistory(
+    dbPath: await getWalletDbPath(),
+    network: ref.read(rpcEndpointProvider).networkName,
+    accountUuid: accountUuid,
+  );
+  return {for (final tx in history) txidForDisplay(tx.txidHex)};
+}
+
 /// [storedHex], a transaction id as the history encodes its stored bytes, in
 /// the byte-reversed form a send reports and a payment record carries.
 ///

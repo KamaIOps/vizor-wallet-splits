@@ -217,6 +217,43 @@ void main() {
       expect(await storage.keys('payintent/'), isEmpty);
     });
 
+    group('a transaction id pasted in the stored byte order', () {
+      // The same 32 bytes in the order a send reports (the record's) and in
+      // the order the wallet stores and its status screen copies.
+      final shown = _txid;
+      final stored = [
+        for (var i = shown.length - 2; i >= 0; i -= 2)
+          shown.substring(i, i + 2),
+      ].join();
+
+      Future<String> recordedAs(String pasted, Set<String> known) async {
+        final wallet = FakeWallet(outcome: _pending);
+        final c = SplitsController(
+          wallet: wallet,
+          store: BillStore(InMemoryBillStorage()),
+          keys: SplitsKeys(store: InMemorySecretStore(), random: Random(3)),
+          known: () async => known,
+        );
+        final id = await owingBen(c);
+        await c.settle(id, (await c.obligation(id))!);
+        await c.resolveSend(id, landed: true, txid: pasted);
+        expect(c.lastError, isNull);
+        return c.bills.single.bill.payments.single.reference!;
+      }
+
+      test('is recorded in the order the history knows it by', () async {
+        expect(await recordedAs(stored, {shown}), shown);
+      });
+
+      test('in the send order already, it is kept', () async {
+        expect(await recordedAs(shown, {shown}), shown);
+      });
+
+      test('one the history does not hold yet is kept as given', () async {
+        expect(await recordedAs(stored, {}), stored);
+      });
+    });
+
     test('found on chain, it is recorded as a sent one would be', () async {
       final wallet = FakeWallet(outcome: _pending);
       final c = controllerFor(wallet, InMemoryBillStorage());

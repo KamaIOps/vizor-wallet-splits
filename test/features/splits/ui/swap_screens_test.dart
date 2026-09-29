@@ -127,6 +127,47 @@ Future<String> billOwingSwap(
 }
 
 void main() {
+  testWidgets('the payer sees everything they owe, by how it travels, in one '
+      'line', (t) async {
+    final c = controllerFor(FakeWallet());
+    final id = await billOwingSwap(c);
+    // Cat is paid in ZEC and Dan in cash; each paid 20.00 shared with this
+    // device, so it owes each 10.00 — 0.01 ZEC at 1000.00 USD a ZEC.
+    for (final (name, payout) in [
+      (
+        'cat',
+        <String, dynamic>{'type': 'zec', 'address': 'u1catpayable0000000001'},
+      ),
+      ('dan', <String, dynamic>{'type': 'cash'}),
+    ]) {
+      final who = otherHost(name);
+      await c.accept(id, [
+        entries.joinBill(host: who, name: name, payouts: [payout]),
+        entries.addExpense(
+          host: who,
+          expenseId: 'x-$name',
+          paidBy: name,
+          amount: 2000,
+          split: <String, dynamic>{
+            'type': 'equal',
+            'among': [name, c.me]..sort(),
+          },
+        ),
+      ]);
+    }
+    await t.pumpWidget(
+      SplitsScope(
+        controller: c,
+        child: MaterialApp(home: SettleScreen(billId: id)),
+      ),
+    );
+    await t.pumpAndSettle();
+    expect(
+      t.widget<Text>(find.byKey(const Key('splits_settle_summary'))).data,
+      '0.01 ZEC + 10.00 USD by swap + 10.00 USD in cash',
+    );
+  });
+
   group('quoting', () {
     testWidgets('the screen quotes on open and states both legs', (t) async {
       final c = controllerFor(FakeWallet());
@@ -312,6 +353,12 @@ void main() {
       expect(payment.reference, 'near-intent-7f3a');
       expect(payment.reference, isNot('tx-1'));
       expect(payment.zatoshi, 1000000);
+      // The rate the quote was priced from, as a ZEC payment carries it.
+      expect(
+        payment.paidAtRate?.minorUnitsPerZec,
+        c.bills.single.bill.rate?.minorUnitsPerZec,
+      );
+      expect(payment.paidAtRate, isNotNull);
       expect(payment.amount, 1000);
 
       // Sent is not settled. Only Ben can say the asset arrived.
