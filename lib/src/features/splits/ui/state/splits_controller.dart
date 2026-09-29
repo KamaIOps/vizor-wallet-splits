@@ -672,6 +672,10 @@ class SplitsController extends ChangeNotifier {
   ///
   /// Writing a join again is how a participant amends their own record; §10.7
   /// binds it to this device's key, so nobody else can redirect the payout.
+  /// This wallet's own Zcash address, which it is paid to by default, or null
+  /// when it has none to give.
+  String? get payToAddress => _wallet.sender.payToAddress;
+
   Future<void> setPayouts({
     required String billId,
     required List<splitz.Payout> payouts,

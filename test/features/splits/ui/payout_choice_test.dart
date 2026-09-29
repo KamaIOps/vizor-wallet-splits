@@ -436,4 +436,84 @@ void main() {
       ),
     );
   });
+
+  group('declaring more than one way', () {
+    Future<List<protocol.Payout>> save(
+      WidgetTester t,
+      SplitsController c,
+      String id,
+      List<String> taps,
+    ) async {
+      await t.pumpWidget(app(c, PayoutScreen(billId: id)));
+      await t.pumpAndSettle();
+      for (final key in taps) {
+        await t.ensureVisible(find.byKey(Key(key)));
+        await t.tap(find.byKey(Key(key)));
+        await t.pumpAndSettle();
+      }
+      await t.tap(find.byKey(const Key('splits_payout_save')));
+      await t.pumpAndSettle();
+      return c.bills.single.bill.participant(c.me)!.payouts;
+    }
+
+    testWidgets('cash first, Zcash if that does not work', (t) async {
+      final c = controllerFor(FakeWallet());
+      final id = await owingBen(c, [
+        {'type': 'zec', 'address': _first},
+      ]);
+      final payouts = await save(t, c, id, [
+        'splits_payout_cash',
+        'splits_payout_also_zec',
+      ]);
+      expect(payouts.map((p) => (p.type, p.address)), [
+        ('cash', null),
+        ('zec', 'u1ana000000000000000000'),
+      ]);
+    });
+
+    testWidgets('Zcash first, cash after it', (t) async {
+      final c = controllerFor(FakeWallet());
+      final id = await owingBen(c, [
+        {'type': 'zec', 'address': _first},
+      ]);
+      final payouts = await save(t, c, id, ['splits_payout_also_cash']);
+      expect(payouts.map((p) => (p.type, p.address)), [
+        ('zec', 'u1ana000000000000000000'),
+        ('cash', null),
+      ]);
+    });
+
+    testWidgets('Zcash alone is still declared by address alone', (t) async {
+      final c = controllerFor(FakeWallet());
+      final id = await owingBen(c, [
+        {'type': 'zec', 'address': _first},
+      ]);
+      expect(await save(t, c, id, const []), isEmpty);
+    });
+
+    testWidgets('the screen reopens on what was declared, and keeps a later '
+        'swap it does not edit', (t) async {
+      final c = controllerFor(FakeWallet());
+      final id = await owingBen(c, [
+        {'type': 'zec', 'address': _first},
+      ]);
+      await c.setPayouts(
+        billId: id,
+        payouts: const [
+          protocol.Payout(type: 'cash'),
+          protocol.Payout(type: 'zec', address: 'u1ana000000000000000000'),
+          protocol.Payout(
+            type: 'swap',
+            asset: 'USDC',
+            chain: 'base',
+            address: '0xana',
+          ),
+        ],
+      );
+      // Saved untouched: the same three, in the same order.
+      final payouts = await save(t, c, id, const []);
+      expect(payouts.map((p) => p.type), ['cash', 'zec', 'swap']);
+      expect(payouts.last.address, '0xana');
+    });
+  });
 }
