@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# `cargo`, as flutter_rust_bridge_codegen sees it while generating.
+#
+# The generator parses `cargo expand` output with a `syn` that predates
+# `super let`, and rustc 1.88+ expands `std::pin::pin!` into `super let` — as
+# zcash_voting's http_transport does. Only `expand` is touched: its stdout has
+# `super let` rewritten to `let`. The generator reads types and signatures,
+# never a function body, so the bindings it writes are the same either way.
+# Every other command goes to the real cargo unchanged.
+real="$HOME/.cargo/bin/cargo"
+if [ "${1:-}" = "expand" ]; then
+  set -o pipefail
+  "$real" "$@" | sed -E 's/(^|[^A-Za-z0-9_])super let /\1let /g'
+  exit $?
+fi
+exec "$real" "$@"
