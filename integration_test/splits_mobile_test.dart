@@ -86,10 +86,7 @@ void main() {
     logE2e('adding an expense');
     await tester.tap(find.text('Add expense'));
     await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const Key('splits_amount')),
-      '90.00',
-    );
+    await tester.enterText(find.byKey(const Key('splits_amount')), '90.00');
     await tester.enterText(
       find.widgetWithText(TextFormField, 'What was it for?'),
       'Pizza',
@@ -102,7 +99,7 @@ void main() {
     expect(find.text('90.00'), findsOneWidget);
 
     logE2e('pricing it');
-    await tester.scrollUntilVisible(find.text('Settle up'), 200);
+    // In the bill screen's bottom bar, so it needs no scroll.
     await tester.tap(find.text('Settle up'));
     await tester.pumpAndSettle();
     expect(find.textContaining('no price on it yet'), findsOneWidget);

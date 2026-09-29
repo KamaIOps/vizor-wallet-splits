@@ -66,8 +66,10 @@ void tolerateRenderOverflows() {
       final creator = (details.informationCollector?.call() ?? const [])
           .map((n) => n.toDescription().replaceAll('\n', ' '))
           .firstWhere((d) => d.startsWith('debugCreator'), orElse: () => '');
-      logE2e('tolerated overflow: ${exception.message}'
-          '${creator.isEmpty ? '' : '  in: $creator'}');
+      logE2e(
+        'tolerated overflow: ${exception.message}'
+        '${creator.isEmpty ? '' : '  in: $creator'}',
+      );
       return;
     }
     defaultHandler?.call(details);
