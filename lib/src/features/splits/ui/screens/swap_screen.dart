@@ -24,9 +24,14 @@ class SwapScreen extends StatefulWidget {
     required this.billId,
     required this.to,
     required this.amountMinorUnits,
+    this.payout,
   });
 
   final String billId;
+
+  /// A lower preference of theirs the payer chose (§14.8). Absent, their
+  /// first payout is the one quoted.
+  final protocol.Payout? payout;
 
   /// Who is owed, and asked to be paid in something other than ZEC.
   final String to;
@@ -79,6 +84,7 @@ class _SwapScreenState extends State<SwapScreen> {
       billId: widget.billId,
       to: widget.to,
       amountMinorUnits: widget.amountMinorUnits,
+      payout: widget.payout,
     );
     final currency = controller.bills
         .where((b) => b.id == widget.billId)
@@ -118,6 +124,7 @@ class _SwapScreenState extends State<SwapScreen> {
       to: widget.to,
       amountMinorUnits: widget.amountMinorUnits,
       quote: quote,
+      payout: widget.payout,
     );
     if (!mounted) return;
     setState(() {
@@ -154,6 +161,20 @@ class _SwapScreenState extends State<SwapScreen> {
             '${formatAmount(widget.amountMinorUnits, view.bill.currency)}.',
             style: Theme.of(context).textTheme.titleMedium,
           ),
+          // §14.2: paid somewhere they ranked lower than first.
+          if (widget.payout case final chosen?)
+            if (SplitsController.payoutIndexes(view.bill, {
+                  widget.to: chosen,
+                })[widget.to]
+                case final at? when at > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Their ${ordinal(at + 1)} choice, not their first.',
+                  key: const Key('splits_swap_lower_choice'),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
           const SizedBox(height: 16),
           if (_outcome != null)
             _Outcome(outcome: _outcome!, who: who)

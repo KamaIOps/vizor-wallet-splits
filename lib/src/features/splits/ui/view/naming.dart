@@ -101,3 +101,17 @@ String formatBaseUnits(String base, int decimals) {
       .replaceAll(RegExp(r'0+$'), '');
   return fraction.isEmpty ? whole : '$whole.$fraction';
 }
+
+/// `2nd`, `3rd`, `11th`: a position in somebody's list of preferences.
+String ordinal(int n) {
+  final teen = n % 100 >= 11 && n % 100 <= 13;
+  final suffix = teen
+      ? 'th'
+      : switch (n % 10) {
+          1 => 'st',
+          2 => 'nd',
+          3 => 'rd',
+          _ => 'th',
+        };
+  return '$n$suffix';
+}
