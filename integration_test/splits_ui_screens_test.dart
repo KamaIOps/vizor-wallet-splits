@@ -20,6 +20,8 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:splitz_core/host.dart' as splitz;
 import 'package:zcash_wallet/app.dart';
+import 'package:zcash_wallet/src/features/splits/ui/screens/share_bill_screen.dart'
+    show CodeImage;
 import 'package:zcash_wallet/src/features/splits/splits_relay.dart';
 
 import 'support/mobile_regtest_flow.dart';
@@ -90,8 +92,8 @@ void main() {
       await _settle(tester);
       expect(find.text('Bill code'), findsOneWidget);
       final codes = tester
-          .widgetList<SelectableText>(find.byType(SelectableText))
-          .map((w) => w.data!)
+          .widgetList<CodeImage>(find.byType(CodeImage))
+          .map((w) => w.value)
           .toList();
       expect(codes, isNotEmpty);
       final payload = codes.first;
@@ -108,26 +110,29 @@ void main() {
 
       // The invite on its own is the other thing this screen offers, and it is
       // a heading further down the list rather than a control.
-      await _scrollToText(tester, 'Lets someone join. The bill arrives when they sync.');
+      await _scrollToText(
+        tester,
+        'Lets someone join. The bill arrives when they sync.',
+      );
       expect(find.textContaining('Lets someone join'), findsOneWidget);
       expect(
         find.text('Invite'),
         findsOneWidget,
         reason: '§11.1 renders the invite as its own code',
       );
-      final inviteCodes = tester
-          .widgetList<SelectableText>(find.byType(SelectableText))
-          .map((w) => w.data!)
-          .where((c) => c.startsWith('splitz://'))
-          .toList();
-      if (inviteCodes.isNotEmpty) {
-        expect(
-          splitz.readScan(inviteCodes.first),
-          isA<splitz.ScannedInvite>(),
-          reason: '§11.1 renders an invite as a link',
-        );
-        logE2e('invite code reads back as an invite');
-      }
+      final invite = tester
+          .widgetList<CodeImage>(find.byType(CodeImage))
+          .map((w) => w.value)
+          .firstWhere(
+            (c) => c.startsWith('splitz://'),
+            orElse: () => throw StateError('no invite on the share screen'),
+          );
+      expect(
+        splitz.readScan(invite),
+        isA<splitz.ScannedInvite>(),
+        reason: '§11.1 renders an invite as a link',
+      );
+      logE2e('invite code reads back as an invite');
       await _back(tester);
 
       // ── The scanner takes the code this device just showed ───────────

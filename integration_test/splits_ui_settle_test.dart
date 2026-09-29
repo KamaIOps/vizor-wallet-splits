@@ -695,9 +695,10 @@ Future<void> _payInUsdc(
     await tester.enterText(typed, 'USDC');
     await tester.enterText(find.byKey(const Key('splits_payout_chain')), chain);
   }
-  await tester.enterText(
-    find.byKey(const Key('splits_payout_address')),
-    address,
-  );
+  // The address sits below one pill per listed chain, past the fold of a
+  // lazily built list.
+  final field = find.byKey(const Key('splits_payout_address'));
+  await _reveal(tester, field, 'the payout address field');
+  await tester.enterText(field, address);
   await tester.pump();
 }
