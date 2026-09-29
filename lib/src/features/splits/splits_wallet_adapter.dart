@@ -1,4 +1,4 @@
-/// What `package:splitz_wallet` asks for, answered by this wallet.
+/// What `package:splitz_host` asks for, answered by this wallet.
 ///
 /// The package names no wallet and depends on none: it declares what it needs
 /// as interfaces, and this file is where those meet Vizor's own APIs. Keeping
@@ -70,7 +70,7 @@ class WalletSplitsSender implements WalletSender {
       _send(paymentRequestUri);
 }
 
-/// Vizor, as `package:splitz_wallet` needs it.
+/// Vizor, as `package:splitz_host` needs it.
 class VizorSplitsWallet implements SplitsWallet {
   VizorSplitsWallet({
     required String accountUuid,

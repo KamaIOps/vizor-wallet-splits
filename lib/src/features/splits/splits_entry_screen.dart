@@ -1,7 +1,7 @@
 /// The way into shared bills from the wallet.
 ///
 /// Builds the one controller the splits screens read, with every capability
-/// `package:splitz_wallet` asks for answered by this wallet, and then hands
+/// `package:splitz_host` asks for answered by this wallet, and then hands
 /// over to the screens. It is a screen rather than a provider because Vizor's
 /// broadcast takes a `WidgetRef`, which belongs to a widget.
 library;
