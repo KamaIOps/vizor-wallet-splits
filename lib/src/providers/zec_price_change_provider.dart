@@ -17,6 +17,19 @@ const kVizorCoinGeckoPriceBaseUrl = String.fromEnvironment(
   kVizorCoinGeckoPriceBaseUrlEnvKey,
   defaultValue: kVizorCoinGeckoDefaultPriceBaseUrl,
 );
+
+/// A CoinGecko Demo API key, sent as `x-cg-demo-api-key` when a build is
+/// given one (https://docs.coingecko.com/v3.0.1/reference/authentication).
+/// Empty asks the keyless API, which blocks some callers outright.
+const kVizorCoinGeckoApiKey = String.fromEnvironment('VIZOR_COINGECKO_API_KEY');
+
+/// The headers every CoinGecko request carries.
+Map<String, String> coinGeckoHeaders() => {
+  HttpHeaders.acceptHeader: 'application/json',
+  if (kVizorCoinGeckoApiKey.isNotEmpty)
+    'x-cg-demo-api-key': kVizorCoinGeckoApiKey,
+};
+
 const zecMarketDataRefreshInterval = Duration(minutes: 3);
 const zecMarketDataCacheTtl = Duration(hours: 1);
 const zecMarketDataCacheStorageKey = 'vizor_zec_market_data_v1';
@@ -130,7 +143,7 @@ class CoinGeckoZecMarketDataSource implements ZecMarketDataSource {
       final response = await _client.request(
         'GET',
         endpoint,
-        headers: const {HttpHeaders.acceptHeader: 'application/json'},
+        headers: coinGeckoHeaders(),
         timeout: timeout,
       );
       final body = utf8.decode(response.bodyBytes);
