@@ -102,10 +102,7 @@ void main() {
         find.byKey(const Key('splits_settle_replaced_ben')),
         findsOneWidget,
       );
-      expect(
-        find.textContaining('Check with them'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Check with them'), findsOneWidget);
     });
 
     testWidgets('shows both ends, because a swap changes the middle', (
@@ -139,10 +136,7 @@ void main() {
       await t.pumpAndSettle();
 
       expect(find.byKey(const Key('splits_settle_replaced_ben')), findsNothing);
-      expect(
-        find.textContaining('Check with them'),
-        findsNothing,
-      );
+      expect(find.textContaining('Check with them'), findsNothing);
     });
 
     testWidgets('a change for somebody this request does not pay is not '

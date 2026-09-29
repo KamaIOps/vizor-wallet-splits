@@ -228,16 +228,21 @@ void main() {
       Future<void> expectReadable(Finder chip, String what) async {
         await t.ensureVisible(chip);
         await t.pumpAndSettle();
-        final label = find.descendant(of: chip, matching: find.byType(RichText));
+        final label = find.descendant(
+          of: chip,
+          matching: find.byType(RichText),
+        );
         final ratio = _contrast(_textColour(t, label.first), fill, page);
         expect(ratio, greaterThanOrEqualTo(4.5), reason: '$what: $ratio');
       }
 
       // A ChoiceChip swaps to its secondary label style when selected; a
       // FilterChip does not, so the two are held to the same bar separately.
-      final payer = find.byWidgetPredicate(
-        (w) => w is ChoiceChip && '${w.key}'.contains('splits_paid_by_'),
-      ).first;
+      final payer = find
+          .byWidgetPredicate(
+            (w) => w is ChoiceChip && '${w.key}'.contains('splits_paid_by_'),
+          )
+          .first;
       await t.tap(payer);
       await t.pumpAndSettle();
       expect(t.widget<ChoiceChip>(payer).selected, isTrue);

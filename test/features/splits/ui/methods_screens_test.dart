@@ -230,7 +230,10 @@ void main() {
 
       // The figure owed is already there, so the common case is one tap.
       expect(find.text('10.00'), findsOneWidget);
-      expect(find.textContaining('Counts once they confirm it.'), findsOneWidget);
+      expect(
+        find.textContaining('Counts once they confirm it.'),
+        findsOneWidget,
+      );
 
       // The form outgrows a 600-pixel surface once the swap field shows.
       await t.drag(find.byType(ListView), const Offset(0, -300));
