@@ -89,32 +89,18 @@ class SplitsZecPrices implements ZecPrices {
   }
 }
 
-/// Binance's market-data host, which prices ZEC in USD (as USDT).
-const kSplitsBinancePriceOrigin = String.fromEnvironment(
-  'SPLITS_BINANCE_PRICE_ORIGIN',
-  defaultValue: 'https://data-api.binance.vision',
-);
-
-/// Coinbase's API host, which prices ZEC in most currencies at once.
-const kSplitsCoinbasePriceOrigin = String.fromEnvironment(
-  'SPLITS_COINBASE_PRICE_ORIGIN',
-  defaultValue: 'https://api.coinbase.com',
-);
-
 /// The prices the splits screens use: [SplitsZecPrices] over the wallet's
 /// feed and the market, fetched through the wallet's own HTTP client so a
 /// build routing through Tor sends these the same way.
 ///
-/// The market is CoinGecko, then Binance for USD, then Coinbase for the
-/// rest: the first that prices a currency answers, and one that is blocked
-/// or down is passed over.
+/// The market is Binance for USD, then Coinbase for USD when Binance cannot
+/// answer and for every other currency. Neither asks for a key.
 ///
 /// The origins default to the build's; a test points them at a server of its
 /// own.
 ZecPrices splitsZecPrices(
   T Function<T>(ProviderListenable<T>) read, {
   required NetworkHttpClient http,
-  Uri? coinGecko,
   Uri? binance,
   Uri? coinbase,
 }) {
@@ -129,16 +115,12 @@ ZecPrices splitsZecPrices(
   return SplitsZecPrices(
     wallet: WalletZecPrices(read),
     market: FirstZecPrices([
-      CoinGeckoZecPrices(
-        origin: coinGecko ?? Uri.parse(kVizorCoinGeckoPriceBaseUrl),
-        get: get(coinGeckoHeaders()),
-      ),
       BinanceZecPrices(
-        origin: binance ?? Uri.parse(kSplitsBinancePriceOrigin),
+        origin: binance ?? Uri.parse(kVizorBinanceMarketBaseUrl),
         get: get(json),
       ),
       CoinbaseZecPrices(
-        origin: coinbase ?? Uri.parse(kSplitsCoinbasePriceOrigin),
+        origin: coinbase ?? Uri.parse(kVizorCoinbaseBaseUrl),
         get: get(json),
       ),
     ]),
