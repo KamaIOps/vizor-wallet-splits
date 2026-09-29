@@ -17,6 +17,12 @@ typedef ReceivedTransactions =
 
 Future<List<splitz.IncomingTransaction>> _noneReceived() async => const [];
 
+/// Every transaction id this wallet's history holds, lower-case, in the
+/// byte order a send reports and a payment record carries.
+typedef KnownTransactions = Future<Set<String>> Function();
+
+Future<Set<String>> _noneKnown() async => const {};
+
 /// One bill as a screen needs it: the folded state, and what the fold refused.
 class BillView {
   const BillView({
@@ -165,8 +171,10 @@ class SplitsController extends ChangeNotifier {
     SwapProvider swaps = const UnconfiguredSwaps(),
     SplitsSigner? signer,
     ReceivedTransactions received = _noneReceived,
+    KnownTransactions known = _noneKnown,
   }) : _wallet = wallet,
        _received = received,
+       _known = known,
        _store = store,
        _keys = keys,
        _relay = relay,
@@ -178,6 +186,7 @@ class SplitsController extends ChangeNotifier {
 
   final SplitsWallet _wallet;
   final ReceivedTransactions _received;
+  final KnownTransactions _known;
   final BillStore _store;
   final SplitsKeys _keys;
   final SplitsRelay _relay;
@@ -1141,7 +1150,7 @@ class SplitsController extends ChangeNotifier {
         if (amount == null) {
           throw const SplitsRefusal('Send details lost. Record it by hand.');
         }
-        if (!await _recordSwap(swap, amount, intent.zatoshi)) {
+        if (!await _recordSwap(swap, amount, intent.zatoshi, intent.rate)) {
           throw const SplitsRefusal('Bill not on this phone. Open it again.');
         }
       } else if (landed) {
@@ -1162,7 +1171,12 @@ class SplitsController extends ChangeNotifier {
         );
         final List<Map<String, dynamic>> records;
         try {
-          records = await _sends.recordsFor(host, log, intent, given);
+          records = await _sends.recordsFor(
+            host,
+            log,
+            intent,
+            await _inSendOrder(given),
+          );
         } on Unrecordable catch (e) {
           throw SplitsRefusal(switch (e.reason) {
             UnrecordableReason.notATransactionId =>
@@ -1180,6 +1194,30 @@ class SplitsController extends ChangeNotifier {
       await _sends.resolve(billId);
       await _refresh();
     });
+  }
+
+  /// [txid] in the byte order a send reports, when this wallet's history can
+  /// say which order it was written in.
+  ///
+  /// A transaction id can be copied in either order — an explorer shows the
+  /// send's order, the wallet's status screen copies the stored one — and a
+  /// record in the wrong order never matches the payment on the payee's side.
+  /// When the history holds the id reversed and not as given, the reverse is
+  /// the one; when it holds neither yet, it is kept as given.
+  Future<String> _inSendOrder(String txid) async {
+    final id = txid.trim().toLowerCase();
+    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(id)) return txid;
+    final Set<String> known;
+    try {
+      known = await _known();
+    } on Object {
+      return id;
+    }
+    if (known.contains(id)) return id;
+    final reversed = [
+      for (var i = id.length - 2; i >= 0; i -= 2) id.substring(i, i + 2),
+    ].join();
+    return known.contains(reversed) ? reversed : id;
   }
 
   /// Quotes settling [to]'s debt in the asset they asked for (§9.2).
@@ -1340,6 +1378,8 @@ class SplitsController extends ChangeNotifier {
         assetChain: quote.asset.chain,
       );
 
+      // The rate the quote was priced from, carried onto the record.
+      final rate = _bills.where((b) => b.id == billId).firstOrNull?.bill.rate;
       final uri = protocol.renderUri([
         protocol.Zip321Payment(
           address: quote.depositAddress,
@@ -1359,6 +1399,7 @@ class SplitsController extends ChangeNotifier {
             ),
             swap: watch,
             zatoshi: zatoshi,
+            rate: rate,
           ),
         );
       } on SendInFlight {
@@ -1377,7 +1418,12 @@ class SplitsController extends ChangeNotifier {
             how = SendEnded.reachedNetwork;
             // False if the bill was forgotten meanwhile: the note stays, and
             // once the bill is back the swap is recorded by its reference.
-            recorded = await _recordSwap(watch, amountMinorUnits, zatoshi);
+            recorded = await _recordSwap(
+              watch,
+              amountMinorUnits,
+              zatoshi,
+              rate,
+            );
           case WalletSendPhase.failed || WalletSendPhase.aborted:
             how = SendEnded.refused;
           case WalletSendPhase.pendingBroadcast:
@@ -1408,10 +1454,14 @@ class SplitsController extends ChangeNotifier {
   /// Says whether the record is on the bill: false when the bill was
   /// forgotten and nothing was written. A payment already recorded under the
   /// swap's reference is not recorded again.
+  /// [rate] is the bill's rate the quote was priced from: what the record
+  /// states as `paidAtRate`, so the payee confirms against the ZEC figure and
+  /// the rate that made it, as for a ZEC payment (§9.2).
   Future<bool> _recordSwap(
     SwapWatch watch,
     int amountMinorUnits,
     int? zatoshi,
+    protocol.ExchangeRate? rate,
   ) async {
     final held = _bills.where((b) => b.id == watch.billId).firstOrNull;
     if (held?.bill.payments.any((p) => p.id == watch.reference) ?? false) {
@@ -1430,6 +1480,7 @@ class SplitsController extends ChangeNotifier {
         method: 'swap',
         reference: watch.reference,
         zatoshi: zatoshi,
+        paidAtRate: rate == null ? null : protocol.rateToJson(rate),
         note: '${watch.assetSymbol} on ${watch.assetChain}',
       ),
       billId: watch.billId,

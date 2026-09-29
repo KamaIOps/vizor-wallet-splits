@@ -170,6 +170,8 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
       // What the wallet received, so a payment that arrived can be confirmed
       // from the transaction rather than looked up by hand.
       received: () => splitsReceived(ref: ref, accountUuid: accountUuid),
+      // Which byte order a pasted transaction id was copied in.
+      known: () => splitsKnownTxids(ref: ref, accountUuid: accountUuid),
     );
     await controller.load();
     if (!mounted) return;
