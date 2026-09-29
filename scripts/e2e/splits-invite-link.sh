@@ -90,6 +90,12 @@ xcrun simctl spawn "$UDID" defaults write com.apple.launchservices.schemeapprova
   "com.apple.CoreSimulator.CoreSimulatorBridge-->splitz" -string "$APP_BUNDLE_ID"
 
 echo "opening the invite on $UDID"
+# LINK=https hands over the same invite as the https link a chat app shows,
+# which iOS gives the app only if kamaiops.github.io vouches for it.
+if [ "${LINK:-splitz}" = https ]; then
+  invite="https://kamaiops.github.io/join#$invite"
+fi
+echo "opening $invite"
 xcrun simctl openurl "$UDID" "$invite"
 sleep 5
 xcrun simctl io "$UDID" screenshot "$work/after-open.png" >/dev/null 2>&1 &&

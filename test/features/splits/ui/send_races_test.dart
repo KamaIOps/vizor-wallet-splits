@@ -242,7 +242,7 @@ void main() {
       final a = c.settle(id, (await c.obligation(id))!);
       await pumpEventQueue();
       storage.failDeletePrefix =
-          'payintent/'; // killed before the intent clears
+          'pendingsend/'; // killed before the note clears
       w.sender.gates.single.complete(
         const WalletSendOutcome(phase: WalletSendPhase.succeeded, txid: _txid),
       );

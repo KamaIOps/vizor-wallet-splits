@@ -150,4 +150,30 @@ void main() {
       );
     });
   });
+
+  group('a bill invite as an https link', () {
+    const invite = 'splitz://join?v=1&b=Ab3-_xyz&k=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk';
+
+    test('goes to the splits intake, whole', () {
+      const link = 'https://kamaiops.github.io/join#$invite';
+      final target = classifyIncomingLink(link);
+      expect(target, isA<IncomingSplitsInviteLink>());
+      expect((target as IncomingSplitsInviteLink).raw, link);
+    });
+
+    test('from another host, another path or plain http, is not one', () {
+      for (final link in [
+        'https://example.com/join#$invite',
+        'https://kamaiops.github.io/other#$invite',
+        'http://kamaiops.github.io/join#$invite',
+        'https://kamaiops.github.io:8443/join#$invite',
+      ]) {
+        expect(
+          classifyIncomingLink(link),
+          isNot(isA<IncomingSplitsInviteLink>()),
+          reason: link,
+        );
+      }
+    });
+  });
 }

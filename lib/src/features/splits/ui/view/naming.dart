@@ -7,7 +7,7 @@ library;
 
 import 'package:splitz_core/splitz_core.dart' as protocol;
 
-import 'currency_exponents.dart';
+import 'package:splitz_host/splitz_host.dart' show currencyExponent;
 
 extension BillNaming on protocol.Bill {
   /// A participant's name, made unambiguous when more than one answers to it.
