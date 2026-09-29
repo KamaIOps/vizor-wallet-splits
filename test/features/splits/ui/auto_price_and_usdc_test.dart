@@ -231,10 +231,7 @@ void main() {
       await t.pumpAndSettle();
 
       expect(c.lastError, isNull);
-      expect(
-        c.bills.single.bill.participant('eve')!.payableAddress,
-        'u1eve',
-      );
+      expect(c.bills.single.bill.participant('eve')!.payableAddress, 'u1eve');
       expect(find.byKey(const Key('splits_settle_send')), findsOneWidget);
     });
 

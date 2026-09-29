@@ -83,10 +83,7 @@ void main() {
     await t.pumpAndSettle();
 
     expect(find.byType(BillScreen), findsNothing);
-    expect(
-      find.textContaining('hasn’t synced yet'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('hasn’t synced yet'), findsOneWidget);
     expect(await keys.readBillKey(id), isNotNull);
   });
 
