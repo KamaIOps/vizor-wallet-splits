@@ -6,6 +6,8 @@
 #               vouches for it, both from the screens
 #   LANE=swap   the payee takes USDC on Base; the payer reaches the swap
 #               screen, which quotes against a provider
+#   LANE=other  the payee takes cash and also accepts Zcash; the payer pays
+#               them another way up to the review, then takes it back
 #
 #   scripts/e2e/splits-ui-settle.sh
 #
