@@ -257,9 +257,18 @@ class _AwaitingTile extends StatelessWidget {
             // §14.2: what to hold against the wallet before confirming. A
             // confirmation settles the debt in the bill's currency, so the
             // ZEC the payer's rate made of it is what arrived or did not.
+            //
+            // A figure a ZEC or swap record does not carry is said to be
+            // missing rather than left out: a card without it reads the same
+            // as one that needs none. Cash carries none of them.
             if (zatoshi != null)
               Text(
                 '${protocol.renderAmount(zatoshi)} ZEC',
+                key: Key('splits_confirm_zec_${payment.id}'),
+              )
+            else if (payment.method != 'cash')
+              Text(
+                'ZEC sent: not recorded',
                 key: Key('splits_confirm_zec_${payment.id}'),
               ),
             if (rate != null)
@@ -267,6 +276,16 @@ class _AwaitingTile extends StatelessWidget {
                 'priced at ${formatAmount(rate.minorUnitsPerZec, rate.currency)} '
                 'a ZEC',
                 key: Key('splits_confirm_rate_${payment.id}'),
+              )
+            else if (payment.method != 'cash')
+              Text(
+                'rate: not recorded',
+                key: Key('splits_confirm_rate_${payment.id}'),
+              ),
+            if (reference == null && payment.method != 'cash')
+              Text(
+                'reference: not recorded',
+                key: Key('splits_confirm_reference_${payment.id}'),
               ),
             if (reference != null)
               SelectableText(

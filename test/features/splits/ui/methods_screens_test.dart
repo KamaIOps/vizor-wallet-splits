@@ -529,6 +529,74 @@ void main() {
       );
     });
 
+    testWidgets('the confirm card shows every §14.2 payee fact', (t) async {
+      final c = controllerFor(FakeWallet(id: 'ben', payTo: 'u1ben'));
+      await c.load();
+      final ana = otherHost('ana');
+      final id = (await c.createBill(name: 'Dinner', currency: 'USD'))!;
+      await c.addExpense(
+        billId: id,
+        paidBy: c.me,
+        amountMinorUnits: 4000,
+        among: ['ana', c.me]..sort(),
+      );
+      const txid =
+          '1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809';
+      await c.accept(id, [
+        entries.joinBill(host: ana, name: 'ana', payTo: 'u1ana'),
+        entries.recordPayment(
+          host: ana,
+          paymentId: '$txid:${c.me}',
+          to: c.me,
+          amount: 1000,
+          reference: txid,
+          zatoshi: 714286,
+          paidAtRate: const <String, dynamic>{
+            'currency': 'USD',
+            'minorUnitsPerZec': 140000,
+            'at': '2026-10-28T19:30:00.000Z',
+          },
+        ),
+        // A swap record: its reference is the provider's, and it carries no
+        // ZEC figure or rate.
+        entries.recordPayment(
+          host: ana,
+          paymentId: 'near-intent-7f3a',
+          to: c.me,
+          amount: 1000,
+          method: 'swap',
+          reference: 'near-intent-7f3a',
+        ),
+      ]);
+
+      await t.pumpWidget(app(c, ActivityScreen(billId: id)));
+      await t.pumpAndSettle();
+
+      final bill = c.bills.firstWhere((b) => b.id == id).bill;
+      for (final payment in bill.payments) {
+        final card = find.byKey(Key('splits_confirm_${payment.id}'));
+        final shown = [
+          for (final w in t.widgetList<Text>(
+            find.descendant(of: card, matching: find.byType(Text)),
+          ))
+            w.data ?? w.textSpan?.toPlainText() ?? '',
+          for (final w in t.widgetList<SelectableText>(
+            find.descendant(of: card, matching: find.byType(SelectableText)),
+          ))
+            w.data ?? '',
+        ];
+        expect(
+          checkPayeeReview(
+            payment: payment,
+            visibleText: shown,
+            absentWords: 'not recorded',
+          ),
+          isEmpty,
+          reason: '${payment.method} card shows: $shown',
+        );
+      }
+    });
+
     testWidgets('an entry the fold refused is shown with its reason', (
       t,
     ) async {
