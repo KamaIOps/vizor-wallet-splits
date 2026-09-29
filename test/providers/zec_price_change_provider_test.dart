@@ -485,4 +485,106 @@ void main() {
       expect(cache.readCount, 0);
     });
   });
+
+  group('Binance and Coinbase', () {
+    // Shapes as the live services answered them.
+    const binance =
+        '{"symbol":"ZECUSDC","priceChange":"-141.07000000",'
+        '"priceChangePercent":"-9.226","lastPrice":"1390.60000000",'
+        '"count":52938}';
+    const coinbase =
+        '{"data":{"amount":"1390.125","base":"ZEC","currency":"USD"}}';
+
+    test('Binance gives the price and the 24h change', () {
+      final data = parseBinanceZecMarketData(binance)!;
+      expect(data.usdPrice, 1390.6);
+      expect(data.change24hPct, -9.226);
+    });
+
+    test('Binance is read for the ZECUSDC pair only', () {
+      expect(
+        parseBinanceZecMarketData(binance.replaceAll('ZECUSDC', 'ZECUSDT')),
+        isNull,
+      );
+      expect(
+        parseBinanceZecMarketData('{"symbol":"ZECUSDC","lastPrice":1390.6}'),
+        isNull,
+      );
+      expect(
+        parseBinanceZecMarketData('{"symbol":"ZECUSDC","lastPrice":"0"}'),
+        isNull,
+      );
+      expect(parseBinanceZecMarketData('{"code":-1121}'), isNull);
+    });
+
+    test('a Binance change that does not read leaves only the price', () {
+      final data = parseBinanceZecMarketData(
+        '{"symbol":"ZECUSDC","lastPrice":"1390.6","priceChangePercent":"x"}',
+      )!;
+      expect(data.usdPrice, 1390.6);
+      expect(data.change24hPct, isNull);
+    });
+
+    test('Coinbase gives the price and no change', () {
+      final data = parseCoinbaseZecMarketData(coinbase)!;
+      expect(data.usdPrice, 1390.125);
+      expect(data.change24hPct, isNull);
+      expect(
+        parseCoinbaseZecMarketData(coinbase.replaceAll('USD', 'EUR')),
+        isNull,
+      );
+      expect(parseCoinbaseZecMarketData('{"data":{}}'), isNull);
+    });
+
+    test('the requests', () {
+      expect(
+        binanceZecTickerUri(
+          Uri.parse('https://data-api.binance.vision/'),
+        ).toString(),
+        'https://data-api.binance.vision/api/v3/ticker/24hr?symbol=ZECUSDC',
+      );
+      expect(
+        coinbaseZecSpotUri(Uri.parse('https://api.coinbase.com')).toString(),
+        'https://api.coinbase.com/v2/prices/ZEC-USD/spot',
+      );
+    });
+
+    test('the first source with data answers, in order', () async {
+      const price = ZecMarketData(usdPrice: 1390.6);
+      final order = <String>[];
+      final first = FirstZecMarketDataSource([
+        _Answering('binance', null, order),
+        _Answering('coinbase', price, order),
+        _Answering('never', price, order),
+      ]);
+      expect(await first.fetchMarketData(), same(price));
+      expect(order, ['binance', 'coinbase']);
+    });
+
+    test('the default is Binance, then Coinbase', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final source =
+          container.read(zecMarketDataSourceProvider)
+              as FirstZecMarketDataSource;
+      expect(source.sources.map((s) => s.runtimeType), [
+        BinanceZecMarketDataSource,
+        CoinbaseZecMarketDataSource,
+      ]);
+    });
+  });
+}
+
+class _Answering implements ZecMarketDataSource {
+  _Answering(this.name, this.data, this.order);
+
+  final String name;
+  final ZecMarketData? data;
+  final List<String> order;
+
+  @override
+  Future<ZecMarketData?> fetchMarketData() async {
+    order.add(name);
+    return data;
+  }
 }

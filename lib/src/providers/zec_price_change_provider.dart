@@ -18,17 +18,21 @@ const kVizorCoinGeckoPriceBaseUrl = String.fromEnvironment(
   defaultValue: kVizorCoinGeckoDefaultPriceBaseUrl,
 );
 
-/// A CoinGecko Demo API key, sent as `x-cg-demo-api-key` when a build is
-/// given one (https://docs.coingecko.com/v3.0.1/reference/authentication).
-/// Empty asks the keyless API, which blocks some callers outright.
-const kVizorCoinGeckoApiKey = String.fromEnvironment('VIZOR_COINGECKO_API_KEY');
+/// Binance's market-data host. Public, and asked for no key.
+const kVizorBinanceMarketBaseUrl = String.fromEnvironment(
+  'VIZOR_BINANCE_MARKET_BASE_URL',
+  defaultValue: 'https://data-api.binance.vision',
+);
 
-/// The headers every CoinGecko request carries.
-Map<String, String> coinGeckoHeaders() => {
-  HttpHeaders.acceptHeader: 'application/json',
-  if (kVizorCoinGeckoApiKey.isNotEmpty)
-    'x-cg-demo-api-key': kVizorCoinGeckoApiKey,
-};
+/// Coinbase's API host. Its spot price is public and asked for no key.
+const kVizorCoinbaseBaseUrl = String.fromEnvironment(
+  'VIZOR_COINBASE_BASE_URL',
+  defaultValue: 'https://api.coinbase.com',
+);
+
+/// The Binance pair the wallet's USD price is read from: ZEC against USDC,
+/// taken as US dollars.
+const kVizorBinanceZecSymbol = 'ZECUSDC';
 
 const zecMarketDataRefreshInterval = Duration(minutes: 3);
 const zecMarketDataCacheTtl = Duration(hours: 1);
@@ -143,7 +147,7 @@ class CoinGeckoZecMarketDataSource implements ZecMarketDataSource {
       final response = await _client.request(
         'GET',
         endpoint,
-        headers: coinGeckoHeaders(),
+        headers: const {HttpHeaders.acceptHeader: 'application/json'},
         timeout: timeout,
       );
       final body = utf8.decode(response.bodyBytes);
@@ -156,6 +160,160 @@ class CoinGeckoZecMarketDataSource implements ZecMarketDataSource {
       log('zecMarketData: fetch failed: $e');
       return null;
     }
+  }
+}
+
+/// ZEC/USD and its 24h change from Binance's `/api/v3/ticker/24hr` for
+/// [kVizorBinanceZecSymbol]
+/// (https://developers.binance.com/docs/binance-spot-api-docs/rest-api/market-data-endpoints).
+class BinanceZecMarketDataSource implements ZecMarketDataSource {
+  BinanceZecMarketDataSource({
+    NetworkHttpClient? networkClient,
+    Uri? baseUri,
+    this.timeout = const Duration(seconds: 20),
+  }) : _client = networkClient ?? NetworkHttpClient(),
+       _baseUri = baseUri ?? Uri.parse(kVizorBinanceMarketBaseUrl);
+
+  final NetworkHttpClient _client;
+  final Uri _baseUri;
+  final Duration timeout;
+
+  @override
+  Future<ZecMarketData?> fetchMarketData() async {
+    final body = await _getJson(
+      _client,
+      binanceZecTickerUri(_baseUri),
+      timeout,
+      'Binance',
+    );
+    return body == null ? null : parseBinanceZecMarketData(body);
+  }
+}
+
+/// ZEC/USD from Coinbase's `/v2/prices/ZEC-USD/spot`
+/// (https://docs.cdp.coinbase.com/coinbase-app/track-apis/prices). No 24h
+/// change: the spot price does not carry one.
+class CoinbaseZecMarketDataSource implements ZecMarketDataSource {
+  CoinbaseZecMarketDataSource({
+    NetworkHttpClient? networkClient,
+    Uri? baseUri,
+    this.timeout = const Duration(seconds: 20),
+  }) : _client = networkClient ?? NetworkHttpClient(),
+       _baseUri = baseUri ?? Uri.parse(kVizorCoinbaseBaseUrl);
+
+  final NetworkHttpClient _client;
+  final Uri _baseUri;
+  final Duration timeout;
+
+  @override
+  Future<ZecMarketData?> fetchMarketData() async {
+    final body = await _getJson(
+      _client,
+      coinbaseZecSpotUri(_baseUri),
+      timeout,
+      'Coinbase',
+    );
+    return body == null ? null : parseCoinbaseZecMarketData(body);
+  }
+}
+
+/// The first of [sources] with market data; null when none has any.
+class FirstZecMarketDataSource implements ZecMarketDataSource {
+  const FirstZecMarketDataSource(this.sources);
+
+  final List<ZecMarketDataSource> sources;
+
+  @override
+  Future<ZecMarketData?> fetchMarketData() async {
+    for (final source in sources) {
+      final data = await source.fetchMarketData();
+      if (data != null) return data;
+    }
+    return null;
+  }
+}
+
+/// The body of a 2xx answer to a GET of [uri], or null on any failure.
+Future<String?> _getJson(
+  NetworkHttpClient client,
+  Uri uri,
+  Duration timeout,
+  String name,
+) async {
+  try {
+    final response = await client.request(
+      'GET',
+      uri,
+      headers: const {HttpHeaders.acceptHeader: 'application/json'},
+      timeout: timeout,
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      log('zecMarketData: $name returned ${response.statusCode}');
+      return null;
+    }
+    return utf8.decode(response.bodyBytes);
+  } catch (e) {
+    log('zecMarketData: $name fetch failed: $e');
+    return null;
+  }
+}
+
+Uri binanceZecTickerUri(Uri baseUri) {
+  final basePath = baseUri.path.replaceFirst(RegExp(r'/+$'), '');
+  return baseUri.replace(
+    path: '$basePath/api/v3/ticker/24hr',
+    queryParameters: const {'symbol': kVizorBinanceZecSymbol},
+  );
+}
+
+Uri coinbaseZecSpotUri(Uri baseUri) {
+  final basePath = baseUri.path.replaceFirst(RegExp(r'/+$'), '');
+  return baseUri.replace(path: '$basePath/v2/prices/ZEC-USD/spot');
+}
+
+final _decimal = RegExp(r'^-?[0-9]+(\.[0-9]+)?$');
+
+/// A decimal string as a finite double, or null.
+double? _decimalString(Object? raw) {
+  if (raw is! String || !_decimal.hasMatch(raw)) return null;
+  final value = double.tryParse(raw);
+  return value != null && value.isFinite ? value : null;
+}
+
+/// Parses a Binance 24h ticker for [kVizorBinanceZecSymbol]: `lastPrice` is
+/// the price, `priceChangePercent` the 24h change in percentage points. Both
+/// are decimal strings. Null when it is another symbol or the price is
+/// unusable.
+ZecMarketData? parseBinanceZecMarketData(String body) {
+  try {
+    final decoded = jsonDecode(body);
+    if (decoded is! Map<String, dynamic>) return null;
+    if (decoded['symbol'] != kVizorBinanceZecSymbol) return null;
+    final usdPrice = _decimalString(decoded['lastPrice']);
+    if (usdPrice == null || usdPrice <= 0) return null;
+    return ZecMarketData(
+      usdPrice: usdPrice,
+      change24hPct: _decimalString(decoded['priceChangePercent']),
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Parses a Coinbase spot price: `{"data": {"amount": "1390.125", "currency":
+/// "USD"}}`. Null unless it is a positive USD amount.
+ZecMarketData? parseCoinbaseZecMarketData(String body) {
+  try {
+    final decoded = jsonDecode(body);
+    final data = decoded is Map<String, dynamic> ? decoded['data'] : null;
+    if (data is! Map<String, dynamic> || data['currency'] != 'USD') {
+      return null;
+    }
+    final usdPrice = _decimalString(data['amount']);
+    if (usdPrice == null || usdPrice <= 0) return null;
+    return ZecMarketData(usdPrice: usdPrice);
+  } catch (_) {
+    return null;
   }
 }
 
@@ -202,8 +360,13 @@ double? parseZecPriceChange24hPct(String body) {
   return parseZecMarketData(body)?.change24hPct;
 }
 
+/// Binance first, for the price and its 24h change; Coinbase when Binance
+/// cannot answer, for the price alone.
 final zecMarketDataSourceProvider = Provider<ZecMarketDataSource>((ref) {
-  return CoinGeckoZecMarketDataSource();
+  return FirstZecMarketDataSource([
+    BinanceZecMarketDataSource(),
+    CoinbaseZecMarketDataSource(),
+  ]);
 });
 
 final zecMarketDataCacheProvider = Provider<ZecMarketDataCache>((ref) {

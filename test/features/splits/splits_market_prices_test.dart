@@ -1,5 +1,6 @@
-/// The market behind the splits screens' prices, over real HTTP: a blocked
-/// CoinGecko is passed over for Binance on USD and Coinbase on the rest.
+/// The market behind the splits screens' prices, over real HTTP: Binance's
+/// ZECUSDC for USD, and Coinbase for USD when Binance cannot answer and for
+/// every other currency.
 library;
 
 import 'dart:io';
@@ -8,7 +9,6 @@ import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zcash_wallet/src/core/network/network_http_client.dart';
 import 'package:zcash_wallet/src/features/splits/splits_prices.dart';
-import 'package:zcash_wallet/src/providers/zec_price_change_provider.dart';
 
 /// A wallet feed with no price, so every figure comes from the market.
 T Function<T>(ProviderListenable<T>) _noFeed() =>
@@ -18,21 +18,21 @@ void main() {
   late HttpServer server;
   late Uri origin;
   final asked = <String>[];
+  var binanceDown = false;
 
   setUp(() async {
     asked.clear();
+    binanceDown = false;
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     origin = Uri.parse('http://127.0.0.1:${server.port}');
     server.listen((request) async {
       asked.add(request.uri.path);
       final response = request.response;
       switch (request.uri.path) {
-        case '/gecko/simple/price':
-          // What CoinGecko's edge answers a caller it blocks.
-          response.statusCode = 403;
-          response.write('<HTML><TITLE>ERROR: Request blocked.</TITLE>');
+        case '/binance/api/v3/ticker/price' when binanceDown:
+          response.statusCode = 451;
         case '/binance/api/v3/ticker/price':
-          response.write('{"symbol":"ZECUSDT","price":"1390.54000000"}');
+          response.write('{"symbol":"ZECUSDC","price":"1391.88000000"}');
         case '/coinbase/v2/exchange-rates':
           response.write(
             '{"data":{"currency":"ZEC","rates":'
@@ -53,27 +53,30 @@ void main() {
       torDesired: () => false,
       torBootstrapping: () => false,
     ),
-    coinGecko: origin.replace(path: '/gecko'),
     binance: origin.replace(path: '/binance'),
     coinbase: origin.replace(path: '/coinbase'),
   ).minorUnitsPerZec(currency);
 
-  test('USD comes from Binance when CoinGecko is blocked', () async {
-    expect(await price('USD'), 139054);
-    expect(asked, ['/gecko/simple/price', '/binance/api/v3/ticker/price']);
+  test('USD comes from Binance, and Coinbase is not asked', () async {
+    expect(await price('USD'), 139188);
+    expect(asked, ['/binance/api/v3/ticker/price']);
+  });
+
+  test('USD comes from Coinbase when Binance cannot answer', () async {
+    binanceDown = true;
+    expect(await price('USD'), 138905);
+    expect(asked, [
+      '/binance/api/v3/ticker/price',
+      '/coinbase/v2/exchange-rates',
+    ]);
   });
 
   test('KES comes from Coinbase, and Binance is not asked', () async {
     expect(await price('KES'), 18015979);
-    expect(asked, ['/gecko/simple/price', '/coinbase/v2/exchange-rates']);
+    expect(asked, ['/coinbase/v2/exchange-rates']);
   });
 
   test('a currency nobody prices is unpriced, not an error', () async {
     expect(await price('JPY'), isNull);
-  });
-
-  test('CoinGecko is asked without a key unless the build has one', () {
-    expect(kVizorCoinGeckoApiKey, isEmpty);
-    expect(coinGeckoHeaders().keys, [HttpHeaders.acceptHeader]);
   });
 }
