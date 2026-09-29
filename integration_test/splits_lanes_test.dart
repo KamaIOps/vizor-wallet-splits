@@ -37,6 +37,7 @@ import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 import 'package:zcash_wallet/app.dart';
 import 'package:zcash_wallet/src/core/storage/wallet_paths.dart';
 import 'package:zcash_wallet/src/features/splits/splits_relay.dart';
+import 'package:zcash_wallet/src/features/splits/splits_received.dart';
 import 'package:zcash_wallet/src/features/splits/splits_send.dart';
 import 'package:zcash_wallet/src/features/splits/splits_wallet_adapter.dart';
 import 'package:zcash_wallet/src/providers/account_provider.dart';
@@ -156,6 +157,10 @@ void main() {
       store: BillStore(FileBillStorage(directory)),
       keys: SplitsKeys(store: wallet.secrets),
       relay: splitsRelay(),
+      // The wallet's own history, so a payment that lands is proposed for
+      // confirmation from the transaction itself (§14.7).
+      received: () =>
+          splitsReceived(ref: _refFromTree(tester), accountUuid: accountUuid),
     );
     await controller.load();
 
@@ -446,13 +451,33 @@ Future<void> _payee(
   }
 
   // 4 · §10.5: only the payee may say the money arrived. `walletReceived` is
-  //     the wallet seeing it land, which only the ZEC lane can claim.
-  final method = phase == 'zec' ? 'walletReceived' : 'recipientConfirmed';
-  await controller.confirmPayment(
-    billId: billId,
-    paymentId: payment.id,
-    method: method,
-  );
+  //     the wallet seeing it land, which only the ZEC lane can claim: that
+  //     device waits for its own wallet to hold the transaction the record
+  //     names, and confirms from what arrived (§14.7).
+  final String method;
+  if (phase == 'zec') {
+    await _syncUntil(
+      tester,
+      controller,
+      billId,
+      (_) => controller.arrived.any((a) => a.payment.id == payment.id),
+      description: 'the transaction to arrive in this wallet',
+      timeout: _firstWait,
+    );
+    final arrival = controller.arrived.singleWhere(
+      (a) => a.payment.id == payment.id,
+    );
+    await controller.confirmArrivals([arrival]);
+    expect(controller.lastError, isNull);
+    method = 'walletReceived';
+  } else {
+    method = 'recipientConfirmed';
+    await controller.confirmPayment(
+      billId: billId,
+      paymentId: payment.id,
+      method: method,
+    );
+  }
   await controller.syncBill(billId);
   logE2e('confirmed ${payment.id} as $method');
 
