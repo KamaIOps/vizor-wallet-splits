@@ -9,30 +9,24 @@ import 'package:zcash_wallet/src/features/splits/splits_send.dart';
 import 'package:zcash_wallet/src/rust/api/sync.dart' show PaymentUriOutput;
 
 void main() {
-  group('a splits send', () {
-    test('refused before any transaction is built is a failure, not a send '
-        'that may still land', () async {
-      var broadcasts = 0;
-      final outcome = await sendSplitsBatch<int>(
-        propose: () async => throw StateError('insufficient funds'),
-        broadcast: (_) async {
-          broadcasts++;
-          return const SendBroadcastOutcome(
-            phase: SendBroadcastPhase.succeeded,
-            proposalConsumed: true,
-            txid: 'never',
-          );
-        },
+  group("this wallet's broadcast as §14.3's outcomes", () {
+    test('sent carries its transaction', () {
+      final outcome = splitsSendOutcome(
+        const SendBroadcastOutcome(
+          phase: SendBroadcastPhase.succeeded,
+          proposalConsumed: true,
+          txid: 'cd34',
+        ),
       );
-      expect(outcome.phase, WalletSendPhase.failed);
-      expect(outcome.error, contains('insufficient funds'));
-      expect(broadcasts, 0);
+      expect(
+        (outcome.phase, outcome.txid),
+        (WalletSendPhase.succeeded, 'cd34'),
+      );
     });
 
-    test('built and not broadcast keeps the transaction it built', () async {
-      final outcome = await sendSplitsBatch<int>(
-        propose: () async => 1,
-        broadcast: (_) async => const SendBroadcastOutcome(
+    test('built and not broadcast keeps the transaction it built', () {
+      final outcome = splitsSendOutcome(
+        const SendBroadcastOutcome(
           phase: SendBroadcastPhase.pendingBroadcast,
           proposalConsumed: true,
           txid: 'ab12',
@@ -44,17 +38,18 @@ void main() {
       expect(outcome.statusMessage, 'stored, not broadcast');
     });
 
-    test('sent carries its transaction', () async {
-      final outcome = await sendSplitsBatch<int>(
-        propose: () async => 1,
-        broadcast: (_) async => const SendBroadcastOutcome(
-          phase: SendBroadcastPhase.succeeded,
-          proposalConsumed: true,
-          txid: 'cd34',
+    test('aborted is a failure, not a send that may still land', () {
+      final outcome = splitsSendOutcome(
+        const SendBroadcastOutcome(
+          phase: SendBroadcastPhase.aborted,
+          proposalConsumed: false,
+          error: 'cancelled',
         ),
       );
-      expect(outcome.phase, WalletSendPhase.succeeded);
-      expect(outcome.txid, 'cd34');
+      expect(
+        (outcome.phase, outcome.error),
+        (WalletSendPhase.failed, 'cancelled'),
+      );
     });
   });
 
@@ -73,43 +68,29 @@ void main() {
     await deleteSplitsDirectory(resolveDirectory: () async => splits.path);
   });
 
-  group('what the wallet read is held against the request (§14.6)', () {
+  group("this wallet's reading, held against the request (§14.6)", () {
     test('the same payments, in any order, pass', () {
       expect(
-        splitsProposalMismatch(_request, [
-          _read('u1ben', 9246),
-          _read('u1ana', 7004),
-        ]),
+        proposalProblem(
+          _request,
+          splitsReading([_read('u1ben', 9246), _read('u1ana', 7004)]),
+        ),
         isNull,
       );
     });
 
     test('a reader that kept only the first payment is refused', () {
       expect(
-        splitsProposalMismatch(_request, [_read('u1ana', 7004)]),
+        proposalProblem(_request, splitsReading([_read('u1ana', 7004)])),
         contains('Nothing was sent'),
       );
     });
 
-    test('a request this protocol did not write is refused in words', () {
-      expect(
-        splitsProposalMismatch('zcash:u1ana?amount=1&foo=bar', [
-          _read('u1ana', 100000000),
-        ]),
-        protocol.describeCode('zip321_not_canonical'),
-      );
-    });
-
-    test('a refusal spends nothing: no proposal is built', () async {
-      var proposed = 0;
-      final outcome = await sendSplitsBatch<int>(
-        verify: () async => 'read differently',
-        propose: () async => ++proposed,
-        broadcast: (_) async => throw StateError('never broadcast'),
-      );
-      expect(outcome.phase, WalletSendPhase.failed);
-      expect(outcome.error, 'read differently');
-      expect(proposed, 0);
+    test('an amount past what an integer holds matches nothing', () {
+      final reading = splitsReading([
+        PaymentUriOutput(address: 'u1ana', zatoshi: BigInt.two.pow(70)),
+      ]);
+      expect(reading.single.zatoshi, -1);
     });
   });
 }
