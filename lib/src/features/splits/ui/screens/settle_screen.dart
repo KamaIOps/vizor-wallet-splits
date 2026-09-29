@@ -41,6 +41,15 @@ class _SettleScreenState extends State<SettleScreen> {
   /// a feed that has no figure now will not have one on the next rebuild.
   bool _autoPriced = false;
 
+  /// Payouts the payer picked for recipients whose first preference they
+  /// cannot use (§14.8), by participant id. Held as the payout itself so an
+  /// edit to the payee's list cannot redirect the choice.
+  final Map<String, protocol.Payout> _chosen = {};
+
+  /// Where each of [_chosen] sat in its payee's list when [_owed] was read:
+  /// what the request was rendered with, and what the send is checked against.
+  Map<String, int> _via = const {};
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -55,7 +64,15 @@ class _SettleScreenState extends State<SettleScreen> {
     if (!mounted) return;
     setState(() => _pending = pending);
     try {
-      var owed = await controller.obligation(widget.billId);
+      final held = controller.bills
+          .where((b) => b.id == widget.billId)
+          .firstOrNull;
+      final via = held == null
+          ? const <String, int>{}
+          : SplitsController.payoutIndexes(held.bill, _chosen);
+      // A choice the payee no longer declares falls back to their first.
+      _chosen.removeWhere((id, _) => !via.containsKey(id));
+      var owed = await controller.obligation(widget.billId, via: via);
       if (!mounted) return;
       // An unpriced bill is priced here from the wallet's live feed, so
       // settling needs no separate step (§7). The figure is written onto the
@@ -79,11 +96,12 @@ class _SettleScreenState extends State<SettleScreen> {
             source: 'feed',
           );
           if (!mounted) return;
-          owed = await controller.obligation(widget.billId);
+          owed = await controller.obligation(widget.billId, via: via);
           if (!mounted) return;
         }
       }
       setState(() {
+        _via = via;
         _owed = owed;
         _unpriced = owed == null;
         _loadError = null;
@@ -130,12 +148,14 @@ class _SettleScreenState extends State<SettleScreen> {
     final current =
         controller.bills.where((b) => b.id == widget.billId).firstOrNull ??
         view;
+    final via = _via;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => _ReviewSend(view: current, owed: owed, live: live),
+      builder: (_) =>
+          _ReviewSend(view: current, owed: owed, live: live, via: via),
     );
     if (confirmed != true || !mounted) return;
-    final settled = await controller.settle(widget.billId, owed);
+    final settled = await controller.settle(widget.billId, owed, via: via);
     if (!mounted) return;
     setState(() => _settled = settled);
     await _load();
@@ -332,7 +352,7 @@ class _SettleScreenState extends State<SettleScreen> {
                 child: Text('You owe nothing on this bill.'),
               ),
             for (final s in _owed!.settlements)
-              if (!_owed!.unpayable.any((u) => u.id == s.to))
+              if (!_owed!.unpayable.any((u) => u.id == s.to)) ...[
                 RowCard(
                   key: Key('splits_settle_pay_${s.to}'),
                   child: CardLine(
@@ -345,10 +365,28 @@ class _SettleScreenState extends State<SettleScreen> {
                           refundAuthors: _refundAuthors(view),
                           me: controller.me,
                         ) ??
-                        const Text('Shielded ZEC, in the one payment below'),
+                        Text(
+                          (_via[s.to] ?? 0) > 0
+                              ? 'Their ${ordinal(_via[s.to]! + 1)} choice, '
+                                    'in the one payment below'
+                              : 'Shielded ZEC, in the one payment below',
+                        ),
                     trailing: formatAmount(s.amount, currency),
                   ),
                 ),
+                if ((_via[s.to] ?? 0) > 0)
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      key: Key('splits_settle_first_choice_${s.to}'),
+                      onPressed: () {
+                        _chosen.remove(s.to);
+                        _load();
+                      },
+                      child: const Text('Use their first choice'),
+                    ),
+                  ),
+              ],
             for (final a in _owed!.awaiting) ...[
               RowCard(
                 key: Key('splits_settle_awaiting_${a.to}'),
@@ -390,6 +428,11 @@ class _SettleScreenState extends State<SettleScreen> {
                 view: view,
                 debt: u,
                 who: who,
+                inEffect: _via[u.id] ?? 0,
+                onChooseZec: (payout) {
+                  _chosen[u.id] = payout;
+                  _load();
+                },
                 onReturn: () async {
                   if (mounted) await _load();
                 },
@@ -458,6 +501,8 @@ class _Unpayable extends StatelessWidget {
     required this.view,
     required this.debt,
     required this.who,
+    required this.inEffect,
+    required this.onChooseZec,
     required this.onReturn,
   });
 
@@ -465,7 +510,97 @@ class _Unpayable extends StatelessWidget {
   final BillView view;
   final protocol.Unpayable debt;
   final String Function(String) who;
+
+  /// Which of their declared payouts this row is settled by: 0 unless the
+  /// payer chose a lower one (§14.8).
+  final int inEffect;
+
+  /// Puts a lower `zec` payout of theirs into the request.
+  final void Function(protocol.Payout) onChooseZec;
+
   final Future<void> Function() onReturn;
+
+  /// Their other declared payouts this device could settle by, in their
+  /// order, with each one's position in the list.
+  List<(int, protocol.Payout)> _otherWays() {
+    final payouts = view.bill.participant(debt.id)?.payouts ?? const [];
+    return [
+      for (final (i, p) in payouts.indexed)
+        if (i != inEffect &&
+            switch (p.type) {
+              // One a request can carry, or it would only be withheld again.
+              'zec' =>
+                protocol.Participant(
+                      id: debt.id,
+                      name: '',
+                      payouts: [p],
+                    ).payableAddress !=
+                    null,
+              'swap' => p.asset != null && p.chain != null && p.address != null,
+              'cash' => true,
+              _ => false,
+            })
+          (i, p),
+    ];
+  }
+
+  Future<void> _payAnotherWay(BuildContext context) async {
+    final ways = _otherWays();
+    final picked = await showModalBottomSheet<(int, protocol.Payout)>(
+      context: context,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'Pay ${who(debt.id)} another way',
+                style: Theme.of(sheet).textTheme.titleMedium,
+              ),
+            ),
+            for (final (i, p) in ways)
+              ListTile(
+                key: Key('splits_other_way_${debt.id}_$i'),
+                title: Text(_describePayout(p)),
+                subtitle: Text('Their ${ordinal(i + 1)} choice'),
+                onTap: () => Navigator.of(sheet).pop((i, p)),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !context.mounted) return;
+    final (_, payout) = picked;
+    switch (payout.type) {
+      case 'zec':
+        onChooseZec(payout);
+      case 'swap':
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => SwapScreen(
+              billId: billId,
+              to: debt.id,
+              amountMinorUnits: debt.minorUnits,
+              payout: payout,
+            ),
+          ),
+        );
+        await onReturn();
+      case 'cash':
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => RecordPaymentScreen(
+              billId: billId,
+              to: debt.id,
+              suggestedMinorUnits: debt.minorUnits,
+            ),
+          ),
+        );
+        await onReturn();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -476,7 +611,12 @@ class _Unpayable extends StatelessWidget {
     final needsAddress = u.reason == 'no_address' || u.reason == 'bad_address';
     final deadEnd = needsAddress || u.reason == 'unpriceable';
     final lane = _lane(view, u.id);
-    final payout = view.bill.participant(u.id)?.payouts.firstOrNull;
+    final payouts = view.bill.participant(u.id)?.payouts ?? const [];
+    final payout = inEffect < payouts.length ? payouts[inEffect] : null;
+    // Unpriceable is about the amount, which no other payout changes.
+    final otherWays = u.reason == 'unpriceable'
+        ? const <(int, protocol.Payout)>[]
+        : _otherWays();
     // Their record is anyone's to write until they join from their own
     // device (§10.7), so an address can be added for them here.
     final canAddAddress =
@@ -537,6 +677,15 @@ class _Unpayable extends StatelessWidget {
                   child: line,
                 ),
         ),
+        if (otherWays.isNotEmpty)
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              key: Key('splits_settle_other_way_${u.id}'),
+              onPressed: () => _payAnotherWay(context),
+              child: const Text('Pay another way'),
+            ),
+          ),
         if (canAddAddress)
           Align(
             alignment: Alignment.centerRight,
@@ -637,6 +786,14 @@ String? payerSummary(splitz.PayerObligation owed, BillView view) {
   ];
   return parts.length < 2 ? null : parts.join(' + ');
 }
+
+/// [payout] as a payer picks it: where the money goes.
+String _describePayout(protocol.Payout payout) => switch (payout.type) {
+  'zec' => 'Zcash to ${_short(payout.address ?? '')}',
+  'swap' => '${payout.asset} on ${payout.chain}',
+  'cash' => 'Cash',
+  _ => payout.type,
+};
 
 /// The lane [id] is paid in (§9.1), or none when they are not on the bill.
 splitz.SettleLane _lane(BillView view, String id) {
@@ -739,10 +896,19 @@ String _zec(int zatoshi) =>
 /// Every output's ZEC amount and address, the rate that produced them and who
 /// set it. A figure in the bill's currency alone hides what the rate did.
 class _ReviewSend extends StatelessWidget {
-  const _ReviewSend({required this.view, required this.owed, this.live});
+  const _ReviewSend({
+    required this.view,
+    required this.owed,
+    this.live,
+    this.via = const {},
+  });
 
   final BillView view;
   final splitz.PayerObligation owed;
+
+  /// The payout each recipient it names is paid by, when the payer chose one
+  /// below their first (§14.8).
+  final Map<String, int> via;
 
   /// A live price for one ZEC in the bill's currency, or null when none can
   /// be had. The bill's rate is held against it rather than against who set
@@ -809,6 +975,14 @@ class _ReviewSend extends StatelessWidget {
                       Text(
                         '${who(carried[i].to)} hasn’t joined on their phone. Check this address with them.',
                         key: Key('splits_review_unbound_${carried[i].to}'),
+                        style: TextStyle(color: error),
+                      ),
+                    // §14.2: paid somewhere they ranked lower than first.
+                    if (paired && (via[carried[i].to] ?? 0) > 0)
+                      Text(
+                        'Their ${ordinal(via[carried[i].to]! + 1)} choice, '
+                        'not their first.',
+                        key: Key('splits_review_lower_${carried[i].to}'),
                         style: TextStyle(color: error),
                       ),
                     if (paired && replaced.contains(carried[i].to))
