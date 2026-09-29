@@ -67,9 +67,10 @@ void main() {
       // ── A new bill ───────────────────────────────────────────────────
       await _tapText(tester, 'Start a bill');
       await _typeInto(tester, 'What is it for', 'Dinner');
-      // A currency the wallet's feed does not price, so the pricing screen
-      // is walked through by hand rather than skipped by the automatic one.
-      await _typeInto(tester, 'Currency', 'EUR');
+      // A currency neither the wallet's feed nor CoinGecko prices, so the
+      // pricing screen is walked through by hand rather than skipped by the
+      // automatic one. EUR would be priced from CoinGecko whenever it answers.
+      await _typeInto(tester, 'Currency', 'KES');
       await _tapText(tester, 'Open the bill');
       await _settle(tester);
       expect(find.text('Dinner'), findsWidgets);
