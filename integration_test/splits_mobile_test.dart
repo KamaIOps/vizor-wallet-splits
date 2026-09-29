@@ -68,11 +68,11 @@ void main() {
       find.widgetWithText(TextFormField, 'What is it for'),
       'Dinner',
     );
-    // A currency the wallet's feed does not price, so the bill is priced by
-    // hand below rather than automatically when settling.
+    // A currency neither the wallet's feed nor CoinGecko prices, so the bill
+    // is priced by hand below rather than automatically when settling.
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Currency'),
-      'EUR',
+      'KES',
     );
     await tester.tap(find.text('Open the bill'));
     await tester.pumpAndSettle();
