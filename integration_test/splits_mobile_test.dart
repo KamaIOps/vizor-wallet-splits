@@ -96,7 +96,7 @@ void main() {
     await _expenseWritten(tester);
 
     expect(find.text('Pizza'), findsOneWidget);
-    expect(find.text('90.00'), findsOneWidget);
+    expect(find.text('90.00 STN'), findsOneWidget);
 
     logE2e('pricing it');
     // In the bill screen's bottom bar, so it needs no scroll.
