@@ -3,13 +3,15 @@
 ///
 /// A bill travels two ways. Over a relay it syncs, and `splits_lanes_test.dart`
 /// covers that. With no relay configured it travels as a code somebody reads
-/// out or scans — which is the path this lane runs, deliberately without
-/// `SPLITS_RELAY_URL`, so the screens have to say so rather than showing a
-/// sync that never resolves.
+/// out or scans — which is the path this lane runs, with `SPLITS_RELAY_URL`
+/// set empty, so the screens have to say so rather than showing a sync that
+/// never resolves. A build that leaves the define out syncs through the
+/// hosted relay, and this lane refuses it.
 ///
 ///     flutter test integration_test/splits_ui_screens_test.dart -d <device> \
 ///       --dart-define=VIZOR_FORM_FACTOR=mobile \
-///       --dart-define=ZCASH_DEFAULT_NETWORK=regtest
+///       --dart-define=ZCASH_DEFAULT_NETWORK=regtest \
+///       --dart-define=SPLITS_RELAY_URL=
 library;
 
 import 'dart:io';
@@ -21,7 +23,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:splitz_core/host.dart' as splitz;
 import 'package:zcash_wallet/app.dart';
 import 'package:zcash_wallet/src/features/splits/ui/screens/share_bill_screen.dart'
-    show CodeImage;
+    show CodeImage, inviteSentence;
 import 'package:zcash_wallet/src/features/splits/splits_relay.dart';
 
 import 'support/mobile_regtest_flow.dart';
@@ -110,23 +112,16 @@ void main() {
 
       // The invite on its own is the other thing this screen offers, and it is
       // a heading further down the list rather than a control.
-      await _scrollToText(
-        tester,
-        'Lets someone join. The bill arrives when they sync.',
-      );
-      expect(find.textContaining('Lets someone join'), findsOneWidget);
+      await _scrollToText(tester, inviteSentence);
+      expect(find.text(inviteSentence), findsOneWidget);
       expect(
         find.text('Invite'),
         findsOneWidget,
         reason: '§11.1 renders the invite as its own code',
       );
       final invite = tester
-          .widgetList<CodeImage>(find.byType(CodeImage))
-          .map((w) => w.value)
-          .firstWhere(
-            (c) => c.startsWith('splitz://'),
-            orElse: () => throw StateError('no invite on the share screen'),
-          );
+          .widget<CodeImage>(find.byKey(const Key('splits_qr_Invite')))
+          .value;
       expect(
         splitz.readScan(invite),
         isA<splitz.ScannedInvite>(),
@@ -182,7 +177,7 @@ void main() {
 
 /// Scrolls the screen until [text] is on it.
 ///
-/// The share screen is a `ListView`: "Lets someone join" and the invite's own
+/// The share screen is a `ListView`: the invite's sentence and its own
 /// code sit below the fold, so a finder that waits for one waits forever.
 Future<void> _scrollToText(WidgetTester tester, String text) async {
   final target = find.text(text);
@@ -216,13 +211,12 @@ const _billMenuItems = {
   'splits_bill_people',
   'splits_bill_activity',
   'splits_bill_payout',
-  'splits_bill_price',
   'splits_bill_sync_now',
   'splits_bill_forget',
 };
 
 Future<void> _tapKey(WidgetTester tester, String key) async {
-  // People, Activity, How you get paid, Price, Sync now and Remove sit in
+  // People, Activity, How you get paid, Sync now and Remove sit in
   // the bill screen's menu, which is opened first when one is asked for.
   if (_billMenuItems.contains(key) && !tester.any(find.byKey(Key(key)))) {
     await tester.tap(find.byKey(const Key('splits_bill_menu')));
