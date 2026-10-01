@@ -24,7 +24,7 @@ import 'package:go_router/go_router.dart';
 import 'package:splitz_core/host.dart' as splitz;
 import 'package:integration_test/integration_test.dart';
 import 'package:zcash_wallet/src/features/splits/ui/screens/share_bill_screen.dart'
-    show CodeImage;
+    show CodeImage, inviteSentence;
 import 'package:zcash_wallet/app.dart';
 
 import 'support/mobile_regtest_flow.dart';
@@ -67,10 +67,10 @@ void main() {
       // ── A new bill ───────────────────────────────────────────────────
       await _tapText(tester, 'Start a bill');
       await _typeInto(tester, 'What is it for', 'Dinner');
-      // A currency neither the wallet's feed nor CoinGecko prices, so the
-      // pricing screen is walked through by hand rather than skipped by the
-      // automatic one. EUR would be priced from CoinGecko whenever it answers.
-      await _typeInto(tester, 'Currency', 'KES');
+      // A currency neither Binance nor Coinbase prices, so the pricing screen
+      // is walked through by hand rather than skipped by the automatic one.
+      // KES or EUR would be priced from Coinbase whenever it answers.
+      await _typeInto(tester, 'Currency', 'STN');
       await _tapText(tester, 'Open the bill');
       await _settle(tester);
       expect(find.text('Dinner'), findsWidgets);
@@ -145,14 +145,13 @@ void main() {
       await tester.tap(find.byTooltip('Share'));
       await _settle(tester);
       // §11.2 caps a payload, and a bill with three addressed people reaches
-      // that cap. Both outcomes are states the screen has to say plainly: the
-      // whole bill as a code, or the sentence that it has outgrown one. What is
-      // asserted is that one of them is on screen and neither is a failure.
+      // that cap. Either outcome is a state, not a failure: the whole bill as
+      // a code, or the invite alone once the bill has outgrown one code.
       final whole = find.text('Bill code');
-      final outgrown = find.textContaining('Too big for one code');
+      final loading = find.byType(LinearProgressIndicator);
       await pumpUntil(
         tester,
-        () => tester.any(whole) || tester.any(outgrown),
+        () => !tester.any(loading),
         description: 'the whole-bill code, or the cap that refused it',
       );
       if (tester.any(whole)) {
@@ -173,17 +172,10 @@ void main() {
       }
 
       // The invite is offered either way, and is what a capped bill is sent as.
-      await _scrollToText(
-        tester,
-        'Lets someone join. The bill arrives when they sync.',
-      );
-      final invite = tester
-          .widgetList<CodeImage>(find.byType(CodeImage))
-          .map((w) => w.value)
-          .firstWhere(
-            (c) => c.startsWith('splitz://'),
-            orElse: () => throw StateError('no invite on the share screen'),
-          );
+      await _scrollToText(tester, inviteSentence);
+      final inviteCode = find.byKey(const Key('splits_qr_Invite'));
+      expect(inviteCode, findsOneWidget, reason: 'the invite, as a code');
+      final invite = tester.widget<CodeImage>(inviteCode).value;
       expect(
         splitz.readScan(invite),
         isA<splitz.ScannedInvite>(),
@@ -242,7 +234,11 @@ void main() {
       }
 
       await _tapKey(tester, 'splits_payout_swap');
-      await _payInUsdc(tester, 'base', '0xana');
+      await _payInUsdc(
+        tester,
+        'base',
+        '0x4444444444444444444444444444444444444444',
+      );
       await _tapKey(tester, 'splits_payout_save');
       await _settle(tester);
       expect(
@@ -259,7 +255,7 @@ void main() {
 
 /// Scrolls the screen until [text] is on it.
 ///
-/// The share screen is a `ListView`: "Lets someone join" and the invite's own
+/// The share screen is a `ListView`: the invite's sentence and its own
 /// code sit below the fold, so a finder that waits for one waits forever.
 /// Waits for the add-expense screen to close, which is what says the expense
 /// was written.
@@ -311,13 +307,12 @@ const _billMenuItems = {
   'splits_bill_people',
   'splits_bill_activity',
   'splits_bill_payout',
-  'splits_bill_price',
   'splits_bill_sync_now',
   'splits_bill_forget',
 };
 
 Future<void> _tapKey(WidgetTester tester, String key) async {
-  // People, Activity, How you get paid, Price, Sync now and Remove sit in
+  // People, Activity, How you get paid, Sync now and Remove sit in
   // the bill screen's menu, which is opened first when one is asked for.
   if (_billMenuItems.contains(key) && !tester.any(find.byKey(Key(key)))) {
     await tester.tap(find.byKey(const Key('splits_bill_menu')));

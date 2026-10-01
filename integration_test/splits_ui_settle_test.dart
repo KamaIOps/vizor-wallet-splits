@@ -15,9 +15,6 @@
 ///                      record screen and the payee vouches for it
 ///   SPLITS_LANE=swap   the payee takes USDC on Base; the payer reaches the
 ///                      swap screen, which quotes it against a provider
-///   SPLITS_LANE=other  the payee takes cash and also accepts Zcash; the payer
-///                      pays them another way, reaches the review with the
-///                      lower choice marked, and takes the choice back
 ///
 ///     flutter test integration_test/splits_ui_settle_test.dart -d <A> \
 ///       --dart-define=SPLITS_PHASE=payer \
@@ -48,6 +45,9 @@ const _phaseDefine = String.fromEnvironment('SPLITS_PHASE');
 const _inviteDefine = String.fromEnvironment('SPLITS_INVITE');
 const _lane = String.fromEnvironment('SPLITS_LANE', defaultValue: 'cash');
 
+/// How the settle screen names the withheld payee's lane.
+const _withheldLabel = _lane == 'swap' ? 'Pay in USDC' : 'Cash';
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -71,9 +71,9 @@ void main() {
       reason: 'the coordinator names the payer or the payee',
     );
     expect(
-      const ['cash', 'swap', 'other'].contains(_lane),
+      const ['cash', 'swap'].contains(_lane),
       isTrue,
-      reason: 'SPLITS_LANE is cash, swap or other',
+      reason: 'SPLITS_LANE is cash or swap',
     );
     expect(splitsRelayUrl, isNotEmpty, reason: 'this lane needs a relay');
 
@@ -153,22 +153,16 @@ Future<void> _payer(WidgetTester tester) async {
   //     flattening a lane the request cannot carry.
   await _reveal(
     tester,
-    find.textContaining('— tap to'),
+    find.textContaining(_withheldLabel),
     'the withheld payee, reported rather than dropped',
   );
   expect(
-    find.textContaining('— tap to'),
+    find.textContaining(_withheldLabel),
     findsOneWidget,
     reason: 'a payee in another lane is reported, never dropped',
   );
   final apart = _keysWithPrefix(tester, 'splits_settle_apart_');
   expect(apart.length, 1, reason: 'one row to settle apart');
-
-  if (_lane == 'other') {
-    await _payAnotherWay(tester, apart.first);
-    await publish('done', 'the payer has read the bill');
-    return;
-  }
 
   await _tapKeyRevealed(tester, apart.first);
 
@@ -313,11 +307,14 @@ Future<void> _payee(WidgetTester tester) async {
   await _settle(tester);
   if (_lane == 'swap') {
     await _tapKey(tester, 'splits_payout_swap');
-    await _payInUsdc(tester, 'base', '0xpayee');
+    await _payInUsdc(
+      tester,
+      'base',
+      '0x3333333333333333333333333333333333333333',
+    );
   } else {
     await _tapKey(tester, 'splits_payout_cash');
   }
-  if (_lane == 'other') await _tapKey(tester, 'splits_payout_also_zec');
   await _tapKey(tester, 'splits_payout_save');
   await _settle(tester);
   await _back(tester);
@@ -344,7 +341,7 @@ Future<void> _payee(WidgetTester tester) async {
   await _sync(tester);
   logE2e('put 60.00 on the bill');
 
-  if (_lane == 'swap' || _lane == 'other') {
+  if (_lane == 'swap') {
     logE2e('$_lane lane: the payer sends nothing, nothing to vouch for');
     // Nothing to vouch for is not nothing to do. An expense is written locally
     // and reaches the relay on a sync, so a device that returns here is torn
@@ -384,68 +381,6 @@ Future<void> _payee(WidgetTester tester) async {
   await _settle(tester);
   await _sync(tester);
   logE2e('vouched for the payment');
-}
-
-/// Pays the payee in [row] by their second choice instead of their first,
-/// up to the review, then takes the choice back (§14.8).
-///
-/// Cancelled at the review: this lane's wallet holds no funds, and what is
-/// asserted is what the payer is shown before anything leaves.
-Future<void> _payAnotherWay(WidgetTester tester, Key row) async {
-  final id = (row as ValueKey<String>).value.substring(
-    'splits_settle_apart_'.length,
-  );
-  expect(
-    find.textContaining('Gets cash'),
-    findsOneWidget,
-    reason: 'their first choice, cash, is the one in effect',
-  );
-  await _tapKey(tester, 'splits_settle_other_way_$id');
-  await pumpUntil(
-    tester,
-    () => tester.any(find.byKey(Key('splits_other_way_${id}_1'))),
-    description: 'their second choice, in the sheet',
-  );
-  expect(find.text('Their 2nd choice'), findsOneWidget);
-  expect(find.byKey(Key('splits_other_way_ask_$id')), findsOneWidget);
-  logE2e('the sheet offers their 2nd choice and asking for another');
-  await tester.tap(find.byKey(Key('splits_other_way_${id}_1')));
-  await _settle(tester);
-
-  await _reveal(
-    tester,
-    find.text('Their 2nd choice, in the one payment below'),
-    'the debt, now paid by their second choice',
-  );
-  await pumpUntil(
-    tester,
-    () => tester.any(find.byKey(const Key('splits_settle_send'))),
-    description: 'the send, now that the request carries them',
-  );
-  await tester.tap(find.byKey(const Key('splits_settle_send')));
-  await _settle(tester);
-  await pumpUntil(
-    tester,
-    () => tester.any(find.byKey(Key('splits_review_lower_$id'))),
-    description: 'the review, marking the lower choice',
-    timeout: const Duration(minutes: 2),
-  );
-  final address = tester
-      .widget<SelectableText>(find.byKey(const Key('splits_review_address_0')))
-      .data;
-  logE2e('review: their 2nd choice, paid at $address');
-  expect(address, isNotNull);
-  await tester.tap(find.text('Cancel'));
-  await _settle(tester);
-
-  await _tapKey(tester, 'splits_settle_first_choice_$id');
-  await _reveal(
-    tester,
-    find.textContaining('Gets cash'),
-    'their first choice, back in effect',
-  );
-  expect(find.byKey(const Key('splits_settle_send')), findsNothing);
-  logE2e('took the choice back: cash again, nothing to send');
 }
 
 /// Taps the bill screen's own sync control and lets it finish.
@@ -663,13 +598,12 @@ const _billMenuItems = {
   'splits_bill_people',
   'splits_bill_activity',
   'splits_bill_payout',
-  'splits_bill_price',
   'splits_bill_sync_now',
   'splits_bill_forget',
 };
 
 Future<void> _tapKey(WidgetTester tester, String key) async {
-  // People, Activity, How you get paid, Price, Sync now and Remove sit in
+  // People, Activity, How you get paid, Sync now and Remove sit in
   // the bill screen's menu, which is opened first when one is asked for.
   if (_billMenuItems.contains(key) && !tester.any(find.byKey(Key(key)))) {
     await tester.tap(find.byKey(const Key('splits_bill_menu')));
