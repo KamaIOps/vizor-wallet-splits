@@ -12,7 +12,6 @@ import 'activity_screen.dart';
 import 'add_expense_screen.dart';
 import 'payout_screen.dart';
 import 'people_screen.dart';
-import 'price_bill_screen.dart';
 import 'settle_screen.dart';
 import 'share_bill_screen.dart';
 import 'text_entry_screen.dart';
@@ -138,8 +137,6 @@ class _BillScreenState extends State<BillScreen> {
                   screen = ActivityScreen(billId: billId);
                 case 'payout':
                   screen = PayoutScreen(billId: billId);
-                case 'price':
-                  screen = PriceBillScreen(billId: billId);
                 case 'sync':
                   controller.syncBill(billId);
                 case 'forget':
@@ -153,36 +150,46 @@ class _BillScreenState extends State<BillScreen> {
               }
             },
             itemBuilder: (_) => [
-              const PopupMenuItem<String>(
-                key: Key('splits_bill_people'),
+              PopupMenuItem<String>(
+                labelTextStyle: WidgetStatePropertyAll(
+                  Theme.of(context).textTheme.bodyLarge,
+                ),
+                key: const Key('splits_bill_people'),
                 value: 'people',
-                child: Text('People'),
-              ),
-              const PopupMenuItem<String>(
-                key: Key('splits_bill_activity'),
-                value: 'activity',
-                child: Text('Activity'),
-              ),
-              const PopupMenuItem<String>(
-                key: Key('splits_bill_payout'),
-                value: 'payout',
-                child: Text('How you get paid'),
-              ),
-              const PopupMenuItem<String>(
-                key: Key('splits_bill_price'),
-                value: 'price',
-                child: Text('Price in ZEC'),
+                child: const Text('People'),
               ),
               PopupMenuItem<String>(
+                labelTextStyle: WidgetStatePropertyAll(
+                  Theme.of(context).textTheme.bodyLarge,
+                ),
+                key: const Key('splits_bill_activity'),
+                value: 'activity',
+                child: const Text('Activity'),
+              ),
+              PopupMenuItem<String>(
+                labelTextStyle: WidgetStatePropertyAll(
+                  Theme.of(context).textTheme.bodyLarge,
+                ),
+                key: const Key('splits_bill_payout'),
+                value: 'payout',
+                child: const Text('How you get paid'),
+              ),
+              PopupMenuItem<String>(
+                labelTextStyle: WidgetStatePropertyAll(
+                  Theme.of(context).textTheme.bodyLarge,
+                ),
                 key: const Key('splits_bill_sync_now'),
                 value: 'sync',
                 enabled: !controller.busy,
                 child: const Text('Sync now'),
               ),
-              const PopupMenuItem<String>(
-                key: Key('splits_bill_forget'),
+              PopupMenuItem<String>(
+                labelTextStyle: WidgetStatePropertyAll(
+                  Theme.of(context).textTheme.bodyLarge,
+                ),
+                key: const Key('splits_bill_forget'),
                 value: 'forget',
-                child: Text('Remove from this phone'),
+                child: const Text('Remove from this phone'),
               ),
             ],
           ),
@@ -249,7 +256,7 @@ class _BillScreenState extends State<BillScreen> {
           if (controller.lastError != null)
             NoticeCard(message: controller.lastError!, error: true),
           if (!joined) _JoinPrompt(billId: billId),
-          for (final replaced in view.replacedAddresses)
+          for (final replaced in view.redirectedAddresses)
             NoticeCard(
               // §13: a wallet MUST show a changed pay-to address before it
               // settles to one. Buried in a list it is not shown.
@@ -470,11 +477,7 @@ class _ExpenseTile extends StatelessWidget {
             '${view.bill.displayNameOf(expense.paidBy, creatorId: view.creatorId)}'
             ' paid',
           ),
-          trailing: formatAmount(
-            expense.amount,
-            view.bill.currency,
-            withCurrency: false,
-          ),
+          trailing: formatWithSymbol(expense.amount, view.bill.currency),
         ),
       ),
     );
@@ -651,9 +654,8 @@ class _People extends StatelessWidget {
             ),
           ],
         ),
-        SingleChildScrollView(
+        _ScrollingRow(
           key: const Key('splits_bill_people_row'),
-          scrollDirection: Axis.horizontal,
           child: Row(
             spacing: 8,
             children: [
@@ -673,4 +675,38 @@ class _People extends StatelessWidget {
       ],
     );
   }
+}
+
+/// [child] scrolled sideways under a scrollbar that stays visible, so a row
+/// running past the screen's edge says there is more of it.
+class _ScrollingRow extends StatefulWidget {
+  const _ScrollingRow({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<_ScrollingRow> createState() => _ScrollingRowState();
+}
+
+class _ScrollingRowState extends State<_ScrollingRow> {
+  final _scroll = ScrollController();
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scrollbar(
+    controller: _scroll,
+    thumbVisibility: true,
+    child: SingleChildScrollView(
+      controller: _scroll,
+      scrollDirection: Axis.horizontal,
+      // Room under the chips for the scrollbar to sit in.
+      padding: const EdgeInsets.only(bottom: 12),
+      child: widget.child,
+    ),
+  );
 }
