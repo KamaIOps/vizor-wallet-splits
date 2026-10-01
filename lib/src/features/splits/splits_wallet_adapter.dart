@@ -25,10 +25,13 @@ import '../../core/storage/app_secure_store.dart';
 /// find everything it kept. Every name still begins `splitz_`, which is what a
 /// passcode change re-encrypts.
 ///
-/// A name written before accounts were kept apart is read once, moved under
-/// this account and deleted. Otherwise an existing identity seed would read
-/// as absent and a new one would be minted, changing who this person is on
-/// every bill they are on.
+/// A name written before accounts were kept apart is read once and copied
+/// under this account. Otherwise an existing identity seed would read as
+/// absent and a new one would be minted, changing who this person is on
+/// every bill they are on. The old name is deleted when it already named
+/// this account (an identity seed); a bill key under it was shared by every
+/// account, as `adoptLegacySplits` shares the bills, so it stays for the
+/// others until a bill is forgotten.
 class KeychainSecretStore implements SecretStore {
   KeychainSecretStore({required this.accountUuid, AppSecureStore? store})
     : _store = store ?? AppSecureStore.instance;
@@ -45,7 +48,7 @@ class KeychainSecretStore implements SecretStore {
     final legacy = await _store.readSecretStringWithOptions(key);
     if (legacy == null) return null;
     await _store.writeSecretString(_name(key), legacy);
-    await _store.delete(key);
+    if (key.endsWith(accountUuid)) await _store.delete(key);
     return legacy;
   }
 

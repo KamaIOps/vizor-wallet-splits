@@ -26,7 +26,6 @@ class ShareBillScreen extends StatefulWidget {
 }
 
 class _ShareBillScreenState extends State<ShareBillScreen> {
-  String? _invite;
   String? _inviteLink;
   String? _payload;
   bool _tooBig = false;
@@ -52,7 +51,6 @@ class _ShareBillScreenState extends State<ShareBillScreen> {
     final payload = await controller.shareableBill(widget.billId);
     if (!mounted) return;
     setState(() {
-      _invite = invite;
       _inviteLink = protocol.renderInviteLink(
         protocol.parseInvite(invite),
         splitsInviteLinkBase,
@@ -82,14 +80,14 @@ class _ShareBillScreenState extends State<ShareBillScreen> {
             const _TooBig()
           else
             const _Loading(),
-          if (_invite != null)
+          if (_inviteLink != null)
             _Code(
               label: 'Invite',
               about: 'Lets someone join. The bill arrives when they sync.',
-              value: _invite!,
-              // A chat app shows an https link as one to tap; the code keeps
-              // the short form, which every scanner here reads the same.
-              shared: _inviteLink,
+              // The https link, in the code as in a message: a phone's camera
+              // hands a custom scheme to whichever app claims it, and this
+              // key with it. Every scanner here reads the link as the invite.
+              value: _inviteLink!,
             )
           else
             const _Loading(),
@@ -129,22 +127,13 @@ class _Loading extends StatelessWidget {
 /// here. A scan, a paste and a shared message are interchangeable because
 /// every reader accepts both the code and the link it is shared as.
 class _Code extends StatelessWidget {
-  const _Code({
-    required this.label,
-    required this.about,
-    required this.value,
-    this.shared,
-  });
+  const _Code({required this.label, required this.about, required this.value});
 
   final String label;
 
   /// What the code is for, in a line.
   final String about;
   final String value;
-
-  /// What copying and sharing hand on, when it is not [value] itself: an
-  /// invite goes out as an https link that reads as the same invite.
-  final String? shared;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -164,8 +153,7 @@ class _Code extends StatelessWidget {
               IconButton(
                 tooltip: 'Copy',
                 icon: const Icon(Icons.copy),
-                onPressed: () =>
-                    Clipboard.setData(ClipboardData(text: shared ?? value)),
+                onPressed: () => Clipboard.setData(ClipboardData(text: value)),
               ),
               if (SplitsScope.sharerOf(context) case final share?)
                 Builder(
@@ -173,11 +161,8 @@ class _Code extends StatelessWidget {
                     key: Key('splits_share_$label'),
                     tooltip: 'Share',
                     icon: const Icon(Icons.share),
-                    onPressed: () => share(
-                      button,
-                      shared ?? value,
-                      origin: _globalRect(button),
-                    ),
+                    onPressed: () =>
+                        share(button, value, origin: _globalRect(button)),
                   ),
                 ),
             ],

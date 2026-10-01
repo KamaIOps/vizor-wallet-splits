@@ -15,6 +15,15 @@ SplitsController controllerFor(FakeWallet wallet, {ZecPrices? prices}) =>
       prices: prices ?? const NoZecPrices(),
     );
 
+/// A feed with no figure until [value] is set: a bill created while it is
+/// silent stays unpriced, as it does when the feed is down.
+class _Later implements ZecPrices {
+  int? value;
+
+  @override
+  Future<int?> minorUnitsPerZec(String currency) async => value;
+}
+
 Widget app(SplitsController c, Widget home) => SplitsScope(
   controller: c,
   child: MaterialApp(home: home),
@@ -81,12 +90,13 @@ void main() {
   testWidgets('a price from the feed is offered, and marked as the feed\'s', (
     t,
   ) async {
-    final c = controllerFor(
-      FakeWallet(),
-      prices: const FixedZecPrices({'EUR': 4567}),
-    );
+    final feed = _Later();
+    final c = controllerFor(FakeWallet(), prices: feed);
     await c.load();
     final id = (await c.createBill(name: 'Dinner', currency: 'EUR'))!;
+    await t.pump();
+    expect(c.bills.single.bill.rate, isNull);
+    feed.value = 4567;
 
     await t.pumpWidget(app(c, PriceBillScreen(billId: id)));
     await t.pumpAndSettle();
@@ -124,12 +134,12 @@ void main() {
 
   testWidgets('pricing a bill makes it settleable, at that figure', (t) async {
     final wallet = FakeWallet();
-    final c = controllerFor(
-      wallet,
-      prices: const FixedZecPrices({'EUR': 51234}),
-    );
+    final feed = _Later();
+    final c = controllerFor(wallet, prices: feed);
     await c.load();
     final id = (await c.createBill(name: 'Dinner', currency: 'EUR'))!;
+    await t.pump();
+    feed.value = 51234;
 
     // A second person, so there is something to owe.
     final other = FakeWallet(id: 'ben', payTo: 'u1ben');
@@ -196,5 +206,64 @@ void main() {
     expect(find.byKey(const Key('splits_price_not_applied')), findsNothing);
     expect(c.bills.single.bill.rate!.minorUnitsPerZec, 300000);
     expect(c.bills.single.rateSetBy, c.me);
+  });
+
+  test('the organiser\'s new bill is priced from the feed at once', () async {
+    final c = controllerFor(
+      FakeWallet(),
+      prices: const FixedZecPrices({'EUR': 4567}),
+    );
+    await c.load();
+    await c.createBill(name: 'Dinner', currency: 'EUR');
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    final view = c.bills.single;
+    expect(view.bill.rate!.minorUnitsPerZec, 4567);
+    expect(view.rateSetBy, c.me);
+  });
+
+  test('a bill left unpriced is priced when the organiser next opens the '
+      'feature, and a rate dated ahead by somebody else then decides '
+      'nothing', () async {
+    final storage = InMemoryBillStorage();
+    final secrets = InMemorySecretStore();
+    final wallet = FakeWallet();
+    final feed = _Later();
+    SplitsController open() => SplitsController(
+      wallet: wallet,
+      store: BillStore(storage),
+      keys: SplitsKeys(store: secrets, random: Random(5)),
+      prices: feed,
+    );
+    final first = open();
+    await first.load();
+    final id = (await first.createBill(name: 'Dinner', currency: 'EUR'))!;
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(first.bills.single.bill.rate, isNull);
+
+    // Ben prices it a year ahead while the organiser has none (§7).
+    final ben = await SignedPeer.named('ben');
+    final ahead = FakeWallet(id: 'ben');
+    ahead.tick(const Duration(days: 365));
+    final aheadHost = WalletBillHost(ahead, me: ben.id, sign: ben.host.sign);
+    await first.accept(id, [
+      await ben.join(id, name: 'Ben', payTo: 'u1ben'),
+      await splitz.signEntry(
+        host: aheadHost,
+        entry: splitz.setRate(
+          host: aheadHost,
+          currency: 'EUR',
+          minorUnitsPerZec: 100,
+        ),
+        billId: id,
+      ),
+    ]);
+    expect(first.bills.single.bill.rate!.minorUnitsPerZec, 100);
+
+    feed.value = 4567;
+    final next = open();
+    await next.load();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(next.bills.single.bill.rate!.minorUnitsPerZec, 4567);
+    expect(next.bills.single.rateSetBy, next.me);
   });
 }
