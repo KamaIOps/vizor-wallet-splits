@@ -65,12 +65,15 @@ void main() {
     expect(usd, isNotNull, reason: 'USD, from Binance and Coinbase agreeing');
     expect(kes, isNotNull, reason: 'KES, from Coinbase');
     expect(eur, isNotNull, reason: 'EUR, from Coinbase');
+    // The splits figure is Coinbase's /v2/exchange-rates answer; the one
+    // above is its /v2/prices/ZEC-USD/spot, a different quantity that moves
+    // separately. They are held to the 200 basis points AgreeingZecPrices
+    // allows between two markets, not to the cent.
+    final spotCents = (coinbase.usdPrice * 100).round();
     expect(
-      usd,
-      (coinbase.usdPrice * 100).round(),
-      reason:
-          'the splits USD figure is Coinbase\'s, in cents, once Binance '
-          'agrees with it',
+      (usd! - spotCents).abs() * 10000,
+      lessThanOrEqualTo(spotCents * 200),
+      reason: 'the splits USD figure is Coinbase\'s, within 2% of its spot',
     );
 
     // 3 · The app's own feed, as the home screen reads it. The wallet runs it
