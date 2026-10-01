@@ -19,16 +19,13 @@ Future<NetworkHttpResponse> _answer(int status, String body) async =>
 
 void main() {
   group('the relay a build gets', () {
-    test(
-      'no SPLITS_RELAY_URL means no relay, and bills stay on the device',
-      () {
-        // A shipped build is compiled without the define. If this ever returns
-        // an HttpSplitsRelay, every bill on every installed app is being
-        // synced through whatever host was baked in.
-        expect(splitsRelayUrl, isEmpty);
-        expect(splitsRelay(), isA<UnconfiguredSplitsRelay>());
-      },
-    );
+    test('no SPLITS_RELAY_URL means the hosted relay', () {
+      // A build compiled without the define syncs through the hosted relay,
+      // over https, at the origin the protocol tree deploys.
+      expect(splitsRelayUrl, hostedSplitsRelay);
+      expect(Uri.parse(hostedSplitsRelay).scheme, 'https');
+      expect(splitsRelay(), isA<HttpSplitsRelay>());
+    });
   });
 
   group('reading the swap provider', () {

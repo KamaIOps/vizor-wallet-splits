@@ -63,6 +63,31 @@ class KeychainSecretStore implements SecretStore {
   }
 }
 
+/// Forgets every bill in [store] whose key [keyOf] no longer reads, and
+/// answers how many.
+///
+/// For bills just adopted from the layout every account shared: forgetting
+/// one there deleted its shared key for every account, so a copy taken
+/// afterwards is a bill no account can open. A keychain that refuses to read
+/// while the session is locked has not said a key is gone, and that bill is
+/// kept.
+Future<int> forgetBillsWithoutKeys(
+  BillStore store,
+  Future<String?> Function(String billId) keyOf,
+) async {
+  var forgotten = 0;
+  for (final billId in await store.billIds()) {
+    try {
+      if (await keyOf(billId) != null) continue;
+    } on StateError {
+      continue;
+    }
+    await store.forget(billId);
+    forgotten++;
+  }
+  return forgotten;
+}
+
 /// Proposes and broadcasts one transaction for a whole payment request.
 ///
 /// Two calls, and they must stay two: proposing takes the wallet's write lock

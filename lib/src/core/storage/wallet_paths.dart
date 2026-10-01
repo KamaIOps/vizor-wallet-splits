@@ -65,17 +65,18 @@ Future<String> getSplitsAccountDirectoryPath(String accountUuid) async =>
 /// pay the same debt again.
 ///
 /// Built beside the account's directory and renamed into place, so an
-/// adoption cut short is redone rather than taken for finished.
-Future<void> adoptLegacySplits(String accountUuid) async {
+/// adoption cut short is redone rather than taken for finished. Answers
+/// whether this call adopted anything.
+Future<bool> adoptLegacySplits(String accountUuid) async {
   final root = Directory(await getSplitsDirectoryPath());
-  if (!await root.exists()) return;
+  if (!await root.exists()) return false;
   final into = Directory(await getSplitsAccountDirectoryPath(accountUuid));
-  if (await into.exists()) return;
+  if (await into.exists()) return false;
   final legacy = [
     await for (final e in root.list(followLinks: false))
       if (e is File) e,
   ];
-  if (legacy.isEmpty) return;
+  if (legacy.isEmpty) return false;
   final staging = Directory(
     '${root.path}${Platform.pathSeparator}'
     '.adopting-${Uri.encodeComponent(accountUuid)}',
@@ -87,6 +88,7 @@ Future<void> adoptLegacySplits(String accountUuid) async {
     await file.copy('${staging.path}${Platform.pathSeparator}$name');
   }
   await staging.rename(into.path);
+  return true;
 }
 
 /// Deletes the bills [accountUuid] held. Their keys are deleted apart, from

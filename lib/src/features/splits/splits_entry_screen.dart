@@ -163,7 +163,19 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
     // and out of device backups: bills are stored in clear, and a backup
     // carries them to whoever holds it without the keys that seal them.
     try {
-      await adoptLegacySplits(accountUuid);
+      if (await adoptLegacySplits(accountUuid)) {
+        // A bill another account forgot before this one first opened the
+        // feature has lost its shared key; its copy is not kept.
+        final adopted = BillStore(
+          FileBillStorage(
+            Directory(await getSplitsAccountDirectoryPath(accountUuid)),
+          ),
+        );
+        final keys = SplitsKeys(
+          store: KeychainSecretStore(accountUuid: accountUuid),
+        );
+        await forgetBillsWithoutKeys(adopted, keys.readBillKey);
+      }
     } on Object catch (error) {
       debugPrint(
         'splits: could not move earlier bills to this account: $error',
