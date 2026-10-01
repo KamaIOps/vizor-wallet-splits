@@ -12,9 +12,11 @@ const _deviceBackupChannel = MethodChannel('com.zcash.wallet/network_privacy');
 /// Tor directory's guard choice, and the splits bills, which are stored in
 /// clear beside keys that live in the keychain.
 ///
-/// Android has no runtime equivalent. `android:allowBackup="false"` keeps app
-/// files out of cloud backup, and device-to-device transfer is governed by
-/// `res/xml/data_extraction_rules.xml`, whose paths are fixed at build time.
+/// Android has no runtime equivalent. `android:allowBackup="false"` in the
+/// manifest keeps app files out of cloud backup, but from targetSdk 31 that
+/// attribute no longer covers device-to-device transfer; that is
+/// `res/xml/data_extraction_rules.xml`, which excludes `tor` and `splits`
+/// from both.
 Future<void> excludeFromDeviceBackup(String directory) async {
   if (!Platform.isIOS) return;
   try {

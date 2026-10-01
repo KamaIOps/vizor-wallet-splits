@@ -53,7 +53,7 @@ class _BillScreenState extends State<BillScreen> {
 
   @override
   void dispose() {
-    _controller?.stopPolling();
+    _controller?.stopPolling(billId);
     super.dispose();
   }
 
@@ -513,7 +513,9 @@ String _whyNotApplied(String code) => switch (code) {
   'duplicate_payment' => 'A second payment record under an id already used',
   'unknown_participant' => 'Names somebody who is not on the bill',
   'unknown_entry' => 'Changes an entry this bill does not hold',
-  _ => 'Not applied',
+  // Every other code has the protocol's own sentence (§1): a bare "Not
+  // applied" names no fix.
+  _ => protocol.describeCode(code) ?? 'Not applied',
 };
 
 /// Where this bill's sync stands.

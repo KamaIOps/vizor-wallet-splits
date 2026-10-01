@@ -1,6 +1,6 @@
 /// The market behind the splits screens' prices, over real HTTP: Binance's
-/// ZECUSDC for USD, and Coinbase for USD when Binance cannot answer and for
-/// every other currency.
+/// ZECUSDC and Coinbase held to each other for USD, and Coinbase for every
+/// other currency.
 library;
 
 import 'dart:io';
@@ -19,10 +19,14 @@ void main() {
   late Uri origin;
   final asked = <String>[];
   var binanceDown = false;
+  var coinbaseDown = false;
+  var binancePrice = '1391.88000000';
 
   setUp(() async {
     asked.clear();
     binanceDown = false;
+    coinbaseDown = false;
+    binancePrice = '1391.88000000';
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     origin = Uri.parse('http://127.0.0.1:${server.port}');
     server.listen((request) async {
@@ -32,7 +36,9 @@ void main() {
         case '/binance/api/v3/ticker/price' when binanceDown:
           response.statusCode = 451;
         case '/binance/api/v3/ticker/price':
-          response.write('{"symbol":"ZECUSDC","price":"1391.88000000"}');
+          response.write('{"symbol":"ZECUSDC","price":"$binancePrice"}');
+        case '/coinbase/v2/exchange-rates' when coinbaseDown:
+          response.statusCode = 503;
         case '/coinbase/v2/exchange-rates':
           response.write(
             '{"data":{"currency":"ZEC","rates":'
@@ -57,9 +63,25 @@ void main() {
     coinbase: origin.replace(path: '/coinbase'),
   ).minorUnitsPerZec(currency);
 
-  test('USD comes from Binance, and Coinbase is not asked', () async {
+  test('USD is Coinbase\'s figure when Binance agrees with it', () async {
+    // 1391.88 against 1389.05 is 0.2% apart, inside the 2% bound.
+    expect(await price('USD'), 138905);
+    expect(asked, [
+      '/binance/api/v3/ticker/price',
+      '/coinbase/v2/exchange-rates',
+    ]);
+  });
+
+  test('USD is unpriced when the two markets disagree', () async {
+    // USDC off its peg: Binance's ZECUSDC reads 1500.00, 8% over Coinbase's
+    // USD.
+    binancePrice = '1500.00000000';
+    expect(await price('USD'), isNull);
+  });
+
+  test('USD comes from Binance when Coinbase cannot answer', () async {
+    coinbaseDown = true;
     expect(await price('USD'), 139188);
-    expect(asked, ['/binance/api/v3/ticker/price']);
   });
 
   test('USD comes from Coinbase when Binance cannot answer', () async {

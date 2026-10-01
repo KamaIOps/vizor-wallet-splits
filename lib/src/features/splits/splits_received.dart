@@ -7,6 +7,7 @@ import 'package:splitz_core/host.dart' show IncomingTransaction;
 import '../../core/storage/wallet_paths.dart';
 import '../../providers/rpc_endpoint_provider.dart';
 import '../../rust/api/sync.dart' as rust_sync;
+import 'ui/state/splits_controller.dart' show HeldTransaction;
 
 /// Every mined transaction that left this account with more than it had,
 /// with what it brought.
@@ -34,6 +35,28 @@ Future<List<IncomingTransaction>> splitsReceived({
           tx.accountBalanceDelta.toInt(),
         ),
   ];
+}
+
+/// Where each transaction this account's history holds stands, by id in the
+/// byte order a send reports: what a send left unresolved is checked against
+/// before a person may say it did not go through.
+Future<Map<String, HeldTransaction>> splitsHeldTransactions({
+  required WidgetRef ref,
+  required String accountUuid,
+}) async {
+  final history = await rust_sync.getTransactionHistory(
+    dbPath: await getWalletDbPath(),
+    network: ref.read(rpcEndpointProvider).networkName,
+    accountUuid: accountUuid,
+  );
+  return {
+    for (final tx in history)
+      txidForDisplay(tx.txidHex): tx.minedHeight > BigInt.zero
+          ? HeldTransaction.mined
+          : tx.expiredUnmined
+          ? HeldTransaction.expired
+          : HeldTransaction.waiting,
+  };
 }
 
 /// Every transaction id this account's history holds, in the byte order a

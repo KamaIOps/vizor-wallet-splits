@@ -129,14 +129,14 @@ void main() {
       expect(owed.uri, startsWith('zcash:u1ana'));
 
       // §10.5 gives every recipient of one transaction its own payment id, so
-      // the id is the transaction and the payee, and the transaction itself is
-      // the reference. One transaction paying two people writes two records
-      // that the fold keeps apart.
+      // the id is the payer's, then the transaction and the payee (§10.3 step
+      // 5), and the transaction itself is the reference. One transaction
+      // paying two people writes two records that the fold keeps apart.
       final settled = await ben.settle(id, owed);
       expect(settled!.result, splitz.SendResult.sent);
       expect(
         settled.records.single['payment']['id'],
-        '${settled.txid}:${ana.me}',
+        '${ben.me}:${settled.txid}:${ana.me}',
       );
       expect(settled.records.single['payment']['reference'], settled.txid);
 
@@ -147,6 +147,74 @@ void main() {
       final again = (await ben.obligation(id))!;
       expect(again.settlements, isEmpty);
       expect(again.awaiting.single.to, ana.me);
+    },
+  );
+
+  test(
+    'an address this wallet cannot read is left out, and the rest is paid',
+    () async {
+      // A request is read whole: one recipient's address the wallet refuses
+      // would stop the payment to everybody else on it (§14.6).
+      final relay = InMemorySplitsRelay();
+      final anaWallet = FakeWallet();
+      final benWallet = FakeWallet(id: 'ben', payTo: 'u1ben');
+      final catWallet = FakeWallet(id: 'cat', payTo: 'u1cat');
+      final ana = SplitsController(
+        wallet: anaWallet,
+        store: BillStore(InMemoryBillStorage()),
+        keys: SplitsKeys(store: InMemorySecretStore(), random: Random(1)),
+        relay: relay,
+        readsAddress: (address) async => address != 'u1cat',
+      );
+      final ben = controllerFor(benWallet, relay: relay, seed: 2);
+      final cat = controllerFor(catWallet, relay: relay, seed: 3);
+      await ana.load();
+      await ben.load();
+      await cat.load();
+
+      final id = (await ana.createBill(name: 'Dinner', currency: 'EUR'))!;
+      for (final other in [ben, cat]) {
+        await other.acceptKey(id, await ana.billKey(id));
+        await ana.syncBill(id);
+        await other.syncBill(id);
+        await other.join(id, displayName: other == ben ? 'Ben' : 'Cat');
+        await other.syncBill(id);
+      }
+      await ben.syncBill(id);
+      final among = [ana.me, ben.me, cat.me];
+      benWallet.tick();
+      await ben.addExpense(
+        billId: id,
+        paidBy: ben.me,
+        amountMinorUnits: 9000,
+        among: among,
+      );
+      await ben.syncBill(id);
+      await cat.syncBill(id);
+      catWallet.tick();
+      await cat.addExpense(
+        billId: id,
+        paidBy: cat.me,
+        amountMinorUnits: 9000,
+        among: among,
+      );
+      await cat.syncBill(id);
+      await ana.syncBill(id);
+      anaWallet.tick();
+      await ana.setRate(billId: id, currency: 'EUR', minorUnitsPerZec: 51234);
+      expect(ana.lastError, isNull);
+
+      final owed = (await ana.obligation(id))!;
+      expect(owed.unpayable.map((u) => '${u.id == cat.me}:${u.reason}'), [
+        'true:bad_address',
+      ]);
+      expect(owed.carriedTo, {ben.me: 3000});
+      expect(owed.uri, startsWith('zcash:u1ben'));
+
+      final settled = await ana.settle(id, owed);
+      expect(ana.lastError, isNull);
+      expect(settled!.result, splitz.SendResult.sent);
+      expect(settled.records.single['payment']['to'], ben.me);
     },
   );
 

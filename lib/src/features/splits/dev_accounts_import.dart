@@ -7,7 +7,10 @@
 /// kept in whatever log or screenshot the run produced.
 ///
 ///     python3 <splitz_host>/tool/seed-driver.py <seed-file> --port 39200
-///     flutter run --dart-define=SPLITS_SEED_DRIVER_URL=http://127.0.0.1:39200
+///     flutter run --dart-define=SPLITS_SEED_DRIVER_URL=http://127.0.0.1:39200/<token>
+///
+/// The URL is the one the driver prints when it starts: `<token>` is minted
+/// per run, and the driver refuses any caller without it.
 ///
 /// With no `SPLITS_SEED_DRIVER_URL` this asks for nothing and does nothing,
 /// which is the state every shipped build is in.

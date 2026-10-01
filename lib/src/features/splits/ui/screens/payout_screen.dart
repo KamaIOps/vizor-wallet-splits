@@ -76,6 +76,9 @@ class _PayoutScreenState extends State<PayoutScreen> {
   bool _loaded = false;
   bool _saving = false;
 
+  /// Why Save did nothing, when the screen can tell before asking anyone.
+  String? _unsaved;
+
   /// The asset a swap payout asks for. The chain is chosen from where the
   /// provider delivers it; anything else is typed by hand.
   static const _usdc = 'USDC';
@@ -171,11 +174,30 @@ class _PayoutScreenState extends State<PayoutScreen> {
   };
 
   Future<void> _save() async {
-    if (!(_form.currentState?.validate() ?? false)) return;
-    if (_choice == PayoutChoice.swap && !_typed && _pickedChain == null) {
+    // Checked here and not only by the form: the form validates the fields
+    // its list has built, and with many chains the address is below the
+    // fold. Every refusal is said beside Save — a Save that silently stays
+    // put reads as broken.
+    final missing = _choice != PayoutChoice.swap
+        ? null
+        : !_typed && _pickedChain == null
+        ? 'Pick the chain you want USDC on.'
+        : _typed && _asset.text.trim().isEmpty
+        ? 'Name the asset.'
+        : _typed && _chain.text.trim().isEmpty
+        ? 'Name the chain.'
+        : _address.text.trim().isEmpty
+        ? 'Nobody can be paid without an address.'
+        : null;
+    final valid = _form.currentState?.validate() ?? false;
+    if (missing != null || !valid) {
+      setState(() => _unsaved = missing ?? 'Check the fields marked above.');
       return;
     }
-    setState(() => _saving = true);
+    setState(() {
+      _unsaved = null;
+      _saving = true;
+    });
     final controller = SplitsScope.read(context);
     final navigator = Navigator.of(context);
     await controller.setPayouts(
@@ -289,6 +311,16 @@ class _PayoutScreenState extends State<PayoutScreen> {
       appBar: AppBar(title: const Text('How you get paid')),
       bottomNavigationBar: BottomActions(
         children: [
+          // Beside Save rather than at the end of the list: with many chains
+          // the end is below the fold, and a refused Save would look like
+          // nothing happened.
+          if (_unsaved ?? controller.lastError case final said?)
+            Text(
+              said,
+              key: const Key('splits_payout_unsaved'),
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
           FilledButton(
             key: const Key('splits_payout_save'),
             onPressed: _saving ? null : _save,
@@ -379,14 +411,6 @@ class _PayoutScreenState extends State<PayoutScreen> {
               ListTile(
                 title: Text('${p.asset} on ${p.chain}'),
                 subtitle: const Text('Kept from before'),
-              ),
-            if (controller.lastError != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Text(
-                  controller.lastError!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
               ),
           ],
         ),
