@@ -22,6 +22,7 @@ export 'screens/add_expense_screen.dart';
 export 'screens/bill_screen.dart';
 export 'screens/bills_screen.dart';
 export 'screens/new_bill_screen.dart';
+export 'screens/payout_for_screen.dart';
 export 'screens/payout_screen.dart';
 export 'screens/people_screen.dart';
 export 'screens/price_bill_screen.dart';

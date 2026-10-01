@@ -70,20 +70,14 @@ class _ShareBillScreenState extends State<ShareBillScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           if (_payload != null) ...[
-            _Code(
-              label: 'Bill code',
-              about: 'Opens the whole bill on another phone.',
-              value: _payload!,
-            ),
+            _Code(label: 'Bill code', about: _billSentence, value: _payload!),
             const SizedBox(height: 16),
-          ] else if (_tooBig)
-            const _TooBig()
-          else
+          ] else if (!_tooBig)
             const _Loading(),
           if (_inviteLink != null)
             _Code(
               label: 'Invite',
-              about: 'Lets someone join. The bill arrives when they sync.',
+              about: inviteSentence,
               // The https link, in the code as in a message: a phone's camera
               // hands a custom scheme to whichever app claims it, and this
               // key with it. Every scanner here reads the link as the invite.
@@ -95,20 +89,6 @@ class _ShareBillScreenState extends State<ShareBillScreen> {
       ),
     );
   }
-}
-
-/// A bill past the scan cap.
-///
-/// Said plainly, because the remedy is different from an error's: nothing is
-/// broken, the bill has simply outgrown one code.
-class _TooBig extends StatelessWidget {
-  const _TooBig();
-
-  @override
-  Widget build(BuildContext context) => const Padding(
-    padding: EdgeInsets.only(bottom: 12),
-    child: Text('Too big for one code, so share the invite.'),
-  );
 }
 
 class _Loading extends StatelessWidget {
@@ -131,7 +111,7 @@ class _Code extends StatelessWidget {
 
   final String label;
 
-  /// What the code is for, in a line.
+  /// What scanning the code gives, in one sentence.
   final String about;
   final String value;
 
@@ -167,16 +147,15 @@ class _Code extends StatelessWidget {
                 ),
             ],
           ),
-          Text(about),
-          const SizedBox(height: 8),
           Center(
             child: CodeImage(key: Key('splits_qr_$label'), value: value),
           ),
           const SizedBox(height: 8),
+          // One sentence: what scanning gives, which is also the warning.
           Text(
-            'Anyone with this code can read and add to the bill.',
+            about,
             key: Key('splits_code_warning_$label'),
-            style: Theme.of(context).textTheme.bodySmall,
+            textAlign: TextAlign.center,
           ),
         ],
       ),
@@ -185,6 +164,14 @@ class _Code extends StatelessWidget {
 }
 
 const double _qrSize = 240;
+
+/// What scanning the whole-bill code gives.
+const String _billSentence =
+    'Anyone who scans this sees the whole bill and can add to it.';
+
+/// What scanning the invite gives.
+const String inviteSentence =
+    'Anyone who scans this can join the bill and add to it.';
 
 /// A code drawn as a QR image, holding the string it draws.
 class CodeImage extends StatelessWidget {

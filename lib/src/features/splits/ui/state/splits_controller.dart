@@ -102,6 +102,15 @@ class BillView {
   /// front of a payer before settling to it.
   final List<protocol.ReplacedAddress> replacedAddresses;
 
+  /// The [replacedAddresses] that moved money away from an address somebody
+  /// had: the ones a payer is warned about. A first address, where there was
+  /// none, redirects nothing; an unbound person's is flagged on the send
+  /// review instead (`splits_review_unbound_`).
+  List<protocol.ReplacedAddress> get redirectedAddresses => [
+    for (final r in replacedAddresses)
+      if (r.from != null) r,
+  ];
+
   /// Which keys §10.7 binds, and which ids two keys each claim.
   final protocol.Identities identities;
 
@@ -653,6 +662,81 @@ class SplitsController extends ChangeNotifier {
     });
   }
 
+  /// Writes each expense in [splits] — keyed by the entry that added it —
+  /// again under the split given, withdrawing the one it replaces (§10.8).
+  ///
+  /// A withdrawal and a new expense rather than an amendment: §10.8 counts a
+  /// person as named while either an amendment or the entry it corrects names
+  /// them, so only this lets somebody come off the bill afterwards. Every
+  /// pair goes in one write, so the bill never holds an expense twice or
+  /// loses one between them.
+  Future<void> restateExpenses({
+    required String billId,
+    required Map<String, Map<String, dynamic>> splits,
+  }) async {
+    await _guard(() async {
+      final folded = await _storedFold(billId);
+      final seed = await _requireIdentity();
+      final host = _host(seed);
+      final written = <Map<String, dynamic>>[];
+      for (final MapEntry(key: entryId, value: split) in splits.entries) {
+        final expense = folded.bill.expenses
+            .where((e) => folded.expenseEntries[e.id] == entryId)
+            .firstOrNull;
+        if (expense == null) {
+          throw protocol.SplitError(
+            protocol.SplitCode.unknownEntry,
+            'This device does not hold the expense being corrected',
+          );
+        }
+        written
+          ..add(
+            await splitz.signEntry(
+              host: host,
+              entry: splitz.addExpense(
+                host: host,
+                expenseId: _expenseId(),
+                paidBy: expense.paidBy,
+                amount: expense.amount,
+                split: split,
+                description: expense.description.isEmpty
+                    ? null
+                    : expense.description,
+              ),
+              billId: billId,
+            ),
+          )
+          ..add(
+            await splitz.signEntry(
+              host: host,
+              entry: splitz.voidEntry(host: host, targetId: entryId),
+              billId: billId,
+            ),
+          );
+      }
+      // Folded first, and written only when every entry applies: a new
+      // expense whose withdrawal was refused would count it twice.
+      final trial = await foldVerified(
+        _wallet,
+        [...await _store.read(billId), ...written],
+        billId: billId,
+        signer: _signer,
+        seed: seed,
+      );
+      final refused = trial.setAside
+          .where((a) => written.any((w) => w['id'] == a.id))
+          .firstOrNull;
+      if (refused != null) {
+        throw SplitsRefusal(
+          protocol.describeCode(refused.code) ??
+              'Not applied: ${refused.code}.',
+        );
+      }
+      if (!await _mergeWhileHeld(billId, written)) throw _removed;
+      await _refresh();
+    });
+  }
+
   /// Withdraws an entry (§10.8).
   ///
   /// It stays in the log and comes off the bill: removing it outright would
@@ -768,6 +852,48 @@ class SplitsController extends ChangeNotifier {
         host: _HostAs(host, id),
         name: who.name,
         payTo: trimmed,
+      );
+      await _mergeChecked(billId, entry);
+    });
+  }
+
+  /// Asks for [id]'s debts to be paid by [payout] — USDC swapped from ZEC, or
+  /// cash (§9.1) — for somebody added by name.
+  ///
+  /// Written as [setAddressFor] writes an address: their record, rewritten
+  /// with [payout] as the first way to pay them. A Zcash address already on
+  /// it stays after it, so a payer who cannot reach that way may still pay by
+  /// Zcash (§14.8). Refused for somebody bound to a key, who says this
+  /// themselves.
+  Future<void> setPayoutFor({
+    required String billId,
+    required String id,
+    required splitz.Payout payout,
+  }) async {
+    await _guard(() async {
+      final view = bills.where((b) => b.id == billId).firstOrNull;
+      final who = view?.bill.participant(id);
+      if (view == null || who == null) {
+        throw const SplitsRefusal('That person is not on this bill.');
+      }
+      if (view.identities.bound.containsKey(id)) {
+        throw SplitsRefusal('${who.name} sets how they get paid.');
+      }
+      if (payout.type == 'swap' && (payout.address ?? '').trim().isEmpty) {
+        throw const SplitsRefusal('Nobody can be paid without an address.');
+      }
+      final seed = await _requireIdentity();
+      final host = _host(seed);
+      final payTo = who.payTo;
+      final entry = splitz.joinBill(
+        host: _HostAs(host, id),
+        name: who.name,
+        payTo: payTo,
+        payouts: [
+          _payoutJson(payout),
+          if (payTo != null && payTo.isNotEmpty)
+            _payoutJson(splitz.Payout(type: 'zec', address: payTo)),
+        ],
       );
       await _mergeChecked(billId, entry);
     });

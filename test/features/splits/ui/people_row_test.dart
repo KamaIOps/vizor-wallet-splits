@@ -62,12 +62,80 @@ void main() {
     await t.pumpWidget(app(c, BillScreen(billId: id)));
     await t.pumpAndSettle();
 
+    final rowArea = find.byKey(const Key('splits_bill_people_row'));
     final row = t.widget<SingleChildScrollView>(
-      find.byKey(const Key('splits_bill_people_row')),
+      find.descendant(
+        of: rowArea,
+        matching: find.byType(SingleChildScrollView),
+      ),
     );
     expect(row.scrollDirection, Axis.horizontal);
+    // A row past the screen's edge shows that there is more of it.
+    final bar = t.widget<Scrollbar>(
+      find.descendant(of: rowArea, matching: find.byType(Scrollbar)),
+    );
+    expect(bar.thumbVisibility, isTrue);
     final first = t.getRect(find.byKey(const Key('splits_bill_person_p0')));
     final last = t.getRect(find.byKey(const Key('splits_bill_person_p9')));
     expect(last.top, first.top, reason: 'one row, not wrapped');
+  });
+
+  testWidgets('the bill menu reads in the app\'s body text', (t) async {
+    final c = controllerFor();
+    await c.load();
+    final id = (await c.createBill(name: 'Trip', currency: 'USD'))!;
+    await t.pumpWidget(app(c, BillScreen(billId: id)));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const Key('splits_bill_menu')));
+    await t.pumpAndSettle();
+
+    final body = Theme.of(
+      t.element(find.byType(BillScreen)),
+    ).textTheme.bodyLarge!;
+    final shown = t
+        .widget<DefaultTextStyle>(
+          find
+              .ancestor(
+                of: find.text('How you get paid'),
+                matching: find.byType(DefaultTextStyle),
+              )
+              .first,
+        )
+        .style;
+    expect(shown.fontSize, body.fontSize);
+    expect(shown.letterSpacing, body.letterSpacing);
+  });
+
+  testWidgets('the bill shows amounts in its currency, with its sign, and '
+      'no ZEC price', (t) async {
+    final c = controllerFor();
+    late String id;
+    await t.runAsync(() async {
+      await c.load();
+      id = (await c.createBill(name: 'Trip', currency: 'USD'))!;
+      await c.addPerson(billId: id, id: 'ben', name: 'Ben');
+      await c.addExpense(
+        billId: id,
+        paidBy: 'ben',
+        amountMinorUnits: 2000,
+        among: [c.me, 'ben'],
+      );
+      await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+    });
+    await t.pumpWidget(app(c, BillScreen(billId: id)));
+    await t.pumpAndSettle();
+
+    expect(find.text(r'$20.00'), findsOneWidget);
+    expect(find.textContaining('ZEC'), findsNothing);
+
+    await t.tap(find.byKey(const Key('splits_bill_menu')));
+    await t.pumpAndSettle();
+    expect(find.text('Price in ZEC'), findsNothing);
+  });
+
+  test('a sign goes before the figure, and after any minus', () {
+    expect(formatWithSymbol(300000, 'USD'), r'$3000.00');
+    expect(formatWithSymbol(-500, 'USD'), r'-$5.00');
+    expect(formatWithSymbol(1200, 'CHF'), '12.00 CHF');
   });
 }

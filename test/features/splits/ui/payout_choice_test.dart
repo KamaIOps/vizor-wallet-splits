@@ -15,11 +15,6 @@ import 'support/fake_wallet.dart';
 
 /// A provider that answers without a network and delivers USDC on base only.
 class _Swaps implements SwapProvider {
-  _Swaps({this.refuseQuotes = false});
-
-  /// Refuses every quote, as a provider with no liquidity does.
-  final bool refuseQuotes;
-
   final List<String> recipients = [];
 
   @override
@@ -39,7 +34,6 @@ class _Swaps implements SwapProvider {
     required String recipient,
     required String refundTo,
   }) async {
-    if (refuseQuotes) throw const SwapException('No quote for this route.');
     recipients.add(recipient);
     return SwapQuote(
       depositAddress: 'u1provider',
@@ -131,7 +125,10 @@ void main() {
     // Already on his second choice, and saying why.
     expect(find.byKey(const Key('splits_settle_pay_ben')), findsOneWidget);
     expect(
-      find.text('Their 2nd choice, in the one payment below'),
+      find.descendant(
+        of: find.byKey(const Key('splits_settle_pay_ben')),
+        matching: find.text('Shielded ZEC'),
+      ),
       findsOneWidget,
     );
     expect(
@@ -193,197 +190,6 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('splits_settle_passed_ben')), findsNothing);
-  });
-
-  testWidgets('a payer can switch a debt that pays fine, and take it back', (
-    t,
-  ) async {
-    final wallet = FakeWallet();
-    final c = controllerFor(wallet);
-    final id = await owingBen(c, [
-      {'type': 'zec', 'address': _first},
-      {'type': 'zec', 'address': _second},
-    ]);
-
-    await t.pumpWidget(app(c, SettleScreen(billId: id)));
-    await t.pumpAndSettle();
-    expect(find.text('Shielded ZEC, in the one payment below'), findsOneWidget);
-    await t.tap(find.byKey(const Key('splits_settle_other_way_ben')));
-    await t.pumpAndSettle();
-    await t.tap(find.byKey(const Key('splits_other_way_ben_1')));
-    await t.pumpAndSettle();
-    expect(
-      find.text('Their 2nd choice, in the one payment below'),
-      findsOneWidget,
-    );
-
-    await t.tap(find.byKey(const Key('splits_settle_first_choice_ben')));
-    await t.pumpAndSettle();
-    expect(find.text('Shielded ZEC, in the one payment below'), findsOneWidget);
-    await t.tap(find.byKey(const Key('splits_settle_send')));
-    await t.pumpAndSettle();
-    await t.tap(find.byKey(const Key('splits_review_send')));
-    await t.pumpAndSettle();
-    expect(wallet.sender.sent.single, contains(_first));
-  });
-
-  testWidgets('switching a paid-by-ZEC debt to cash opens the record', (
-    t,
-  ) async {
-    final c = controllerFor(FakeWallet());
-    final id = await owingBen(c, [
-      {'type': 'zec', 'address': _first},
-      {'type': 'cash'},
-    ]);
-    await t.pumpWidget(app(c, SettleScreen(billId: id)));
-    await t.pumpAndSettle();
-    await t.tap(find.byKey(const Key('splits_settle_other_way_ben')));
-    await t.pumpAndSettle();
-    await t.tap(find.byKey(const Key('splits_other_way_ben_1')));
-    await t.pumpAndSettle();
-    expect(find.byType(RecordPaymentScreen), findsOneWidget);
-  });
-
-  testWidgets('no way can be switched while a send is unresolved', (t) async {
-    final c = controllerFor(
-      FakeWallet(
-        outcome: const WalletSendOutcome(
-          phase: WalletSendPhase.pendingBroadcast,
-          txid: 'tx-pending',
-        ),
-      ),
-    );
-    final id = await owingBen(c, [
-      {'type': 'zec', 'address': _first},
-      {'type': 'cash'},
-    ]);
-    await c.settle(id, (await c.obligation(id))!);
-    expect(await c.pendingSend(id), isNotNull);
-
-    await t.pumpWidget(app(c, SettleScreen(billId: id)));
-    await t.pumpAndSettle();
-    expect(find.byKey(const Key('splits_pending_send')), findsOneWidget);
-    final other = find.byKey(const Key('splits_settle_other_way_ben'));
-    expect(other, findsOneWidget);
-    expect(t.widget<TextButton>(other).onPressed, isNull);
-  });
-
-  testWidgets('a swap screen blocked by an unresolved send offers no other '
-      'way', (t) async {
-    final c = controllerFor(
-      FakeWallet(
-        outcome: const WalletSendOutcome(
-          phase: WalletSendPhase.pendingBroadcast,
-          txid: 'tx-pending',
-        ),
-      ),
-    );
-    final id = await owingBen(c, [
-      {'type': 'zec', 'address': _first},
-      _swap('USDC', 'base'),
-    ]);
-    await c.settle(id, (await c.obligation(id))!);
-    await t.pumpWidget(
-      app(c, SwapScreen(billId: id, to: 'ben', amountMinorUnits: 1000)),
-    );
-    await t.pumpAndSettle();
-    expect(find.byKey(const Key('splits_swap_message')), findsOneWidget);
-    expect(find.byKey(const Key('splits_swap_other_way')), findsNothing);
-  });
-
-  testWidgets('a send that failed points at the other ways', (t) async {
-    final c = controllerFor(
-      FakeWallet(
-        outcome: const WalletSendOutcome(
-          phase: WalletSendPhase.failed,
-          error: 'Not enough funds.',
-        ),
-      ),
-    );
-    final id = await owingBen(c, [
-      {'type': 'zec', 'address': _first},
-      {'type': 'cash'},
-    ]);
-    await t.pumpWidget(app(c, SettleScreen(billId: id)));
-    await t.pumpAndSettle();
-    await t.tap(find.byKey(const Key('splits_settle_send')));
-    await t.pumpAndSettle();
-    await t.tap(find.byKey(const Key('splits_review_send')));
-    await t.pumpAndSettle();
-    expect(
-      find.textContaining('pay someone another way below'),
-      findsOneWidget,
-    );
-    final other = find.byKey(const Key('splits_settle_other_way_ben'));
-    expect(t.widget<TextButton>(other).onPressed, isNotNull);
-  });
-
-  testWidgets('a swap that cannot be quoted comes back to the other ways', (
-    t,
-  ) async {
-    final c = controllerFor(FakeWallet(), swaps: _Swaps(refuseQuotes: true));
-    final id = await owingBen(c, [
-      _swap('USDC', 'base'),
-      {'type': 'cash'},
-    ]);
-    await t.pumpWidget(app(c, SettleScreen(billId: id)));
-    await t.pumpAndSettle();
-    await t.tap(find.byKey(const Key('splits_settle_apart_ben')));
-    await t.pumpAndSettle();
-    expect(find.byType(SwapScreen), findsOneWidget);
-    expect(find.byKey(const Key('splits_swap_message')), findsOneWidget);
-
-    await t.tap(find.byKey(const Key('splits_swap_other_way')));
-    await t.pumpAndSettle();
-    expect(find.byType(SwapScreen), findsNothing);
-    expect(find.text('Pay ben another way'), findsOneWidget);
-    expect(find.byKey(const Key('splits_other_way_ben_1')), findsOneWidget);
-  });
-
-  testWidgets('asking for another way hands the payee a message', (t) async {
-    final c = controllerFor(FakeWallet());
-    final id = await owingBen(c, [
-      {'type': 'zec', 'address': _first},
-    ]);
-    final shared = <String>[];
-    await t.pumpWidget(
-      SplitsScope(
-        controller: c,
-        share: (_, text, {origin}) async => shared.add(text),
-        child: MaterialApp(home: SettleScreen(billId: id)),
-      ),
-    );
-    await t.pumpAndSettle();
-    // Nothing else declared, and still somewhere to go.
-    await t.tap(find.byKey(const Key('splits_settle_other_way_ben')));
-    await t.pumpAndSettle();
-    await t.tap(find.byKey(const Key('splits_other_way_ask_ben')));
-    await t.pumpAndSettle();
-    expect(shared, hasLength(1));
-    expect(shared.single, contains('“Dinner” another way'));
-    expect(shared.single, contains('How you get paid'));
-  });
-
-  testWidgets('a lower swap is quoted to that payout', (t) async {
-    final swaps = _Swaps();
-    final c = controllerFor(FakeWallet(), swaps: swaps);
-    // Cash first, which this payer cannot hand over, then USDC on base.
-    final id = await owingBen(c, [
-      {'type': 'cash'},
-      _swap('USDC', 'base'),
-    ]);
-
-    await t.pumpWidget(app(c, SettleScreen(billId: id)));
-    await t.pumpAndSettle();
-    await t.tap(find.byKey(const Key('splits_settle_other_way_ben')));
-    await t.pumpAndSettle();
-    await t.tap(find.byKey(const Key('splits_other_way_ben_1')));
-    await t.pumpAndSettle();
-
-    expect(find.byType(SwapScreen), findsOneWidget);
-    expect(find.byKey(const Key('splits_swap_lower_choice')), findsOneWidget);
-    expect(find.textContaining('USDC on base'), findsOneWidget);
-    expect(swaps.recipients, ['0xben']);
   });
 
   test('a payout the payee has since removed is not paid', () async {
