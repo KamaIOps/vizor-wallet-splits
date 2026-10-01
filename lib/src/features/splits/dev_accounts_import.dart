@@ -6,11 +6,14 @@
 /// into the binary, printed by every tool that dumps a build's defines, and
 /// kept in whatever log or screenshot the run produced.
 ///
-///     python3 <splitz_host>/tool/seed-driver.py <seed-file> --port 39200
-///     flutter run --dart-define=SPLITS_SEED_DRIVER_URL=http://127.0.0.1:39200/<token>
+///     python3 <splitz_host>/tool/seed-driver.py <seed-file> --port 39200 \
+///         --define-file /tmp/driver.json
+///     flutter run --dart-define-from-file=/tmp/driver.json
 ///
-/// The URL is the one the driver prints when it starts: `<token>` is minted
-/// per run, and the driver refuses any caller without it.
+/// The file holds `SPLITS_SEED_DRIVER_URL`, whose `<token>` is minted per run;
+/// the driver refuses any caller without it. It is readable by its owner only
+/// and deleted when the driver stops, where a URL passed as `--dart-define`
+/// sits on the command line every process on the machine can read.
 ///
 /// With no `SPLITS_SEED_DRIVER_URL` this asks for nothing and does nothing,
 /// which is the state every shipped build is in.
@@ -63,7 +66,12 @@ Future<int> importDevAccounts({
 
   final driver = SeedDriver(origin: Uri.parse(seedDriverUrl), fetch: _fetch);
   if (!await driver.isUp) {
-    log('dev accounts: no seed driver at $seedDriverUrl; importing nothing');
+    log(
+      redactSeedDriverToken(
+        'dev accounts: no seed driver at $seedDriverUrl; importing nothing',
+        seedDriverUrl,
+      ),
+    );
     return 0;
   }
 
@@ -88,7 +96,12 @@ Future<int> importDevAccounts({
     } on Object catch (e) {
       // Named, and the run carries on: one wallet the driver cannot serve
       // should not stop the others arriving.
-      log('dev accounts: ${account.name} failed: $e');
+      log(
+        redactSeedDriverToken(
+          'dev accounts: ${account.name} failed: $e',
+          seedDriverUrl,
+        ),
+      );
     }
   }
   return imported;
@@ -100,12 +113,29 @@ Future<String> _fetch(Uri url) async {
     final response = await (await client.getUrl(url)).close();
     final body = await response.transform(utf8.decoder).join();
     if (response.statusCode >= 400) {
-      throw HttpException('${response.statusCode} for $url');
+      throw HttpException(
+        '${response.statusCode} for '
+        '${redactSeedDriverToken('$url', seedDriverUrl)}',
+      );
     }
     return body;
   } finally {
     client.close();
   }
+}
+
+/// [message] with every path segment of [driverUrl] written as `<token>`.
+///
+/// The path is the driver's per-run token, and whoever holds it can fetch
+/// every phrase the driver serves while it runs. The driver keeps it out of
+/// its own request log; a line logged here keeps it out of the app's.
+String redactSeedDriverToken(String message, String driverUrl) {
+  final segments = Uri.tryParse(driverUrl)?.pathSegments ?? const <String>[];
+  var out = message;
+  for (final segment in segments) {
+    if (segment.isNotEmpty) out = out.replaceAll(segment, '<token>');
+  }
+  return out;
 }
 
 /// The height [account] should be scanned from.

@@ -182,9 +182,24 @@ class _SettleScreenState extends State<SettleScreen> {
       live = null;
     }
     if (!mounted) return;
-    final current =
-        controller.bills.where((b) => b.id == widget.billId).firstOrNull ??
-        view;
+    // The review's rate, its setter and its warnings come from this view, so
+    // it is folded from the same store the request was priced from. A rate
+    // that moved after the pricing is a bill that changed.
+    final current = await controller.currentView(widget.billId) ?? view;
+    if (!mounted) return;
+    final rate = current.bill.rate;
+    if (rate == null ||
+        rate.currency != owed.rate.currency ||
+        rate.minorUnitsPerZec != owed.rate.minorUnitsPerZec ||
+        rate.at != owed.rate.at) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text('The bill changed. Check the amounts again.'),
+        ),
+      );
+      await _load();
+      return;
+    }
     final via = _via;
     final confirmed = await showDialog<bool>(
       context: context,
@@ -359,8 +374,11 @@ class _SettleScreenState extends State<SettleScreen> {
       ),
     );
     if (sure != true || !mounted) return;
+    // Stops at the first refusal and leaves it on screen, so it is read
+    // before anything else is withdrawn.
     for (final entryId in records) {
       await controller.withdraw(billId: widget.billId, entryId: entryId);
+      if (controller.lastError != null) break;
     }
     if (mounted) await _load();
   }
