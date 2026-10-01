@@ -86,7 +86,10 @@ class SplitsNavigatorState extends State<SplitsNavigator> {
           navigator.pop();
           return;
         }
-        Navigator.of(context).maybePop();
+        // Nothing of the feature's own is left, so it is left. `pop`, not
+        // `maybePop`: `maybePop` asks this same scope again, which refuses
+        // again, and the person can never leave.
+        Navigator.of(context).pop();
       },
       child: ScrollConfiguration(
         behavior: const _WithScrollbar(),

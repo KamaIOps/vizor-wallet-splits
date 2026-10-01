@@ -19,21 +19,45 @@ import '../../core/storage/app_secure_store.dart';
 /// Bill keys and this account's signing identity live here rather than beside
 /// the bills: a bill key in ordinary storage is a bill key anything that can
 /// read the app's sandbox can use.
+///
+/// Per account: [accountUuid] is appended to every name (`<name>@<uuid>`), so
+/// one account's bill keys are never another's, and removing an account can
+/// find everything it kept. Every name still begins `splitz_`, which is what a
+/// passcode change re-encrypts.
+///
+/// A name written before accounts were kept apart is read once, moved under
+/// this account and deleted. Otherwise an existing identity seed would read
+/// as absent and a new one would be minted, changing who this person is on
+/// every bill they are on.
 class KeychainSecretStore implements SecretStore {
-  KeychainSecretStore({AppSecureStore? store})
+  KeychainSecretStore({required this.accountUuid, AppSecureStore? store})
     : _store = store ?? AppSecureStore.instance;
 
+  final String accountUuid;
   final AppSecureStore _store;
 
+  String _name(String key) => '$key@$accountUuid';
+
   @override
-  Future<String?> read(String key) => _store.readSecretStringWithOptions(key);
+  Future<String?> read(String key) async {
+    final held = await _store.readSecretStringWithOptions(_name(key));
+    if (held != null) return held;
+    final legacy = await _store.readSecretStringWithOptions(key);
+    if (legacy == null) return null;
+    await _store.writeSecretString(_name(key), legacy);
+    await _store.delete(key);
+    return legacy;
+  }
 
   @override
   Future<void> write(String key, String value) =>
-      _store.writeSecretString(key, value);
+      _store.writeSecretString(_name(key), value);
 
   @override
-  Future<void> delete(String key) => _store.delete(key);
+  Future<void> delete(String key) async {
+    await _store.delete(_name(key));
+    await _store.delete(key);
+  }
 }
 
 /// Proposes and broadcasts one transaction for a whole payment request.
@@ -87,7 +111,7 @@ class VizorSplitsWallet implements SplitsWallet {
          // the wallet database at import and does not.
          identitySecret: identitySecret,
        ),
-       secrets = secrets ?? KeychainSecretStore(),
+       secrets = secrets ?? KeychainSecretStore(accountUuid: accountUuid),
        _randomBytes = randomBytes,
        _clock = clock;
 

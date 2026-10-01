@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:splitz_core/host.dart' as splitz;
 import 'package:splitz_core/splitz_core.dart' as protocol;
-import 'package:splitz_host/splitz_host.dart' show PendingSend;
+import 'package:splitz_host/splitz_host.dart' show BillEventKind, PendingSend;
 
 import '../state/splits_controller.dart';
 import '../view/chrome.dart';
@@ -457,6 +457,26 @@ class _SettleScreenState extends State<SettleScreen> {
               message: 'This bill cannot be settled from here: $_loadError',
               error: true,
             ),
+          // A payment this device recorded and somebody withdrew: asked again
+          // for the same debt, the payer is told the first may have landed
+          // before sending a second.
+          for (final e in view.activity)
+            if (e.kind == BillEventKind.paymentRecorded &&
+                e.withdrawn &&
+                e.author == controller.me &&
+                e.method == 'shieldedZec')
+              NoticeCard(
+                key: Key('splits_settle_withdrawn_${e.entryId}'),
+                message:
+                    'Your payment of '
+                    '${formatAmount(e.amountMinorUnits ?? 0, currency)} to '
+                    '${who(e.subject ?? '')}'
+                    '${e.reference == null ? '' : ' (transaction ${e.reference!.length > 8 ? '${e.reference!.substring(0, 8)}…' : e.reference})'} '
+                    'was withdrawn. Check your wallet\'s history before '
+                    'paying again: if it went out, ask them to look again '
+                    'rather than sending twice.',
+                error: true,
+              ),
           if (_pending != null)
             _PendingSend(
               intent: _pending!,
@@ -567,7 +587,12 @@ class _SettleScreenState extends State<SettleScreen> {
                         ? 'Sent, waiting for them'
                         : 'Sent for ${who(a.to)}, waiting for them',
                   ),
-                  trailing: formatAmount(a.paid, currency),
+                  // What was sent against what is owed: a debt that grew
+                  // after the payment is otherwise shown nowhere.
+                  trailing: a.owed > a.paid
+                      ? '${formatAmount(a.paid, currency)} of '
+                            '${formatAmount(a.owed, currency)}'
+                      : formatAmount(a.paid, currency),
                 ),
               ),
               // The record of a payment that never left the wallet holds the
@@ -962,7 +987,7 @@ String? payerSummary(
     }
   }
   final parts = [
-    if (zatoshi > 0) '${protocol.renderAmount(zatoshi)} ZEC',
+    if (zatoshi > 0) formatZec(zatoshi),
     if (swap > 0) '${formatAmount(swap, currency)} by swap',
     if (cash > 0) '${formatAmount(cash, currency)} in cash',
     if (none > 0) '${formatAmount(none, currency)} not payable yet',
@@ -1079,8 +1104,7 @@ class _RateLine extends StatelessWidget {
 }
 
 /// ZEC, with every digit of the zatoshi figure (§8.2).
-String _zec(int zatoshi) =>
-    zatoshi > 0 ? '${protocol.renderAmount(zatoshi)} ZEC' : '0 ZEC';
+String _zec(int zatoshi) => formatZec(zatoshi);
 
 /// The request as the wallet will send it, for the payer to accept (§14.2).
 ///

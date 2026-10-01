@@ -59,13 +59,9 @@ class PeopleScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          for (final p in view.bill.participants)
-            _PersonTile(
-              billId: billId,
-              view: view,
-              participant: p,
-              isMe: p.id == controller.me,
-            ),
+          // Above the list, not after it: a list long enough to scroll
+          // builds its end only when reached, and a refusal nobody sees makes
+          // the tap look as if it did nothing.
           if (controller.lastError != null)
             Padding(
               padding: const EdgeInsets.all(16),
@@ -74,6 +70,13 @@ class PeopleScreen extends StatelessWidget {
                 key: const Key('splits_people_error'),
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
+            ),
+          for (final p in view.bill.participants)
+            _PersonTile(
+              billId: billId,
+              view: view,
+              participant: p,
+              isMe: p.id == controller.me,
             ),
         ],
       ),
@@ -169,13 +172,11 @@ class _PersonTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // The name gives way to the badge, which says which row is
-                // this device's.
+                // The name wraps rather than ending in an ellipsis: two people
+                // whose names share a long start are otherwise one row twice.
                 Row(
                   children: [
-                    Flexible(
-                      child: Text(name, overflow: TextOverflow.ellipsis),
-                    ),
+                    Flexible(child: Text(name)),
                     if (isMe)
                       const Padding(
                         padding: EdgeInsets.only(left: 8),

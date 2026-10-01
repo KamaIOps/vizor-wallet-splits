@@ -158,6 +158,20 @@ class _SwapScreenState extends State<SwapScreen> {
         quote.hasExpired(
           protocol.canonicalInstant(DateTime.now().toUtc().toIso8601String()),
         );
+    // The quote's ZEC is the bill's rate applied to the debt when it was
+    // asked. A rate changed since leaves the figure above describing a price
+    // the bill no longer holds, so the quote is stale however long it has.
+    final rate = view.bill.rate;
+    final repriced =
+        quote != null &&
+        (rate == null ||
+            quote.amountInZatoshi !=
+                protocol.fiatToZatoshi(
+                  widget.amountMinorUnits,
+                  rate,
+                  amountCurrency: view.bill.currency,
+                ));
+    final error = Theme.of(context).colorScheme.error;
 
     return Scaffold(
       appBar: AppBar(title: Text('Pay $who in another asset')),
@@ -212,6 +226,48 @@ class _SwapScreenState extends State<SwapScreen> {
                                 '(quoted '
                                 '${formatBaseUnits(quote.amountOut, quote.asset.decimals)})',
                     ),
+                    // What the recipient is guaranteed, against the debt,
+                    // where one asset is the bill's currency by another name:
+                    // the provider's costs come out of the floor, and the
+                    // record still says the whole debt was paid.
+                    if (_shortOfDebt(
+                          quote,
+                          widget.amountMinorUnits,
+                          view.bill.currency,
+                        )
+                        case final short?)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          '$who is guaranteed '
+                          '${formatAmount(widget.amountMinorUnits - short, view.bill.currency)}, '
+                          '${formatAmount(short, view.bill.currency)} less than '
+                          'the debt: the provider\'s costs come out of what '
+                          'they receive.',
+                          key: const Key('splits_swap_short'),
+                          style: TextStyle(color: error),
+                        ),
+                      ),
+                    if (quote.recipient case final recipient?)
+                      _Line(
+                        label: '$who receives at',
+                        // The payout this swap delivers to, as the bill states
+                        // it: what the payer checks with the payee.
+                        value: recipient,
+                        monospace: true,
+                      ),
+                    // §10.7: an id no key is bound to is a name anyone on the
+                    // bill can write for, payout included.
+                    if (!view.identities.bound.containsKey(widget.to))
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          '$who hasn’t joined on their phone. Check this '
+                          'address with them.',
+                          key: Key('splits_swap_unbound_${widget.to}'),
+                          style: TextStyle(color: error),
+                        ),
+                      ),
                     _Line(
                       label: 'Deposit address',
                       // The provider's, for this one swap. Not the
@@ -239,14 +295,17 @@ class _SwapScreenState extends State<SwapScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(12),
                 child: Text(
-                  expired
+                  repriced
+                      ? 'The bill’s price changed since this quote. Get a new one.'
+                      : expired
                       ? 'Quote expired. Get a new one.'
                       : 'They confirm once it arrives.',
+                  key: const Key('splits_swap_state'),
                 ),
               ),
             ),
             const SizedBox(height: 16),
-            if (expired)
+            if (expired || repriced)
               FilledButton(
                 key: const Key('splits_swap_requote'),
                 onPressed: _working ? null : _quoteIt,
@@ -295,6 +354,25 @@ class _SwapScreenState extends State<SwapScreen> {
         ],
       ),
     );
+  }
+
+  /// How far [quote]'s guaranteed floor falls short of [debt], in minor units
+  /// of [currency], when the asset is a dollar token and the bill is in
+  /// dollars; null when it does not, or when nothing can be compared.
+  ///
+  /// A USDC or USDT is read as one US dollar, as the price reader reads it.
+  static int? _shortOfDebt(SwapQuote quote, int debt, String currency) {
+    final symbol = quote.asset.symbol.toUpperCase();
+    if (currency != 'USD' || (symbol != 'USDC' && symbol != 'USDT')) {
+      return null;
+    }
+    final floor = BigInt.tryParse(quote.minAmountOut ?? quote.amountOut);
+    final decimals = quote.asset.decimals;
+    if (floor == null || decimals < 2) return null;
+    // Base units to cents: one token is 10^decimals units and 100 cents.
+    final cents = floor ~/ BigInt.from(10).pow(decimals - 2);
+    final short = BigInt.from(debt) - cents;
+    return short > BigInt.zero ? short.toInt() : null;
   }
 
   /// Zatoshi as ZEC, by integer arithmetic. One ZEC is 100_000_000 zatoshi.

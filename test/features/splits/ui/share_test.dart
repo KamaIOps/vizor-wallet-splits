@@ -48,7 +48,13 @@ void main() {
     await t.tap(find.byKey(const Key('splits_share_Invite')));
     await t.pump();
 
-    final invite = await c.inviteFor(id);
+    // The invite the screen issues says when its sender stops standing
+    // behind it: 30 days on, by this device's clock (§11.1).
+    final invite = await c.inviteFor(
+      id,
+      expiry: c.now().add(const Duration(days: 30)),
+    );
+    expect(invite, contains('&x='));
     expect(shared.first, await c.shareableBill(id));
     // A chat app shows an https link as one to tap; the invite rides in its
     // fragment, and every reader takes it as the invite the code shows.
