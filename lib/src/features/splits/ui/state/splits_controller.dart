@@ -279,7 +279,10 @@ class SplitsController extends ChangeNotifier {
   /// The participant id [_identityKey] derives (§10.7), once it is loaded.
   String? _participant;
   String? _lastError;
-  bool _busy = false;
+
+  /// Actions in flight. A count, not a flag: two that overlap would otherwise
+  /// report the device idle when the first of them finishes.
+  int _running = 0;
 
   /// Every bill this device holds, newest first.
   List<BillView> get bills => _bills;
@@ -354,7 +357,7 @@ class SplitsController extends ChangeNotifier {
 
   /// Whether an action is in flight. A screen shows it rather than letting a
   /// second tap start the same work twice.
-  bool get busy => _busy;
+  bool get busy => _running > 0;
 
   /// This account's public signing key, once [load] has run.
   String? get identityKey => _identityKey;
@@ -1135,9 +1138,13 @@ class SplitsController extends ChangeNotifier {
   DateTime? receivedAt(String txid) => _times[splitz.txidKey(txid)];
 
   /// Merges entries that arrived from a scan or a relay.
+  ///
+  /// Written only while this device holds the bill's key, as every other
+  /// write is: a bill forgotten between taking its key and merging would
+  /// otherwise be stored without one.
   Future<void> accept(String billId, List<Map<String, dynamic>> entries) async {
     await _guard(() async {
-      await _store.merge(billId, entries);
+      if (!await _mergeWhileHeld(billId, entries)) throw _removed;
       await _refresh();
     });
   }
@@ -2433,7 +2440,7 @@ class SplitsController extends ChangeNotifier {
   }
 
   Future<void> _guard(Future<void> Function() body) async {
-    _busy = true;
+    _running++;
     _lastError = null;
     notifyListeners();
     try {
@@ -2443,7 +2450,7 @@ class SplitsController extends ChangeNotifier {
       // exactly like one that worked.
       _lastError = _describe(e);
     } finally {
-      _busy = false;
+      _running--;
       notifyListeners();
     }
   }
