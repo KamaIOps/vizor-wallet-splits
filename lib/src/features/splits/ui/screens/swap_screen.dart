@@ -39,10 +39,6 @@ class SwapScreen extends StatefulWidget {
   /// Minor units of the bill's currency (§2.1).
   final int amountMinorUnits;
 
-  /// What this screen pops with when the payer asks to pay [to] another way
-  /// after the swap could not be quoted or sent.
-  static const anotherWay = 'another-way';
-
   @override
   State<SwapScreen> createState() => _SwapScreenState();
 }
@@ -52,10 +48,6 @@ class _SwapScreenState extends State<SwapScreen> {
   WalletSendOutcome? _outcome;
   bool _working = false;
   String? _message;
-
-  /// Set when a send from this bill is unresolved. Nothing else goes out
-  /// while it may still land, another way included (§14.3).
-  bool _blocked = false;
 
   /// A live price for one ZEC in the bill's currency, read with the quote, or
   /// null when none can be had.
@@ -73,10 +65,10 @@ class _SwapScreenState extends State<SwapScreen> {
     final pending = await SplitsScope.read(context).pendingSend(widget.billId);
     if (!mounted) return;
     if (pending != null) {
-      setState(() {
-        _blocked = true;
-        _message = 'An earlier send isn’t resolved. Finish it in Settle up.';
-      });
+      setState(
+        () => _message =
+            'An earlier send isn’t resolved. Finish it in Settle up.',
+      );
       return;
     }
     await _quoteIt();
@@ -333,24 +325,6 @@ class _SwapScreenState extends State<SwapScreen> {
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
-          // Quoting failed — no route, the provider down — or the send spent
-          // nothing: the debt is still owed and any of their other payouts
-          // can settle it. Not after a send that may still land.
-          if (!_blocked &&
-              !_working &&
-              (_outcome == null
-                  ? _quote == null && _message != null
-                  : _outcome!.phase == WalletSendPhase.failed ||
-                        _outcome!.phase == WalletSendPhase.aborted))
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: TextButton(
-                key: const Key('splits_swap_other_way'),
-                onPressed: () =>
-                    Navigator.of(context).pop(SwapScreen.anotherWay),
-                child: Text('Pay $who another way'),
-              ),
-            ),
         ],
       ),
     );
@@ -415,7 +389,8 @@ class _SwapRate extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '1 ZEC = ${formatAmount(rate.minorUnitsPerZec, currency)}, set by '
+          // §14.2: who set the rate, where the payment is confirmed.
+          '1 ZEC = ${formatAmount(rate.minorUnitsPerZec, currency)}, priced by '
           '${setter == null ? 'nobody on the bill' : who(setter)}',
           key: const Key('splits_swap_rate'),
         ),

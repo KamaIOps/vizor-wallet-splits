@@ -99,7 +99,7 @@ void main() {
 
     expect(find.text('Pizza'), findsOneWidget);
     // The row's figure; the currency is the bill's, said once above.
-    expect(find.text('90.00'), findsOneWidget);
+    expect(find.text('€90.00'), findsOneWidget);
     expect(c.lastError, isNull);
   });
 

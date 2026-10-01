@@ -474,7 +474,7 @@ class _ConfirmedTile extends StatelessWidget {
               '${view.bill.displayNameOf(payment.from, creatorId: view.creatorId)}';
     return ListTile(
       key: Key('splits_confirmed_${event.entryId}'),
-      dense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
       title: Text('You said $what arrived'),
       trailing: TextButton(
         key: Key('splits_unconfirm_${event.entryId}'),
@@ -561,7 +561,7 @@ class _EventTile extends StatelessWidget {
 
     return ListTile(
       key: Key('splits_event_${event.entryId}'),
-      dense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
       title: Text(
         _sentence,
         style: struck

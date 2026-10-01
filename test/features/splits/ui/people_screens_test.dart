@@ -64,6 +64,26 @@ void main() {
       final after = c.bills.firstWhere((b) => b.id == id);
       expect(after.bill.participant('ben')!.payableAddress, 'u1ben');
       expect(find.text('Gets paid in ZEC'), findsWidgets);
+
+      // Once set, it is changed rather than added, from what it is now.
+      expect(
+        find.byKey(const Key('splits_person_add_address_ben')),
+        findsNothing,
+      );
+      wallet.tick();
+      await t.tap(find.byKey(const Key('splits_person_change_address_ben')));
+      await t.pumpAndSettle();
+      expect(find.text('u1ben'), findsOneWidget);
+      await t.enterText(
+        find.byKey(const Key('splits_address_field')),
+        'u1bennew',
+      );
+      await t.tap(find.byKey(const Key('splits_address_save')));
+      await t.pumpAndSettle();
+      expect(c.lastError, isNull);
+      final changed = c.bills.firstWhere((b) => b.id == id);
+      expect(changed.bill.participant('ben')!.payableAddress, 'u1bennew');
+      expect(changed.redirectedAddresses.single.from, 'u1ben');
     });
 
     testWidgets('two people with one name get two ids', (t) async {
@@ -135,10 +155,7 @@ void main() {
       await t.tap(find.byKey(const Key('splits_person_remove_ben')));
       await t.pumpAndSettle();
 
-      expect(
-        find.textContaining('Only if they’re on no expense'),
-        findsOneWidget,
-      );
+      expect(find.text('They’re on no expense or payment.'), findsOneWidget);
     });
 
     testWidgets('somebody nothing names comes off', (t) async {
@@ -179,18 +196,22 @@ void main() {
       await t.pumpAndSettle();
       await t.tap(find.byKey(const Key('splits_person_remove_ben')));
       await t.pumpAndSettle();
-      await t.tap(find.byKey(const Key('splits_people_remove_confirm')));
+      // Said, and nothing offered: they paid, so only that expense's author
+      // can take it off.
+      expect(find.text('• They paid for dinner.'), findsOneWidget);
+      expect(
+        find.byKey(const Key('splits_people_remove_confirm')),
+        findsNothing,
+      );
+      expect(find.byKey(const Key('splits_people_remove_all')), findsNothing);
+      await t.tap(find.text('OK'));
       await t.pumpAndSettle();
 
       final view = c.bills.firstWhere((b) => b.id == id);
       // Still on the bill, and the expense is untouched.
       expect(view.bill.participant('ben'), isNotNull);
       expect(view.bill.expenses.single.amount, 9000);
-      // Refused before anything is written: a withdrawal the fold set aside
-      // would stay in the log and apply the day nothing names them.
       expect(view.setAside, isEmpty);
-      expect(c.lastError, contains('Remove that first'));
-      expect(find.byKey(const Key('splits_people_error')), findsOneWidget);
     });
 
     testWidgets('somebody who did not open the bill is offered no removal', (
