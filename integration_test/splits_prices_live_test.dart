@@ -15,7 +15,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
@@ -58,21 +57,20 @@ void main() {
     expect(gap, lessThan(0.03), reason: 'the two USD prices agree within 3%');
 
     // 2 · The splits chain, with no wallet feed behind it.
-    final splits = splitsZecPrices(
-      <T>(ProviderListenable<T> _) => null as T,
-      http: NetworkHttpClient(),
-    );
+    final splits = splitsZecPrices(http: NetworkHttpClient());
     final usd = await splits.minorUnitsPerZec('USD');
     final kes = await splits.minorUnitsPerZec('KES');
     final eur = await splits.minorUnitsPerZec('EUR');
     logE2e('splits: USD $usd, KES $kes, EUR $eur (minor units per ZEC)');
-    expect(usd, isNotNull, reason: 'USD, from Binance');
+    expect(usd, isNotNull, reason: 'USD, from Binance and Coinbase agreeing');
     expect(kes, isNotNull, reason: 'KES, from Coinbase');
     expect(eur, isNotNull, reason: 'EUR, from Coinbase');
     expect(
-      (usd! - (binance.usdPrice * 100).round()).abs(),
-      lessThan(usd ~/ 50),
-      reason: 'the splits USD figure is the Binance price in cents',
+      usd,
+      (coinbase.usdPrice * 100).round(),
+      reason:
+          'the splits USD figure is Coinbase\'s, in cents, once Binance '
+          'agrees with it',
     );
 
     // 3 · The app's own feed, as the home screen reads it. The wallet runs it

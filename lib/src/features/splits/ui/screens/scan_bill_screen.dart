@@ -90,6 +90,13 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
     String key,
   ) async {
     if (await controller.holdsOtherKey(billId, key)) {
+      // The bill this phone holds names its own key, so there is nothing to
+      // ask: replaceKey refuses this one and says why.
+      if (await controller.heldBillRefusesKey(billId, key)) {
+        await controller.replaceKey(billId, key);
+        if (mounted) setState(() => _message = controller.lastError);
+        return false;
+      }
       if (!mounted) return false;
       final replace = await showDialog<bool>(
         context: context,
@@ -261,7 +268,7 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
               labelText: 'Code',
               // Only what a bill code reader takes: a payment request is
               // read by the wallet's own send screen, not here.
-              hintText: 'splitz1:… or splitz://join?…',
+              hintText: 'splitz1:… or https://…/join#…',
             ),
             style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
           ),

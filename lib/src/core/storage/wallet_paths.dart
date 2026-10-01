@@ -54,24 +54,39 @@ Future<String> getSplitsAccountDirectoryPath(String accountUuid) async =>
     '${await getSplitsDirectoryPath()}${Platform.pathSeparator}'
     '${Uri.encodeComponent(accountUuid)}';
 
-/// Moves bills kept before accounts were kept apart into [accountUuid]'s
-/// directory: the files directly under the splits directory, which only that
-/// layout wrote. The first account to open the feature takes them, which on a
-/// device with one account is the account that wrote them.
+/// Copies bills kept before accounts were kept apart into [accountUuid]'s
+/// directory, the first time that account opens the feature: the files
+/// directly under the splits directory, which only that layout wrote.
+///
+/// Copied, not moved. That layout was one store every account on the device
+/// shared, so which account wrote a bill or a send note is not recorded; each
+/// account starts from all of it, as it saw it before. A send note moved to
+/// the first account to open would leave the account that sent it free to
+/// pay the same debt again.
+///
+/// Built beside the account's directory and renamed into place, so an
+/// adoption cut short is redone rather than taken for finished.
 Future<void> adoptLegacySplits(String accountUuid) async {
   final root = Directory(await getSplitsDirectoryPath());
   if (!await root.exists()) return;
+  final into = Directory(await getSplitsAccountDirectoryPath(accountUuid));
+  if (await into.exists()) return;
   final legacy = [
     await for (final e in root.list(followLinks: false))
       if (e is File) e,
   ];
   if (legacy.isEmpty) return;
-  final into = Directory(await getSplitsAccountDirectoryPath(accountUuid));
-  await into.create(recursive: true);
+  final staging = Directory(
+    '${root.path}${Platform.pathSeparator}'
+    '.adopting-${Uri.encodeComponent(accountUuid)}',
+  );
+  if (await staging.exists()) await staging.delete(recursive: true);
+  await staging.create();
   for (final file in legacy) {
     final name = file.uri.pathSegments.last;
-    await file.rename('${into.path}${Platform.pathSeparator}$name');
+    await file.copy('${staging.path}${Platform.pathSeparator}$name');
   }
+  await staging.rename(into.path);
 }
 
 /// Deletes the bills [accountUuid] held. Their keys are deleted apart, from

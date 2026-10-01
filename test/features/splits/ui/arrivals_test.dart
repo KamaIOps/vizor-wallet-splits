@@ -178,6 +178,36 @@ void main() {
       expect(find.textContaining('owes you 20.00 USD'), findsOneWidget);
     });
 
+    testWidgets('one person on two rows, when two bills cannot be one sum, '
+        'is two lines', (t) async {
+      const most = 9223372036854775807;
+      final c = _controller(const []);
+      await t.runAsync(() async {
+        await c.load();
+        for (final name in ['Dinner', 'Lunch']) {
+          final id = await _benPaid(c, name: name);
+          await c.accept(id, [
+            entries.recordPayment(
+              host: otherHost('ben'),
+              paymentId: 'p2',
+              to: c.me,
+              // With p1's 1000, Ben's records on the bill reach 2^63 - 1
+              // exactly, which one bill holds (§10.3).
+              amount: most - 1000,
+            ),
+          ]);
+        }
+      });
+      expect(c.totals.uncounted, isEmpty);
+      expect(c.totals.standings, hasLength(2));
+
+      await t.pumpWidget(_app(c));
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull);
+      expect(find.textContaining('owes you 10.00 USD'), findsNWidgets(2));
+      expect(find.byKey(const Key('splits_totals_uncounted')), findsNothing);
+    });
+
     testWidgets('one bill shows no totals line', (t) async {
       final c = _controller(const []);
       await t.runAsync(() async {

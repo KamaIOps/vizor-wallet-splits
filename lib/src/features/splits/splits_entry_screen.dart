@@ -27,11 +27,29 @@ import 'splits_swaps.dart';
 import '../../core/storage/device_backup.dart';
 import '../../core/storage/wallet_paths.dart';
 import '../../providers/account_provider.dart';
+import '../../providers/rpc_endpoint_provider.dart';
+import '../../rust/api/wallet.dart' as rust_wallet;
 import 'dev_accounts_import.dart';
 import 'splits_send.dart';
 import 'splits_wallet_adapter.dart';
 import 'splits_theme.dart';
 import '../../core/theme/app_theme.dart';
+
+/// [accountUuid]'s ZIP-32 index in what [list] returns, the source a launch
+/// reads it from; null when it lists none or cannot be read.
+Future<int?> listedZip32Index(
+  String accountUuid,
+  Future<List<rust_wallet.AccountInfo>> Function() list,
+) async {
+  try {
+    return (await list())
+        .where((a) => a.uuid == accountUuid)
+        .firstOrNull
+        ?.zip32AccountIndex;
+  } on Object {
+    return null;
+  }
+}
 
 class SplitsEntryScreen extends ConsumerStatefulWidget {
   const SplitsEntryScreen({super.key});
@@ -57,6 +75,15 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
     _intake = ref.read(splitsInviteIntakeProvider.notifier)..screenOpened();
     _build();
   }
+
+  /// [accountUuid]'s ZIP-32 index as the wallet database lists it.
+  Future<int?> _zip32IndexFromWallet(String accountUuid) => listedZip32Index(
+    accountUuid,
+    () async => rust_wallet.listAccounts(
+      dbPath: await getWalletDbPath(),
+      network: ref.read(rpcEndpointProvider).networkName,
+    ),
+  );
 
   Future<void> _build() async {
     var account = ref.read(accountProvider).value;
@@ -98,11 +125,15 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
         );
         // The account's own ZIP-32 index, never a default: read as 0, a second
         // account derives the first one's splits identity and every bill
-        // shows the two as one person.
-        final index = account?.accounts
-            .where((a) => a.uuid == accountUuid)
-            .firstOrNull
-            ?.zip32AccountIndex;
+        // shows the two as one person. An account created or imported in this
+        // session is not yet listed with one, so the wallet database, which
+        // the next launch reads it from, is asked.
+        final index =
+            account?.accounts
+                .where((a) => a.uuid == accountUuid)
+                .firstOrNull
+                ?.zip32AccountIndex ??
+            await _zip32IndexFromWallet(accountUuid);
         indexUnknown = index == null;
         if (secret != null && index != null) {
           identitySecret = splitsIdentitySecret(
@@ -179,9 +210,9 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
       // closed rather than being the one path that quietly leaves in the
       // clear.
       relay: splitsRelay(),
-      // The wallet's own feed for USD, so the price a bill is fixed at is the
-      // price every other screen shows; the market for any other currency.
-      prices: splitsZecPrices(ref.read, http: NetworkHttpClient()),
+      // Two markets held to each other for USD, and Coinbase for any other
+      // currency: a price fixed onto a bill is one they agree on.
+      prices: splitsZecPrices(http: NetworkHttpClient()),
       // A debt owed in another asset settles through a swap. The default
       // client honours this wallet's privacy setting, so a quote goes out the
       // same way every other request does.
@@ -189,6 +220,14 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
       // What the wallet received, so a payment that arrived can be confirmed
       // from the transaction rather than looked up by hand.
       received: () => splitsReceived(ref: ref, accountUuid: accountUuid),
+      // When each arrived, so a payee can tell a transaction sent for this
+      // bill from one sent long before it (§14.7).
+      receivedTimes: () =>
+          splitsReceivedTimes(ref: ref, accountUuid: accountUuid),
+      // What each named transaction's memo says, so a payment is proposed
+      // only for the bill it was sent for (§8.5, §14.7).
+      receivedMemos: (txids) =>
+          splitsReceivedMemos(ref: ref, accountUuid: accountUuid, txids: txids),
       // Which byte order a pasted transaction id was copied in.
       known: () => splitsKnownTxids(ref: ref, accountUuid: accountUuid),
       // Whether a transaction a send left unresolved is still waiting in the

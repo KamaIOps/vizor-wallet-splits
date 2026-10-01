@@ -19,6 +19,22 @@ typedef ReceivedTransactions =
 
 Future<List<splitz.IncomingTransaction>> _noneReceived() async => const [];
 
+/// When each received transaction was mined, by transaction id.
+///
+/// A transaction id proves money arrived, not that it was sent for this
+/// bill: a payer may name one they sent for something else (§14.7). The
+/// date beside it is what lets the payee tell.
+typedef ReceivedTimes = Future<Map<String, DateTime>> Function();
+
+Future<Map<String, DateTime>> _noTimes() async => const {};
+
+/// The text memos each of [txids] brought this account, by transaction id;
+/// an id missing from the answer is one the wallet could not read (§14.7).
+typedef ReceivedMemos =
+    Future<Map<String, List<String>>> Function(Set<String> txids);
+
+Future<Map<String, List<String>>> _noMemos(Set<String> txids) async => const {};
+
 /// Every transaction id this wallet's history holds, lower-case, in the
 /// byte order a send reports and a payment record carries.
 typedef KnownTransactions = Future<Set<String>> Function();
@@ -202,12 +218,16 @@ class SplitsController extends ChangeNotifier {
     SwapProvider swaps = const UnconfiguredSwaps(),
     SplitsSigner? signer,
     ReceivedTransactions received = _noneReceived,
+    ReceivedTimes receivedTimes = _noTimes,
+    ReceivedMemos receivedMemos = _noMemos,
     KnownTransactions known = _noneKnown,
     HeldTransactions held = _noneHeld,
     ReadsAddress readsAddress = _readsAll,
   }) : _wallet = wallet,
        _readsAddress = readsAddress,
        _received = received,
+       _receivedTimes = receivedTimes,
+       _receivedMemos = receivedMemos,
        _known = known,
        _held = held,
        _store = store,
@@ -221,6 +241,9 @@ class SplitsController extends ChangeNotifier {
 
   final SplitsWallet _wallet;
   final ReceivedTransactions _received;
+  final ReceivedTimes _receivedTimes;
+  final ReceivedMemos _receivedMemos;
+  Map<String, DateTime> _times = const {};
   final KnownTransactions _known;
   final HeldTransactions _held;
   final ReadsAddress _readsAddress;
@@ -248,6 +271,8 @@ class SplitsController extends ChangeNotifier {
   List<BillView> _bills = const [];
   List<splitz.Arrival> _arrived = const [];
   List<splitz.Arrival> _disputed = const [];
+  List<splitz.Arrival> _underpriced = const [];
+  List<splitz.Arrival> _unbound = const [];
   List<int>? _identitySeed;
   String? _identityKey;
 
@@ -258,6 +283,21 @@ class SplitsController extends ChangeNotifier {
 
   /// Every bill this device holds, newest first.
   List<BillView> get bills => _bills;
+
+  /// [billId] folded from what the store holds now, published first.
+  ///
+  /// [bills] can trail the store while a merge waits to be published; a
+  /// screen that shows a figure next to one priced from the store reads the
+  /// view here, or the two can disagree. The published view when the store
+  /// cannot be read.
+  Future<BillView?> currentView(String billId) async {
+    try {
+      await _refresh();
+    } on Object {
+      // What is published is still the best there is to show.
+    }
+    return _bills.where((b) => b.id == billId).firstOrNull;
+  }
 
   /// Payments to this device whose transaction the wallet has received, with
   /// at least the ZEC each states, across every bill (§14.7). Each is shown
@@ -279,6 +319,17 @@ class SplitsController extends ChangeNotifier {
   /// record also names (§14.7). None is proposed: which of them the money
   /// came from is for the person to settle before confirming any by hand.
   List<splitz.Arrival> get disputed => _disputed;
+
+  /// Payments to this device whose ZEC arrived but, at the bill's price, is
+  /// worth under 95% of what they settle, or whose bill has no price to say
+  /// (§14.7). Never in a one-tap confirmation: each is confirmed by hand,
+  /// after the person has read what it is short of.
+  List<splitz.Arrival> get underpriced => _underpriced;
+
+  /// Payments to this device whose transaction's memo names another bill,
+  /// or none (§14.7). Never in a one-tap confirmation: the money arrived, and
+  /// nothing says it was sent for this bill.
+  List<splitz.Arrival> get unbound => _unbound;
 
   /// Where this device stands with each person, per currency, across every
   /// bill it holds.
@@ -337,6 +388,40 @@ class SplitsController extends ChangeNotifier {
       await _finishForgets();
       await _refresh();
     });
+    // Not awaited: a slow feed must not hold the bills back.
+    unawaited(_priceAsCreator(_bills.map((b) => b.id)));
+  }
+
+  final Set<String> _creatorPriceTried = {};
+
+  /// Writes the creator's rate on each of [billIds] this device created and
+  /// has not priced, from the wallet's feed, once per bill per session.
+  ///
+  /// The creator's latest rate decides (§7); while there is none, the latest
+  /// by anybody does, and `at` is whatever its author wrote, so one dated far
+  /// ahead outranks every correction after it. A creator's rate closes that.
+  /// With no live figure the bill stays as it is, and is tried again on the
+  /// next start.
+  Future<void> _priceAsCreator(Iterable<String> billIds) async {
+    for (final id in billIds.toList()) {
+      final view = _bills.where((b) => b.id == id).firstOrNull;
+      if (view == null || view.creatorId != me) continue;
+      if (view.rateSetBy == view.creatorId) continue;
+      if (!_creatorPriceTried.add(id)) continue;
+      int? live;
+      try {
+        live = await quoteZec(view.bill.currency);
+      } on Object catch (error) {
+        debugPrint('splits: no feed price to set on $id: $error');
+      }
+      if (live == null || live <= 0) continue;
+      await setRate(
+        billId: id,
+        currency: view.bill.currency,
+        minorUnitsPerZec: live,
+        source: 'feed',
+      );
+    }
   }
 
   /// Moves the send notes an earlier version of this screen kept under
@@ -423,6 +508,8 @@ class SplitsController extends ChangeNotifier {
       await _store.merge(billId!, [create, join]);
       await _refresh();
     });
+    // Not awaited: a slow feed must not hold the new bill back.
+    if (billId != null) unawaited(_priceAsCreator([billId!]));
     return billId;
   }
 
@@ -441,7 +528,7 @@ class SplitsController extends ChangeNotifier {
         ),
         billId: billId,
       );
-      await _store.merge(billId, [join]);
+      if (!await _mergeWhileHeld(billId, [join])) throw _removed;
       await _refresh();
     });
   }
@@ -490,7 +577,9 @@ class SplitsController extends ChangeNotifier {
   /// Snapshots a price onto the bill, which is what makes it settleable.
   ///
   /// A bill with no rate is an ordinary bill and not an error — there is no
-  /// §12 code for unpriced — so nothing prices one behind a person's back.
+  /// §12 code for unpriced. The organiser's device prices its own bills from
+  /// the feed ([_priceAsCreator]); a payer's device prices one only on the
+  /// settle screen, beside the send.
   Future<void> setRate({
     required String billId,
     required String currency,
@@ -566,11 +655,40 @@ class SplitsController extends ChangeNotifier {
   /// It stays in the log and comes off the bill: removing it outright would
   /// leave a reader unable to see it was ever written, and two devices
   /// disagreeing about whether it existed.
+  ///
+  /// Refused for this device's own shielded payment whose transaction this
+  /// wallet's history shows mined or still sending: withdrawn, the debt is
+  /// offered again while the first payment has reached, or may yet reach,
+  /// the payee.
   Future<void> withdraw({
     required String billId,
     required String entryId,
   }) async {
     await _guard(() async {
+      final folded = await _storedFold(billId);
+      for (final p in folded.bill.payments) {
+        final reference = p.reference;
+        if (folded.paymentEntries[p.id] != entryId ||
+            p.from != me ||
+            p.method != 'shieldedZec' ||
+            reference == null) {
+          continue;
+        }
+        switch (await _heldState(reference)) {
+          case HeldTransaction.mined:
+            throw const SplitsRefusal(
+              'Your wallet shows this payment went through. Ask them to '
+              'check their wallet rather than paying again.',
+            );
+          case HeldTransaction.waiting:
+            throw const SplitsRefusal(
+              'Your wallet still holds this transaction and may send it. '
+              'Wait until it goes through or expires.',
+            );
+          case HeldTransaction.expired || null:
+            break;
+        }
+      }
       final seed = await _requireIdentity();
       final host = _host(seed);
       final entry = await splitz.signEntry(
@@ -717,7 +835,7 @@ class SplitsController extends ChangeNotifier {
               : 'Only the bill’s creator can remove them.',
         );
       }
-      await _store.merge(billId, voids);
+      if (!await _mergeWhileHeld(billId, voids)) throw _removed;
       await _refresh();
     });
   }
@@ -931,8 +1049,9 @@ class SplitsController extends ChangeNotifier {
         );
         byBill.putIfAbsent(a.billId, () => []).add(entry);
       }
+      // A bill forgotten meanwhile has nothing left to confirm.
       for (final e in byBill.entries) {
-        await _store.merge(e.key, e.value);
+        await _mergeWhileHeld(e.key, e.value);
       }
       await _refresh();
     });
@@ -951,7 +1070,7 @@ class SplitsController extends ChangeNotifier {
     final folded = _folded;
     splitz.Arrivals found;
     try {
-      found = splitz.arrivalsFor(folded, me, await _received());
+      found = splitz.arrivalsFor(folded, me, await _withMemos(folded));
     } on Object catch (error) {
       debugPrint('splits: received transactions did not read: $error');
       found = const splitz.Arrivals(arrived: [], short: [], unstated: []);
@@ -959,7 +1078,61 @@ class SplitsController extends ChangeNotifier {
     if (generation != _refreshes) return;
     _arrived = found.arrived;
     _disputed = found.disputed;
+    _underpriced = found.underpriced;
+    _unbound = found.unbound;
+    try {
+      final times = await _receivedTimes();
+      if (generation != _refreshes) return;
+      _times = {for (final e in times.entries) splitz.txidKey(e.key): e.value};
+    } on Object catch (error) {
+      debugPrint('splits: when transactions arrived did not read: $error');
+    }
   }
+
+  /// What the wallet received, each transaction a payment record to this
+  /// device names carrying the memos it brought (§14.7). Only those: reading
+  /// a memo is a read per transaction.
+  Future<List<splitz.IncomingTransaction>> _withMemos(
+    List<splitz.FoldedBill> folded,
+  ) async {
+    final received = await _received();
+    final named = <String>{
+      for (final f in folded)
+        for (final p in f.bill.payments)
+          if (p.to == me &&
+              p.method == 'shieldedZec' &&
+              p.reference != null &&
+              !f.bill.confirmedPayments.contains(p.id))
+            splitz.txidKey(p.reference!),
+    };
+    final asked = {
+      for (final t in received)
+        if (named.contains(splitz.txidKey(t.txid))) t.txid,
+    };
+    Map<String, List<String>> read = const {};
+    if (asked.isNotEmpty) {
+      try {
+        read = {
+          for (final e in (await _receivedMemos(asked)).entries)
+            splitz.txidKey(e.key): e.value,
+        };
+      } on Object catch (error) {
+        debugPrint('splits: memos did not read: $error');
+      }
+    }
+    return [
+      for (final t in received)
+        splitz.IncomingTransaction(
+          t.txid,
+          t.zatoshi,
+          memos: read[splitz.txidKey(t.txid)],
+        ),
+    ];
+  }
+
+  /// When the wallet's history says [txid] was mined, or null when it does
+  /// not say.
+  DateTime? receivedAt(String txid) => _times[splitz.txidKey(txid)];
 
   /// Merges entries that arrived from a scan or a relay.
   Future<void> accept(String billId, List<Map<String, dynamic>> entries) async {
@@ -1008,6 +1181,15 @@ class SplitsController extends ChangeNotifier {
     final before =
         _bills.where((b) => b.id == billId).firstOrNull?.entryCount ?? 0;
 
+    // The key this sync opens and seals under. A key replaced while the sync
+    // is in flight is not the one a mismatch below is about.
+    String? used;
+    try {
+      used = await _keys.readBillKey(billId);
+    } on StateError {
+      used = null;
+    }
+
     SyncResult? result;
     try {
       result = await _sync.sync(billId);
@@ -1030,8 +1212,15 @@ class SplitsController extends ChangeNotifier {
         // so it opens only what its maker sealed for this device. Kept, it
         // would also refuse the bill's real invite as a conflict. Nothing
         // the bill's own create commits to can be forged under its id, so
-        // this never drops the key of a bill that is genuine.
-        await _keys.forgetBill(billId);
+        // this never drops the key of a bill that is genuine. Only the key
+        // the sync used is dropped: one chosen since then stays.
+        String? held;
+        try {
+          held = await _keys.readBillKey(billId);
+        } on StateError {
+          held = null;
+        }
+        if (used != null && held == used) await _keys.forgetBill(billId);
       }
       // A sync pulls and merges before it pushes, so a push the relay
       // refused still leaves what the others wrote in the store: shown, not
@@ -1306,11 +1495,18 @@ class SplitsController extends ChangeNotifier {
     }
   }
 
+  /// What a write into a bill forgotten while it was being written says.
+  static const _removed = SplitsRefusal(
+    'This bill was removed from this phone.',
+  );
+
   /// Merges [entries] into [billId] only while this device still holds its
   /// key, and says whether they were written.
   ///
-  /// A bill forgotten while a send was out must not be written back without
-  /// its key: it would sit in storage, unlisted and unreadable.
+  /// A bill forgotten while a write was on its way must not be written back
+  /// without its key: it would sit in storage, unlisted and unreadable. A
+  /// keychain that refuses to read while the session is locked has not said
+  /// the key is gone, and the write goes ahead.
   Future<bool> _mergeWhileHeld(
     String billId,
     List<Map<String, dynamic>> entries,
@@ -1319,7 +1515,13 @@ class SplitsController extends ChangeNotifier {
     final merged = await _store.merge(
       billId,
       entries,
-      onlyIf: () async => await _keys.readBillKey(billId) != null,
+      onlyIf: () async {
+        try {
+          return await _keys.readBillKey(billId) != null;
+        } on StateError {
+          return true;
+        }
+      },
     );
     return merged.applied;
   }
@@ -1452,7 +1654,7 @@ class SplitsController extends ChangeNotifier {
   /// closes as if it worked says otherwise. The refusal is given in the
   /// protocol's own words (§1).
   Future<void> _mergeChecked(String billId, Map<String, dynamic> entry) async {
-    await _store.merge(billId, [entry]);
+    if (!await _mergeWhileHeld(billId, [entry])) throw _removed;
     await _refresh();
     final view = _bills.where((b) => b.id == billId).firstOrNull;
     final refused = view?.setAside
@@ -1666,6 +1868,17 @@ class SplitsController extends ChangeNotifier {
       if (payout?.address == null || quote.recipient != payout!.address) {
         throw const SplitsRefusal('Their address changed. Get a new quote.');
       }
+      // The same holds for what the quote buys and on which chain: one
+      // address can be a different account, or none, on another chain.
+      final asset = payout.asset;
+      final chain = payout.chain;
+      if (asset == null ||
+          chain == null ||
+          !quote.asset.answers(asset, chain)) {
+        throw const SplitsRefusal(
+          'Their payout changed asset or chain. Get a new quote.',
+        );
+      }
       // The quote's ZEC was priced at the rate the bill held when it was
       // asked. A rate changed since prices the same debt differently, and the
       // screen and the record would describe one rate while the deposit was
@@ -1876,7 +2089,8 @@ class SplitsController extends ChangeNotifier {
         entry: splitz.voidEntry(host: host, targetId: target),
         billId: watch.billId,
       );
-      await _store.merge(watch.billId, [entry]);
+      // Not written into a bill forgotten while the provider answered.
+      if (!await _mergeWhileHeld(watch.billId, [entry])) return;
     }
   }
 
@@ -1965,8 +2179,19 @@ class SplitsController extends ChangeNotifier {
   ///
   /// Refused here rather than at the cipher when it is the wrong length: §11.1
   /// checks an invite's `k` for base64url and not for length.
+  ///
+  /// A key the create already held for this bill refuses (§9.4) is not
+  /// stored.
   Future<void> acceptKey(String billId, String key) async {
-    await _guard(() => _keys.storeBillKey(billId, key));
+    await _guard(() async {
+      if (await heldBillRefusesKey(billId, key)) {
+        throw protocol.SplitError(
+          protocol.SplitCode.inviteKeyMismatch,
+          'the held create of $billId commits to another key',
+        );
+      }
+      await _keys.storeBillKey(billId, key);
+    });
   }
 
   /// Whether this device holds a key for [billId] other than [key]: what
@@ -1976,17 +2201,31 @@ class SplitsController extends ChangeNotifier {
     return held != null && held.isNotEmpty && held != key;
   }
 
+  /// Whether the create this device holds for [billId] commits to a key other
+  /// than [key] (§9.4). Such a key is refused without asking anybody.
+  Future<bool> heldBillRefusesKey(String billId, String key) async {
+    final held = await _store.read(billId);
+    return held.any((e) => protocol.createRefusesKey(e, billId, key));
+  }
+
   /// Uses [key] for [billId] in place of the one held, on a person's word.
   ///
   /// The first invite for a bill is not necessarily the genuine one: a link is
   /// text anyone can send. This is the way out of a forged one, and it is
-  /// never taken without the person choosing it.
+  /// never taken without the person choosing it. A key the held create
+  /// refuses (§9.4) is refused here whatever the person chose.
   Future<void> replaceKey(String billId, String key) async {
     await _guard(() async {
       if (_sending.contains(billId) ||
           _sends.underWay(billId) ||
           await _sends.of(billId) != null) {
         throw const SplitsRefusal('Finish the earlier send first.');
+      }
+      if (await heldBillRefusesKey(billId, key)) {
+        throw protocol.SplitError(
+          protocol.SplitCode.inviteKeyMismatch,
+          'the held create of $billId commits to another key',
+        );
       }
       await _keys.replaceBillKey(billId, key);
       await _refresh();
@@ -2104,7 +2343,22 @@ class SplitsController extends ChangeNotifier {
   /// not publish the older view over it.
   int _refreshes = 0;
 
-  Future<void> _refresh() async {
+  /// The refresh started last.
+  Future<void>? _latestRefresh;
+
+  /// Folds every bill the store holds and publishes them.
+  ///
+  /// Returns once a view at least as new as the store when it was called is
+  /// published: one superseded by a later refresh waits for that one, which
+  /// read the store after it. A caller that reads [bills] next then sees what
+  /// it just merged.
+  Future<void> _refresh() {
+    final run = _refreshOnce();
+    _latestRefresh = run;
+    return run;
+  }
+
+  Future<void> _refreshOnce() async {
     final generation = ++_refreshes;
     final ids = await _store.billIds();
     final views = <BillView>[];
@@ -2156,7 +2410,14 @@ class SplitsController extends ChangeNotifier {
         continue;
       }
     }
-    if (generation != _refreshes) return;
+    if (generation != _refreshes) {
+      try {
+        await _latestRefresh;
+      } on Object {
+        // The later refresh's caller reports its own failure.
+      }
+      return;
+    }
     _bills = List.unmodifiable(views);
     await _findArrivals();
   }

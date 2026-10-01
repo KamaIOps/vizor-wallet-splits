@@ -65,6 +65,13 @@ void main() {
       (read as splitz.ScannedInvite).invite.key,
       (splitz.readScan(invite) as splitz.ScannedInvite).invite.key,
     );
+    // The code drawn is the link too: a camera hands a custom scheme to
+    // whichever app claims it.
+    final drawn = t.widgetList<CodeImage>(
+      find.byType(CodeImage, skipOffstage: false),
+    );
+    expect(drawn.map((q) => q.value), contains(shared.last));
+    expect(drawn.map((q) => q.value), isNot(contains(invite)));
     // An iPad anchors the sheet's popover here; a missing rect crashes it.
     expect(origins, everyElement(isNotNull));
     expect(origins.every((r) => !r!.isEmpty), isTrue);

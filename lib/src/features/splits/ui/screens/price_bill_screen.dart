@@ -82,8 +82,12 @@ class _PriceBillScreenState extends State<PriceBillScreen> {
     }
     final by = view?.rateSetBy;
     final organisers = view != null && by != null && by == view.creatorId;
+    final mine = organisers && by == controller.me;
     setState(() {
-      _notApplied = organisers
+      _notApplied = mine
+          ? 'The bill still carries your earlier price, which is dated later '
+                'than this one. Withdraw it below, then set the price again.'
+          : organisers
           ? 'The bill still carries the organiser\'s price, which stands over '
                 'anybody else\'s. Ask the organiser to change it.'
           : 'The bill still carries the earlier price: '
@@ -213,10 +217,11 @@ class _PriceBillScreenState extends State<PriceBillScreen> {
                 ),
               ),
             // §10.8: the creator may withdraw any `setRate`, which is what
-            // takes one dated far ahead off the bill.
+            // takes one dated far ahead off the bill: somebody else's, or
+            // their own when it outranked the price they just set.
             if (existing != null &&
                 view.creatorId == controller.me &&
-                view.rateSetBy != controller.me &&
+                (view.rateSetBy != controller.me || _notApplied != null) &&
                 view.rateEntry != null) ...[
               const SizedBox(height: 12),
               OutlinedButton(

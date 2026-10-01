@@ -431,7 +431,9 @@ class AppSecureStore {
   /// splits identity, named `splitz_…@<accountUuid>` by the splits keychain
   /// adapter. An account removed with them left behind leaves its bill keys
   /// and signing identity readable to whichever account opens the feature
-  /// next.
+  /// next. Also its identity under the name written before accounts were
+  /// kept apart (`splitz_identity_seed_v2_<accountUuid>`, no `@`), which is
+  /// left until the account first opens the feature.
   Future<void> deleteSplitsSecretsFor(String accountUuid) {
     return _secretMutationLock.run(() async {
       final suffix = '@$accountUuid';
@@ -440,7 +442,10 @@ class AppSecureStore {
         _storage.readAll,
       );
       for (final key in storedValues.keys.toList(growable: false)) {
-        if (!key.startsWith(_splitsKeyPrefix) || !key.endsWith(suffix)) {
+        final ours =
+            key.endsWith(suffix) ||
+            (!key.contains('@') && key.endsWith('_$accountUuid'));
+        if (!key.startsWith(_splitsKeyPrefix) || !ours) {
           continue;
         }
         await _runStorageOperation(
@@ -676,12 +681,22 @@ class AppSecureStore {
           );
         }
 
-        final clearText = await _decryptPayloadBytesForKey(
-          entry.key,
-          entry.value,
-          currentPassword,
-          secretSaltBase64,
-        );
+        final Uint8List clearText;
+        try {
+          clearText = await _decryptPayloadBytesForKey(
+            entry.key,
+            entry.value,
+            currentPassword,
+            secretSaltBase64,
+          );
+        } on StateError {
+          // A splits secret an earlier rotation left under an earlier
+          // password opens under no password this store holds, before this
+          // rotation or after it. Left as it is; refusing the rotation over
+          // it would refuse every rotation from now on.
+          if (entry.key.startsWith(_splitsKeyPrefix)) continue;
+          rethrow;
+        }
         final rotatedValue = await _encryptBytesWithPassword(
           clearText,
           newPassword,

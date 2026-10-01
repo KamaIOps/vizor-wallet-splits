@@ -1,8 +1,8 @@
 /// What one ZEC costs, for the splits screens.
 ///
-/// This wallet already has a price feed. A second one here would be a second
-/// answer on one screen, so this adapts the existing one rather than fetching
-/// anything of its own.
+/// [splitsZecPrices] is what the screens use: Binance and Coinbase, held to
+/// each other. [WalletZecPrices] adapts the wallet's home-screen feed, which
+/// reads Binance alone; the mainnet swap lane prices from it.
 library;
 
 import 'dart:convert';
@@ -63,32 +63,6 @@ class WalletZecPrices implements ZecPrices {
   }
 }
 
-/// The wallet's own feed where it prices a currency, and the market for the
-/// rest.
-///
-/// USD comes from [wallet], so the figure fixed onto a bill is the one every
-/// other screen shows. Any other currency the ISO 4217 register gives an
-/// exponent is read from [market]. A market that cannot be reached answers
-/// empty here: the bill then asks for a price by hand, which is an ordinary
-/// state (§15.6), rather than a screen raising over a figure it never needed.
-class SplitsZecPrices implements ZecPrices {
-  const SplitsZecPrices({required this.wallet, required this.market});
-
-  final ZecPrices wallet;
-  final ZecPrices market;
-
-  @override
-  Future<int?> minorUnitsPerZec(String currency) async {
-    final own = await wallet.minorUnitsPerZec(currency);
-    if (own != null) return own;
-    try {
-      return await market.minorUnitsPerZec(currency);
-    } on Object {
-      return null;
-    }
-  }
-}
-
 /// Two sources asked for one currency, held to each other.
 ///
 /// Binance prices ZEC in USDC and its figure is read as USD, so a stablecoin
@@ -128,18 +102,19 @@ class AgreeingZecPrices implements ZecPrices {
   }
 }
 
-/// The prices the splits screens use: [SplitsZecPrices] over the wallet's
-/// feed and the market, fetched through the wallet's own HTTP client so a
-/// build routing through Tor sends these the same way.
+/// The prices the splits screens use, fetched through the wallet's own HTTP
+/// client so a build routing through Tor sends these the same way.
 ///
-/// The market is Binance and Coinbase held to each other for USD
-/// ([AgreeingZecPrices], Coinbase's figure when they agree), and Coinbase for
-/// every other currency. Neither asks for a key.
+/// Binance and Coinbase held to each other for USD ([AgreeingZecPrices],
+/// Coinbase's figure when they agree), and Coinbase for every other currency.
+/// Neither asks for a key. The wallet's home-screen feed is not asked: it is
+/// Binance's USDC figure read as USD, and a rate fixed onto a bill, or a
+/// payment checked against, is one two markets agree on. When they disagree,
+/// or neither answers, there is no price and the bill is priced by hand.
 ///
 /// The origins default to the build's; a test points them at a server of its
 /// own.
-ZecPrices splitsZecPrices(
-  T Function<T>(ProviderListenable<T>) read, {
+ZecPrices splitsZecPrices({
   required NetworkHttpClient http,
   Uri? binance,
   Uri? coinbase,
@@ -152,17 +127,14 @@ ZecPrices splitsZecPrices(
     return utf8.decode(response.bodyBytes);
   };
   const json = {'Accept': 'application/json'};
-  return SplitsZecPrices(
-    wallet: WalletZecPrices(read),
-    market: AgreeingZecPrices(
-      BinanceZecPrices(
-        origin: binance ?? Uri.parse(kVizorBinanceMarketBaseUrl),
-        get: get(json),
-      ),
-      CoinbaseZecPrices(
-        origin: coinbase ?? Uri.parse(kVizorCoinbaseBaseUrl),
-        get: get(json),
-      ),
+  return AgreeingZecPrices(
+    BinanceZecPrices(
+      origin: binance ?? Uri.parse(kVizorBinanceMarketBaseUrl),
+      get: get(json),
+    ),
+    CoinbaseZecPrices(
+      origin: coinbase ?? Uri.parse(kVizorCoinbaseBaseUrl),
+      get: get(json),
     ),
   );
 }

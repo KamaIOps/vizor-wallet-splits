@@ -45,11 +45,15 @@ class BillsScreen extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     children: [
                       if (controller.arrived.isNotEmpty ||
-                          controller.disputed.isNotEmpty)
+                          controller.disputed.isNotEmpty ||
+                          controller.underpriced.isNotEmpty ||
+                          controller.unbound.isNotEmpty)
                         _Arrived(
                           count:
                               controller.arrived.length +
-                              controller.disputed.length,
+                              controller.disputed.length +
+                              controller.underpriced.length +
+                              controller.unbound.length,
                         ),
                       if (controller.bills.length > 1) const _Totals(),
                       for (final view in controller.bills)
@@ -147,10 +151,15 @@ class _Totals extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = SplitsScope.of(context);
-    final standings = controller.totals.standings
-        .where((s) => s.net != 0)
-        .toList();
-    if (standings.isEmpty) return const SizedBox.shrink();
+    final totals = controller.totals;
+    final standings = totals.standings.where((s) => s.net != 0).toList();
+    // A bill the totals could not count is said, so an overall figure is
+    // never read as covering every bill when it does not.
+    final left = [
+      for (final view in controller.bills)
+        if (totals.uncounted.containsKey(view.id)) view.bill.name,
+    ];
+    if (standings.isEmpty && left.isEmpty) return const SizedBox.shrink();
     return RowCard(
       key: const Key('splits_totals'),
       child: Column(
@@ -158,11 +167,25 @@ class _Totals extends StatelessWidget {
         children: [
           for (final s in standings)
             CardLine(
-              key: Key('splits_total_${s.withId}_${s.currency}'),
+              // One person may stand on two rows in one currency, when a
+              // bill's figures could not be added to the rest: the bills
+              // make each row's key its own.
+              key: Key(
+                'splits_total_${s.withId}_${s.currency}_${s.billIds.join(',')}',
+              ),
               title: _nameOf(controller, s),
               trailing: s.net > 0
                   ? 'owes you ${formatAmount(s.net, s.currency)}'
                   : 'you owe ${formatAmount(-s.net, s.currency)}',
+            ),
+          if (left.isNotEmpty)
+            Padding(
+              key: const Key('splits_totals_uncounted'),
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Not counted here: ${left.join(', ')}. Open '
+                '${left.length == 1 ? 'it' : 'each'} to see what is owed.',
+              ),
             ),
         ],
       ),

@@ -37,6 +37,66 @@ Future<List<IncomingTransaction>> splitsReceived({
   ];
 }
 
+/// When each mined transaction that brought this account money was mined, by
+/// id in the byte order a payment record carries.
+Future<Map<String, DateTime>> splitsReceivedTimes({
+  required WidgetRef ref,
+  required String accountUuid,
+}) async {
+  final history = await rust_sync.getTransactionHistory(
+    dbPath: await getWalletDbPath(),
+    network: ref.read(rpcEndpointProvider).networkName,
+    accountUuid: accountUuid,
+  );
+  return {
+    for (final tx in history)
+      if (tx.minedHeight > BigInt.zero &&
+          !tx.expiredUnmined &&
+          tx.accountBalanceDelta > 0 &&
+          tx.blockTime > BigInt.zero)
+        txidForDisplay(tx.txidHex): DateTime.fromMillisecondsSinceEpoch(
+          tx.blockTime.toInt() * 1000,
+          isUtc: true,
+        ),
+  };
+}
+
+/// The text memos each of [txids] brought this account, by id in the byte
+/// order a payment record carries. A transaction whose detail does not read
+/// is left out, which says its memos are unknown rather than none.
+Future<Map<String, List<String>>> splitsReceivedMemos({
+  required WidgetRef ref,
+  required String accountUuid,
+  required Set<String> txids,
+}) async {
+  final dbPath = await getWalletDbPath();
+  final network = ref.read(rpcEndpointProvider).networkName;
+  final history = await rust_sync.getTransactionHistory(
+    dbPath: dbPath,
+    network: network,
+    accountUuid: accountUuid,
+  );
+  final out = <String, List<String>>{};
+  for (final tx in history) {
+    final id = txidForDisplay(tx.txidHex);
+    if (!txids.contains(id)) continue;
+    try {
+      final detail = await rust_sync.getTransactionDetail(
+        dbPath: dbPath,
+        network: network,
+        accountUuid: accountUuid,
+        txidHex: tx.txidHex,
+        txKind: tx.txKind,
+      );
+      final memo = detail.memo;
+      out[id] = memo == null ? const [] : [memo];
+    } on Object {
+      continue;
+    }
+  }
+  return out;
+}
+
 /// Where each transaction this account's history holds stands, by id in the
 /// byte order a send reports: what a send left unresolved is checked against
 /// before a person may say it did not go through.

@@ -5,14 +5,9 @@ library;
 
 import 'dart:io';
 
-import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zcash_wallet/src/core/network/network_http_client.dart';
 import 'package:zcash_wallet/src/features/splits/splits_prices.dart';
-
-/// A wallet feed with no price, so every figure comes from the market.
-T Function<T>(ProviderListenable<T>) _noFeed() =>
-    <T>(ProviderListenable<T> _) => null as T;
 
 void main() {
   late HttpServer server;
@@ -54,7 +49,6 @@ void main() {
   tearDown(() => server.close(force: true));
 
   Future<int?> price(String currency) => splitsZecPrices(
-    _noFeed(),
     http: NetworkHttpClient(
       torDesired: () => false,
       torBootstrapping: () => false,
