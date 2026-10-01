@@ -1,4 +1,4 @@
-/// Where a development run syncs bills, and nothing in a shipped build.
+/// Where this build syncs bills.
 ///
 /// One construction, used by the screen and by the lanes that drive it: a
 /// relay built twice is a relay that can be configured two ways.
@@ -12,9 +12,18 @@ import '../../core/network/network_http_client.dart';
 
 /// The relay this build syncs bills through, or none.
 ///
-/// Empty in every shipped build: a relay is named for a development run and
-/// nowhere else, the same way the seed driver is.
-const String splitsRelayUrl = String.fromEnvironment('SPLITS_RELAY_URL');
+/// The hosted relay unless a build names another: phones on different
+/// networks reach each other's bills only through one, and it holds only
+/// sealed blobs under channel digests (SPEC §15.5). A build given
+/// `--dart-define=SPLITS_RELAY_URL=` (empty) has none, and bills move only by
+/// scanned code.
+const String splitsRelayUrl = String.fromEnvironment(
+  'SPLITS_RELAY_URL',
+  defaultValue: hostedSplitsRelay,
+);
+
+/// The relay this project hosts: tools/relay/cloudflare in the protocol tree.
+const String hostedSplitsRelay = 'https://splitz-relay.splitz.workers.dev';
 
 SplitsRelay splitsRelay() {
   if (splitsRelayUrl.isEmpty) return const UnconfiguredSplitsRelay();
