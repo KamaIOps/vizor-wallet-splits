@@ -268,7 +268,7 @@ void main() {
       expect(c.lastError, isNull);
       expect(await c.pendingSend(id), isNull);
       final bill = c.bills.single.bill;
-      expect(bill.payments.single.id, '$_txid:ben');
+      expect(bill.payments.single.id, '${c.me}:$_txid:ben');
       expect(bill.payments.single.amount, 1000);
       expect(bill.payments.single.reference, _txid);
 
@@ -297,7 +297,7 @@ void main() {
       await c.resolveSend(id, landed: true);
       expect(c.lastError, isNull);
       final payment = c.bills.single.bill.payments.single;
-      expect(payment.id, '$_txid:ben');
+      expect(payment.id, '${c.me}:$_txid:ben');
       // 10.00 USD at 1000.00 USD a ZEC is 0.01 ZEC.
       expect(payment.zatoshi, 1000000);
       expect(payment.paidAtRate!.minorUnitsPerZec, 100000);
@@ -314,6 +314,59 @@ void main() {
       expect(c.bills.single.bill.payments, isEmpty);
       await c.settle(id, (await c.obligation(id))!);
       expect(wallet.sender.sent, hasLength(2));
+    });
+
+    group('a note with no transaction id is checked against the wallet', () {
+      // The app stopped before the wallet answered, so the note has nothing
+      // to look for; any transaction the wallet may still send could be it.
+      Future<(SplitsController, String, FakeWallet)> unanswered(
+        HeldTransactions held,
+      ) async {
+        final wallet = FakeWallet(outcome: _pending);
+        final c = SplitsController(
+          wallet: wallet,
+          store: BillStore(InMemoryBillStorage()),
+          keys: SplitsKeys(store: InMemorySecretStore(), random: Random(3)),
+          relay: const UnconfiguredSplitsRelay(),
+          held: held,
+        );
+        final id = await owingBen(c);
+        await c.settle(id, (await c.obligation(id))!);
+        expect((await c.pendingSend(id))?.txid, isNull);
+        return (c, id, wallet);
+      }
+
+      test('while the wallet may still send something, it is kept', () async {
+        final (c, id, wallet) = await unanswered(
+          () async => {_txid: HeldTransaction.waiting},
+        );
+        await c.resolveSend(id);
+        expect(c.lastError, contains('may be this one'));
+        expect(await c.pendingSend(id), isNotNull);
+        await c.settle(id, (await c.obligation(id))!);
+        expect(wallet.sender.sent, hasLength(1));
+      });
+
+      test('when the history cannot be read, it is kept', () async {
+        final (c, id, _) = await unanswered(
+          () async => throw StateError('locked'),
+        );
+        await c.resolveSend(id);
+        expect(c.lastError, contains('could not be read'));
+        expect(await c.pendingSend(id), isNotNull);
+      });
+
+      test('once nothing waits, it clears', () async {
+        final (c, id, _) = await unanswered(
+          () async => {
+            _txid: HeldTransaction.mined,
+            _txid.replaceAll('0', 'f'): HeldTransaction.expired,
+          },
+        );
+        await c.resolveSend(id);
+        expect(c.lastError, isNull);
+        expect(await c.pendingSend(id), isNull);
+      });
     });
 
     testWidgets('the screen shows it and holds Send back', (t) async {

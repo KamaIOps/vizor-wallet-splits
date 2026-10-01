@@ -37,6 +37,9 @@ Future<String> _benPaid(
   int zatoshi = 1000000,
 }) async {
   final id = (await c.createBill(name: name, currency: 'USD'))!;
+  // Priced, so the payee can see what the ZEC is worth: 1,000,000 zatoshi at
+  // 100,000 cents a ZEC is the 10.00 USD it settles.
+  await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
   final ben = otherHost('ben');
   await c.accept(id, [
     entries.joinBill(host: ben, name: 'Ben', payTo: 'u1benpayable0000000001'),
@@ -71,13 +74,13 @@ void main() {
       await c.load();
       final id = await _benPaid(c);
       expect(c.lastError, isNull);
-      expect(c.arrived.map((a) => a.payment.id), ['p1']);
+      expect(c.arrived.map((a) => a.payment.id), ['ben:p1']);
 
       await c.confirmArrivals(c.arrived);
       expect(c.lastError, isNull);
       final bill = c.bills.single;
       expect(bill.id, id);
-      expect(bill.bill.confirmedPayments, {'p1'});
+      expect(bill.bill.confirmedPayments, {'ben:p1'});
       expect(c.arrived, isEmpty, reason: 'a confirmed record is not proposed');
     });
 
@@ -152,7 +155,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 200));
       });
       await t.pumpAndSettle();
-      expect(c.bills.single.bill.confirmedPayments, {'p1'});
+      expect(c.bills.single.bill.confirmedPayments, {'ben:p1'});
       expect(find.byKey(const Key('splits_arrivals')), findsNothing);
     });
   });

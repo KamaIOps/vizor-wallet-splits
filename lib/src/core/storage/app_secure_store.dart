@@ -427,6 +427,30 @@ class AppSecureStore {
     );
   }
 
+  /// Removes every splits secret kept for an account: bill keys and its
+  /// splits identity, named `splitz_…@<accountUuid>` by the splits keychain
+  /// adapter. An account removed with them left behind leaves its bill keys
+  /// and signing identity readable to whichever account opens the feature
+  /// next.
+  Future<void> deleteSplitsSecretsFor(String accountUuid) {
+    return _secretMutationLock.run(() async {
+      final suffix = '@$accountUuid';
+      final storedValues = await _runStorageOperation(
+        'read splits secrets for account "$accountUuid"',
+        _storage.readAll,
+      );
+      for (final key in storedValues.keys.toList(growable: false)) {
+        if (!key.startsWith(_splitsKeyPrefix) || !key.endsWith(suffix)) {
+          continue;
+        }
+        await _runStorageOperation(
+          'delete splits secret "$key"',
+          () => _storage.delete(key: key),
+        );
+      }
+    });
+  }
+
   /// Removes every voting hotkey for an account.
   Future<void> deleteVotingHotkeysForAccount(String accountUuid) {
     return _secretMutationLock.run(() async {
@@ -1188,8 +1212,16 @@ class AppSecureStore {
         : _storage;
   }
 
+  /// What every key the splits feature keeps begins with (splitz_host
+  /// `SplitsKeys`: `splitz_bill_key_`, `splitz_identity_seed_v2_`).
+  static const String _splitsKeyPrefix = 'splitz_';
+
   bool _isAppManagedGeneralSecretKey(String key) {
     return key.startsWith(_votingHotkeyKeyPrefix) ||
+        // Bill keys and splits identity seeds, written through the splits
+        // SecretStore under the session password: left out of a rotation,
+        // the next read decrypts with the new password and fails.
+        key.startsWith(_splitsKeyPrefix) ||
         key == kPaymentLinkRecoveryStorageKey ||
         key == kPaymentLinkReceivedStorageKey;
   }

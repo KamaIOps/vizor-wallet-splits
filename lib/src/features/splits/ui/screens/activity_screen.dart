@@ -17,6 +17,7 @@ import 'package:splitz_host/splitz_host.dart';
 
 import '../state/splits_controller.dart';
 import '../view/naming.dart';
+import 'arrivals_screen.dart' show disputedConcern, paymentConcerns;
 import 'splits_scope.dart';
 
 class ActivityScreen extends StatefulWidget {
@@ -171,14 +172,34 @@ class _AwaitingTile extends StatelessWidget {
   /// echoing the payment's method back.
   static const String _recipientConfirmed = 'recipientConfirmed';
 
-  Future<void> _arrived(BuildContext context, String who) async {
+  /// What the Payments received screen would hold this record back for
+  /// (§14.2), so that confirming it here is no easier than there. Cash
+  /// carries no figures to check.
+  List<String> _concerns(SplitsController controller) => [
+    if (controller.disputed.any(
+      (a) => a.billId == billId && a.payment.id == payment.id,
+    ))
+      disputedConcern,
+    if (payment.method != 'cash')
+      ...paymentConcerns(payment: payment, view: view, live: null),
+  ];
+
+  Future<void> _arrived(
+    BuildContext context,
+    String who,
+    List<String> concerns,
+  ) async {
     final controller = SplitsScope.read(context);
+    final settles = formatAmount(payment.amount, payment.currency);
     final sure = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
         title: const Text('It arrived?'),
         content: Text(
-          'This settles ${formatAmount(payment.amount, payment.currency)} for everyone. Check your wallet first.',
+          concerns.isEmpty
+              ? 'This settles $settles for everyone. Check your wallet first.'
+              : '${concerns.join('\n\n')}\n\nThis settles $settles of what '
+                    '$who owes you, for everyone.',
         ),
         actions: [
           TextButton(
@@ -186,9 +207,13 @@ class _AwaitingTile extends StatelessWidget {
             child: const Text('Not yet'),
           ),
           FilledButton(
-            key: Key('splits_confirm_sure_${payment.id}'),
+            key: Key(
+              concerns.isEmpty
+                  ? 'splits_confirm_sure_${payment.id}'
+                  : 'splits_confirm_anyway_sure_${payment.id}',
+            ),
             onPressed: () => Navigator.of(dialog).pop(true),
-            child: const Text('It arrived'),
+            child: Text(concerns.isEmpty ? 'It arrived' : 'Confirm anyway'),
           ),
         ],
       ),
@@ -207,12 +232,56 @@ class _AwaitingTile extends StatelessWidget {
     final controller = SplitsScope.read(context);
     final entry = view.paymentEntries[payment.id];
     if (entry == null) return;
+    // A record withdrawn while its transaction is on its way asks the payer
+    // to send again, and the first transaction then matches nothing: so the
+    // wallet's own history is read first. Only a record §14.7 proposes as
+    // arrived is held: a reference anybody can copy off the bill, and one
+    // whose transaction brought less than it states, is not evidence.
+    final reference = payment.reference;
+    final received = payment.method == 'shieldedZec' && reference != null
+        ? await controller.hasReceived(reference)
+        : false;
+    if (!context.mounted) return;
+    final covered = controller.arrived.any(
+      (a) => a.billId == billId && a.payment.id == payment.id,
+    );
+    if (received == true && covered) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+          key: Key('splits_confirm_refuse_received_${payment.id}'),
+          title: const Text('It did arrive'),
+          content: Text(
+            'Your wallet received this transaction. Check the amount with '
+            '$who, then confirm it rather than asking them to pay again.',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(dialog).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    final unchecked = received == null
+        ? ' Your wallet\'s history could not be read to check.'
+        : received
+        ? ' Your wallet received that transaction, but it does not show this '
+              'payment: another payer names it too, or it brought less ZEC '
+              'than this states.'
+        : payment.method == 'shieldedZec'
+        ? ' Your wallet has not seen it yet, and a payment can take minutes '
+              'to arrive.'
+        : '';
     final sure = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
         title: const Text('It did not arrive?'),
         content: Text(
-          '$who will owe ${formatAmount(payment.amount, payment.currency)} again. Tell them first.',
+          '$who will owe ${formatAmount(payment.amount, payment.currency)} '
+          'again.$unchecked Tell them first.',
         ),
         actions: [
           TextButton(
@@ -240,6 +309,8 @@ class _AwaitingTile extends StatelessWidget {
     final zatoshi = payment.zatoshi;
     final rate = payment.paidAtRate;
     final reference = payment.reference;
+    final concerns = _concerns(SplitsScope.of(context));
+    final error = Theme.of(context).colorScheme.error;
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Padding(
@@ -263,7 +334,7 @@ class _AwaitingTile extends StatelessWidget {
             // as one that needs none. Cash carries none of them.
             if (zatoshi != null)
               Text(
-                '${protocol.renderAmount(zatoshi)} ZEC',
+                formatZec(zatoshi),
                 key: Key('splits_confirm_zec_${payment.id}'),
               )
             else if (payment.method != 'cash')
@@ -295,6 +366,15 @@ class _AwaitingTile extends StatelessWidget {
                 key: Key('splits_confirm_reference_${payment.id}'),
                 style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
               ),
+            for (final (i, c) in concerns.indexed)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  c,
+                  key: Key('splits_confirm_concern_${payment.id}_$i'),
+                  style: TextStyle(color: error),
+                ),
+              ),
             Wrap(
               alignment: WrapAlignment.end,
               spacing: 8,
@@ -306,7 +386,7 @@ class _AwaitingTile extends StatelessWidget {
                 ),
                 FilledButton(
                   key: Key('splits_confirm_arrived_${payment.id}'),
-                  onPressed: () => _arrived(context, who),
+                  onPressed: () => _arrived(context, who, concerns),
                   child: const Text('It arrived'),
                 ),
               ],
@@ -432,7 +512,8 @@ class _EventTile extends StatelessWidget {
     if (event.refusedCode != null) {
       // Shown, never hidden: an entry that vanished silently is
       // indistinguishable from one that was never sent.
-      return 'not applied — ${event.refusedCode}';
+      final code = event.refusedCode!;
+      return 'not applied — ${protocol.describeCode(code) ?? code}';
     }
     if (event.withdrawn) return 'withdrawn';
 

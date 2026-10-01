@@ -61,6 +61,25 @@ Future<WalletSendOutcome> proposeAndBroadcastSplitsBatch({
   );
 }
 
+/// Whether a request naming [address] is one this wallet can send (§14.6):
+/// its own ZIP 321 reader reads a one-output request to it, and the address
+/// is valid on the network the wallet sends on. A request is read whole, so
+/// one address failing either stops the payment to every other recipient.
+Future<bool> splitsReadsAddress(WidgetRef ref, String address) async {
+  try {
+    await rust_sync.paymentUriOutputs(
+      paymentUri: 'zcash:$address?amount=0.00000001',
+    );
+    final checked = await rust_sync.validateAddress(
+      address: address,
+      network: ref.read(rpcEndpointProvider).networkName,
+    );
+    return checked.isValid && !checked.wrongNetwork;
+  } on Object {
+    return false;
+  }
+}
+
 /// What this wallet's ZIP 321 reader made of a request, as §14.6 compares it.
 ///
 /// An amount past what an integer holds cannot match any payment, so it is

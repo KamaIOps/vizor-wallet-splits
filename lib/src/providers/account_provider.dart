@@ -465,6 +465,9 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
             name: result.accounts[i].name,
             order: accounts.length + i,
             isSeedAnchor: result.accounts[i].isSeedAnchor,
+            // What the splits identity derives from: an account without it
+            // would be read as account 0 and share its identity.
+            zip32AccountIndex: result.accounts[i].zip32AccountIndex,
             profilePictureId: i == 0
                 ? normalizedProfilePictureId
                 : kDefaultProfilePictureId,
@@ -893,6 +896,14 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
       await _storage.deleteAccountMnemonic(uuid);
     } catch (e, st) {
       log('removeAccount: failed to delete mnemonic for $uuid: $e\n$st');
+    }
+    // Its bills, their keys and its splits identity: left behind, the next
+    // account to open Split a bill would read them.
+    try {
+      await deleteSplitsForAccount(uuid);
+      await _storage.deleteSplitsSecretsFor(uuid);
+    } catch (e, st) {
+      log('removeAccount: failed to delete splits state for $uuid: $e\n$st');
     }
     try {
       await ref

@@ -159,15 +159,15 @@ void main() {
     expect(owed.uri, startsWith('zcash:u1ben'));
   });
 
-  testWidgets('a price dated ahead is not reported as replaced, and the '
-      'organiser can withdraw it', (t) async {
+  testWidgets('the organiser\'s price outranks one dated ahead by somebody '
+      'else', (t) async {
     final wallet = FakeWallet();
     final c = controllerFor(wallet);
     await c.load();
     final id = (await c.createBill(name: 'Dinner', currency: 'EUR'))!;
 
-    // Ben, joined from his own device, prices the bill a year ahead: §10.1
-    // takes the latest by `at`, so no later reprice outranks it.
+    // Ben, joined from his own device, prices the bill a year ahead. While the
+    // organiser has set none, the latest by `at` decides (§10.1).
     final ben = await SignedPeer.named('ben');
     final ahead = FakeWallet(id: 'ben');
     ahead.tick(const Duration(days: 365));
@@ -192,15 +192,8 @@ void main() {
     await t.tap(find.text('Reprice the bill'));
     await t.pumpAndSettle();
 
-    // Written, not applied, and said so rather than the screen closing.
-    expect(find.byType(PriceBillScreen), findsOneWidget);
-    expect(find.byKey(const Key('splits_price_not_applied')), findsOneWidget);
-    expect(c.bills.single.bill.rate!.minorUnitsPerZec, 100);
-
-    await t.tap(find.byKey(const Key('splits_price_withdraw')));
-    await t.pumpAndSettle();
-    await t.tap(find.byKey(const Key('splits_price_withdraw_confirm')));
-    await t.pumpAndSettle();
+    // The organiser's reprice stands at once, however far ahead Ben dated his.
+    expect(find.byKey(const Key('splits_price_not_applied')), findsNothing);
     expect(c.bills.single.bill.rate!.minorUnitsPerZec, 300000);
     expect(c.bills.single.rateSetBy, c.me);
   });

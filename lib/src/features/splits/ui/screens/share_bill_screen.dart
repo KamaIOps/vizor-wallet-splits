@@ -43,7 +43,12 @@ class _ShareBillScreenState extends State<ShareBillScreen> {
 
   Future<void> _build() async {
     final controller = SplitsScope.read(context);
-    final invite = await controller.inviteFor(widget.billId);
+    // An invite says when its sender stops standing behind it (§11.1). Long
+    // enough for a code shown at the table to be scanned days later.
+    final invite = await controller.inviteFor(
+      widget.billId,
+      expiry: controller.now().add(const Duration(days: 30)),
+    );
     final payload = await controller.shareableBill(widget.billId);
     if (!mounted) return;
     setState(() {

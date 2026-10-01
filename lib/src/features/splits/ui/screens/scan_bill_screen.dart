@@ -153,6 +153,36 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
         );
 
       case splitz.ScannedInvite(:final invite):
+        // §11.1: `x` is the sender's hint, shown on every path an invite
+        // arrives by rather than only on a link.
+        if (isInviteExpired(
+          invite,
+          controller.now().millisecondsSinceEpoch ~/ 1000,
+        )) {
+          final join = await showDialog<bool>(
+            context: context,
+            builder: (dialog) => AlertDialog(
+              title: const Text('This invite has expired'),
+              content: const Text(
+                'Its sender marked it as expired. Ask them for a new one, or '
+                'join anyway if you trust it.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialog).pop(false),
+                  child: const Text('Don’t join'),
+                ),
+                FilledButton(
+                  key: const Key('splits_scan_join_expired'),
+                  onPressed: () => Navigator.of(dialog).pop(true),
+                  child: const Text('Join anyway'),
+                ),
+              ],
+            ),
+          );
+          if (join != true) return;
+        }
+        if (!mounted) return;
         if (!await _takeKey(controller, invite.billId, invite.key)) return;
         if (!mounted) return;
         // The invite names the bill; the relay holds its log. Fetch it now,
@@ -173,8 +203,13 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
             return;
           }
         }
+        // A sync the bill refused names why: a key that is not the bill's
+        // is not "not synced yet".
+        final state = controller.syncStateOf(invite.billId);
         setState(
-          () => _message = controller.hasRelay
+          () => _message = state.phase == SplitsSyncPhase.failed
+              ? state.detail
+              : controller.hasRelay
               ? 'Joined. It hasn’t synced yet, so ask for its code.'
               : 'Joined. Now scan the bill’s code.',
         );
@@ -224,7 +259,9 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
             maxLines: 8,
             decoration: const InputDecoration(
               labelText: 'Code',
-              hintText: 'splitz1:… or zcash:…?',
+              // Only what a bill code reader takes: a payment request is
+              // read by the wallet's own send screen, not here.
+              hintText: 'splitz1:… or splitz://join?…',
             ),
             style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
           ),

@@ -89,12 +89,52 @@ class SplitsZecPrices implements ZecPrices {
   }
 }
 
+/// Two sources asked for one currency, held to each other.
+///
+/// Binance prices ZEC in USDC and its figure is read as USD, so a stablecoin
+/// that slips off its peg moves the price with nothing on screen to say so.
+/// Coinbase quotes USD itself. When both answer and differ by more than
+/// [toleranceBp] basis points of the lower, there is no price: a rate a bill
+/// is fixed at, or a payment is checked against, is not one two markets
+/// disagree on. When one answers, its figure stands, so one market being down
+/// does not stop a bill being priced.
+class AgreeingZecPrices implements ZecPrices {
+  const AgreeingZecPrices(this.first, this.second, {this.toleranceBp = 200});
+
+  final ZecPrices first;
+  final ZecPrices second;
+  final int toleranceBp;
+
+  @override
+  Future<int?> minorUnitsPerZec(String currency) async {
+    Future<int?> ask(ZecPrices source) async {
+      try {
+        return await source.minorUnitsPerZec(currency);
+      } on Object {
+        return null;
+      }
+    }
+
+    final a = await ask(first);
+    final b = await ask(second);
+    if (a == null || b == null) return a ?? b;
+    final low = a < b ? a : b;
+    final high = a < b ? b : a;
+    // In integers: (high - low) * 10000 <= low * toleranceBp. Both figures
+    // are at most 2^53 - 1 cents, well inside 64 bits once scaled.
+    final apart = BigInt.from(high - low) * BigInt.from(10000);
+    if (apart > BigInt.from(low) * BigInt.from(toleranceBp)) return null;
+    return b;
+  }
+}
+
 /// The prices the splits screens use: [SplitsZecPrices] over the wallet's
 /// feed and the market, fetched through the wallet's own HTTP client so a
 /// build routing through Tor sends these the same way.
 ///
-/// The market is Binance for USD, then Coinbase for USD when Binance cannot
-/// answer and for every other currency. Neither asks for a key.
+/// The market is Binance and Coinbase held to each other for USD
+/// ([AgreeingZecPrices], Coinbase's figure when they agree), and Coinbase for
+/// every other currency. Neither asks for a key.
 ///
 /// The origins default to the build's; a test points them at a server of its
 /// own.
@@ -114,7 +154,7 @@ ZecPrices splitsZecPrices(
   const json = {'Accept': 'application/json'};
   return SplitsZecPrices(
     wallet: WalletZecPrices(read),
-    market: FirstZecPrices([
+    market: AgreeingZecPrices(
       BinanceZecPrices(
         origin: binance ?? Uri.parse(kVizorBinanceMarketBaseUrl),
         get: get(json),
@@ -123,6 +163,6 @@ ZecPrices splitsZecPrices(
         origin: coinbase ?? Uri.parse(kVizorCoinbaseBaseUrl),
         get: get(json),
       ),
-    ]),
+    ),
   );
 }

@@ -70,8 +70,31 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   String? get _splitRefusal {
     final total = _total;
     if (total == null) return null;
+    // A field showing text that is not a figure has left the draft holding
+    // the last one that was, and a sum quoted from that names numbers
+    // nobody can see.
+    // Only fields on screen count: one hidden by a switch of kind, an
+    // unticked person or a removed item holds nothing the draft keeps.
+    _unreadable.retainAll(_shownFields);
+    if (_unreadable.isNotEmpty) return 'Fix the figure that is not a number.';
     return splitRefusalSentence(_draft, total, currency: _currency!);
   }
+
+  /// Figure fields whose text does not read as a figure, by field.
+  final Set<String> _unreadable = {};
+
+  /// The figure fields the form shows now, named as [_unreadable] names them.
+  Set<String> get _shownFields => switch (_draft.kind) {
+    SplitKind.equal => const {},
+    SplitKind.itemized => {
+      for (final item in _draft.items) itemField(item),
+      'extra',
+    },
+    _ => {for (final id in _draft.participants) shareField(_draft.kind, id)},
+  };
+
+  void _readable(String field, bool ok) =>
+      setState(() => ok ? _unreadable.remove(field) : _unreadable.add(field));
 
   bool _loaded = false;
 
@@ -321,6 +344,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                 view: view,
                 currency: view.bill.currency,
                 onChanged: () => setState(() {}),
+                onReadable: _readable,
               )
             else
               for (final p in view.bill.participants)
@@ -342,6 +366,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                       ? null
                       : _draft.allocation(_total!)?[p.id],
                   onChanged: () => setState(() {}),
+                  onReadable: _readable,
                 ),
             if (_splitRefusal != null)
               Padding(
@@ -366,6 +391,12 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     );
   }
 }
+
+/// The figure field for [id] under [kind]: a switch of kind builds a new one.
+String shareField(SplitKind kind, String id) => 'share ${kind.name}/$id';
+
+/// The cost field for [item], whatever its place in the list.
+String itemField(DraftItem item) => 'item ${identityHashCode(item)}';
 
 /// Reads a typed figure as minor units, or null when it is not one.
 ///
@@ -443,7 +474,11 @@ class _Sharer extends StatelessWidget {
     required this.currency,
     required this.allocated,
     required this.onChanged,
+    required this.onReadable,
   });
+
+  /// Told whether this person's figure field reads as a figure.
+  final void Function(String field, bool readable) onReadable;
 
   final SplitDraft draft;
   final String id;
@@ -487,6 +522,25 @@ class _Sharer extends StatelessWidget {
   }
 
   void _set(String raw) {
+    if (raw.trim().isEmpty) {
+      // A field cleared holds nothing, and neither does the split: keeping
+      // the figure it last parsed saves a split the screen no longer shows.
+      // The person stays in it, at zero, as the empty field says; taking
+      // them out is the checkbox's job.
+      onReadable(shareField(draft.kind, id), true);
+      switch (draft.kind) {
+        case SplitKind.exact:
+          draft.amounts[id] = 0;
+        case SplitKind.percentage:
+          draft.basisPoints[id] = 0;
+        case SplitKind.shares:
+          draft.shareCounts[id] = 0;
+        case SplitKind.equal || SplitKind.itemized:
+          return;
+      }
+      onChanged();
+      return;
+    }
     final value = switch (draft.kind) {
       // Typed in the currency and stored in minor units, so no double ever
       // touches an amount.
@@ -497,6 +551,7 @@ class _Sharer extends StatelessWidget {
       SplitKind.shares => int.tryParse(raw.trim()),
       _ => null,
     };
+    onReadable(shareField(draft.kind, id), value != null);
     if (value == null) return;
     switch (draft.kind) {
       case SplitKind.exact:
@@ -581,6 +636,7 @@ class _Items extends StatelessWidget {
     required this.view,
     required this.currency,
     required this.onChanged,
+    required this.onReadable,
   });
 
   final SplitDraft draft;
@@ -588,14 +644,29 @@ class _Items extends StatelessWidget {
   final String currency;
   final VoidCallback onChanged;
 
+  /// Told, per field, whether its text reads as a figure.
+  final void Function(String field, bool readable) onReadable;
+
+  /// Null for an empty field or a figure in [currency]; the refusal
+  /// otherwise.
+  String? _figure(String? raw) =>
+      raw == null ||
+          raw.trim().isEmpty ||
+          parseMinorUnits(raw, currency: currency) != null
+      ? null
+      : figureRefusal(currency);
+
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (var i = 0; i < draft.items.length; i++)
+          // Keyed by the item, not its place: a field reads its initial value
+          // once, so after a removal an index key would show the removed
+          // item's name and cost over the next item's figures.
           Card(
-            key: Key('splits_item_$i'),
+            key: ObjectKey(draft.items[i]),
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
@@ -636,10 +707,17 @@ class _Items extends StatelessWidget {
                             suffixText: currency,
                             isDense: true,
                           ),
+                          // What is saved is what the field shows: cleared is
+                          // nothing, and text that is not a figure is refused
+                          // rather than standing in for the last one that was.
+                          validator: _figure,
                           onChanged: (v) {
-                            final parsed = parseMinorUnits(
-                              v,
-                              currency: currency,
+                            final parsed = v.trim().isEmpty
+                                ? 0
+                                : parseMinorUnits(v, currency: currency);
+                            onReadable(
+                              itemField(draft.items[i]),
+                              parsed != null,
                             );
                             if (parsed == null) return;
                             draft.items[i].minorUnits = parsed;
@@ -713,8 +791,12 @@ class _Items extends StatelessWidget {
               // the cheap thing pays less of it.
               helperText: 'Split in proportion to what each person had',
             ),
+            validator: _figure,
             onChanged: (v) {
-              final parsed = parseMinorUnits(v, currency: currency);
+              final parsed = v.trim().isEmpty
+                  ? 0
+                  : parseMinorUnits(v, currency: currency);
+              onReadable('extra', parsed != null);
               if (parsed == null) return;
               draft.extraMinorUnits = parsed;
               onChanged();

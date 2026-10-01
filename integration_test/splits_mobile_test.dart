@@ -9,7 +9,7 @@
 ///     python3 <splitz_wallet>/tool/seed-driver.py <seed-file> --port 39200
 ///     flutter test integration_test/splits_mobile_test.dart -d <device> \
 ///       --dart-define=VIZOR_FORM_FACTOR=mobile \
-///       --dart-define=SPLITS_SEED_DRIVER_URL=http://127.0.0.1:39200
+///       --dart-define=SPLITS_SEED_DRIVER_URL=http://127.0.0.1:39200/<token>
 library;
 
 import 'dart:io';

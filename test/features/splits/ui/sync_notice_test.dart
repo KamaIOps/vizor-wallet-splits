@@ -101,6 +101,32 @@ void main() {
     await t.pumpWidget(app(c, BillScreen(billId: id)));
     await t.pumpAndSettle();
     expect(find.textContaining('Could not reach the others'), findsOneWidget);
+    // Said in words: what the relay answered is for a developer.
+    expect(c.syncStateOf(id).detail, contains('saved on this phone'));
+    expect(find.textContaining('SplitsRelayException'), findsNothing);
+    expect(find.textContaining('unreachable'), findsNothing);
+  });
+
+  test('each way a sync fails is said in words', () {
+    String words(Object e) => SplitsController.describe(e);
+    expect(
+      words(const SplitsRelayException('HTTP 500', isTransient: false)),
+      contains('can’t use the bill relay'),
+    );
+    expect(
+      words(
+        const SplitsSyncException('No key for b1', kind: SyncFailure.noKey),
+      ),
+      contains('Scan its code again'),
+    );
+    expect(
+      words(const SplitsSyncException('locked', kind: SyncFailure.keyLocked)),
+      contains('Unlock the wallet'),
+    );
+    expect(
+      words(const SplitsSyncException('gone', kind: SyncFailure.forgotten)),
+      contains('removed while it synced'),
+    );
   });
 
   testWidgets('a sync that got through reports what it actually brought', (

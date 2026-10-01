@@ -44,8 +44,13 @@ class BillsScreen extends StatelessWidget {
                 : ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     children: [
-                      if (controller.arrived.isNotEmpty)
-                        _Arrived(count: controller.arrived.length),
+                      if (controller.arrived.isNotEmpty ||
+                          controller.disputed.isNotEmpty)
+                        _Arrived(
+                          count:
+                              controller.arrived.length +
+                              controller.disputed.length,
+                        ),
                       if (controller.bills.length > 1) const _Totals(),
                       for (final view in controller.bills)
                         _BillTile(view: view),

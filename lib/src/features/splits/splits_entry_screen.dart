@@ -90,21 +90,25 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
     final notifier = ref.read(accountProvider.notifier);
     final hardware = notifier.hardwareSignerKindForAccount(accountUuid) != null;
     List<int>? identitySecret;
+    var indexUnknown = false;
     if (!hardware) {
       try {
         final secret = await notifier.getSoftwareWalletSecretForAccount(
           accountUuid,
         );
-        if (secret != null) {
+        // The account's own ZIP-32 index, never a default: read as 0, a second
+        // account derives the first one's splits identity and every bill
+        // shows the two as one person.
+        final index = account?.accounts
+            .where((a) => a.uuid == accountUuid)
+            .firstOrNull
+            ?.zip32AccountIndex;
+        indexUnknown = index == null;
+        if (secret != null && index != null) {
           identitySecret = splitsIdentitySecret(
             mnemonic: secret.mnemonic,
             passphrase: secret.bip39Passphrase,
-            accountIndex:
-                account?.accounts
-                    .where((a) => a.uuid == accountUuid)
-                    .firstOrNull
-                    ?.zip32AccountIndex ??
-                0,
+            accountIndex: index,
           );
         }
       } on Object {
@@ -115,7 +119,11 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
       // Continuing would store a random identity for good, and this account
       // could never be recovered on another device.
       if (identitySecret == null) {
-        setState(() => _error = 'Unlock the wallet to open your bills.');
+        setState(
+          () => _error = indexUnknown
+              ? 'Restart the wallet to open your bills.'
+              : 'Unlock the wallet to open your bills.',
+        );
         return;
       }
     }
@@ -123,9 +131,20 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
     // Beside the wallet database, which is where this app is allowed to write,
     // and out of device backups: bills are stored in clear, and a backup
     // carries them to whoever holds it without the keys that seal them.
-    final directory = Directory(await getSplitsDirectoryPath());
     try {
-      await excludeFromDeviceBackup(directory.path);
+      await adoptLegacySplits(accountUuid);
+    } on Object catch (error) {
+      debugPrint(
+        'splits: could not move earlier bills to this account: $error',
+      );
+    }
+    final directory = Directory(
+      await getSplitsAccountDirectoryPath(accountUuid),
+    );
+    try {
+      await directory.create(recursive: true);
+      // The splits directory as a whole: every account's bills are under it.
+      await excludeFromDeviceBackup(await getSplitsDirectoryPath());
     } on Object catch (error) {
       debugPrint('splits: could not keep bills out of device backups: $error');
     }
@@ -172,6 +191,12 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
       received: () => splitsReceived(ref: ref, accountUuid: accountUuid),
       // Which byte order a pasted transaction id was copied in.
       known: () => splitsKnownTxids(ref: ref, accountUuid: accountUuid),
+      // Whether a transaction a send left unresolved is still waiting in the
+      // wallet, so nobody is told to send again while it may yet go through.
+      held: () => splitsHeldTransactions(ref: ref, accountUuid: accountUuid),
+      // An address this wallet cannot send to is reported unpayable, so it
+      // does not stop the payment to everybody else on the request.
+      readsAddress: (address) => splitsReadsAddress(ref, address),
     );
     await controller.load();
     if (!mounted) return;

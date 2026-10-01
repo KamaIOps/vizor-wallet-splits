@@ -76,7 +76,10 @@ void main() {
       final secure = AppSecureStore.testing(
         storage: const FlutterSecureStorage(),
       )..setSessionPassword('a session password');
-      final store = KeychainSecretStore(store: secure);
+      final store = KeychainSecretStore(
+        accountUuid: 'account-1',
+        store: secure,
+      );
       expect(await checkSecretStore(store, runId: 'wallet'), isEmpty);
     });
   });

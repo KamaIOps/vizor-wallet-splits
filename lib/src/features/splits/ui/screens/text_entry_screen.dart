@@ -79,6 +79,16 @@ class _TextEntryScreenState extends State<TextEntryScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // The title again, where it wraps: an app bar cuts a long name
+          // short, and on an address screen the name is whose money it is.
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              widget.title,
+              key: const Key('splits_text_entry_heading'),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
           TextField(
             key: widget.fieldKey,
             controller: _text,

@@ -32,7 +32,7 @@
 ///       --dart-define=VIZOR_FORM_FACTOR=mobile \
 ///       --dart-define=ZCASH_DEFAULT_NETWORK=test \
 ///       --dart-define=ZCASH_E2E_NETWORK=test \
-///       --dart-define=SPLITS_SEED_DRIVER_URL=http://127.0.0.1:39200
+///       --dart-define=SPLITS_SEED_DRIVER_URL=http://127.0.0.1:39200/<token>
 library;
 
 import 'dart:io';
@@ -346,7 +346,7 @@ void main() {
       entries.add(
         splitz.recordPayment(
           host: host,
-          paymentId: splitz.paymentIdForSend(txid, settlement.to),
+          paymentId: splitz.paymentIdForSend(host.me, txid, settlement.to),
           to: settlement.to,
           amount: settlement.amount,
           reference: txid,

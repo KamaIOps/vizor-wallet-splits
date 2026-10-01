@@ -37,6 +37,12 @@ jobs:
           path: Vizor-Wallet
           persist-credentials: false
 
+      # The protocol commit this wallet is built and tested against. Without
+      # it every run takes whatever the protocol's main holds that minute, and
+      # a green run says nothing about which protocol it passed on.
+      - id: protocol
+        run: echo "rev=$(tr -d '[:space:]' < Vizor-Wallet/splitz-protocol.rev)" >> "$GITHUB_OUTPUT"
+
       # The sibling checkout, spelled exactly as pubspec.yaml reaches it:
       # ../Splitz-Protocol/splitz_host and ../Splitz-Protocol/dart. The token
       # is used for the clone and not written into its .git/config: every
@@ -45,6 +51,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: KamaIOps/Splitz-Protocol
+          ref: ${{ steps.protocol.outputs.rev }}
           path: Splitz-Protocol
           token: ${{ secrets.SPLITS_REPOS_TOKEN }}
           persist-credentials: false

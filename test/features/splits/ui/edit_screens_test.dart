@@ -145,13 +145,13 @@ void main() {
 
       expect(find.text('their dinner'), findsOneWidget);
       final tile = t.widget<InkWell>(
-        find.byKey(const Key('splits_expense_x-ben')),
+        find.byKey(const Key('splits_expense_ben:x-ben')),
       );
       expect(tile.onTap, isNull);
       // Withdrawable, though: this device opened the bill, and §10.8 lets the
       // creator take any expense off it.
       expect(
-        find.byKey(const Key('splits_expense_dismiss_x-ben')),
+        find.byKey(const Key('splits_expense_dismiss_ben:x-ben')),
         findsOneWidget,
       );
     });

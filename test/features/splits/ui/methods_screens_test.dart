@@ -311,7 +311,7 @@ void main() {
           .single;
       expect(payment.method, 'swap');
       expect(payment.reference, 'near-intent-7f3a');
-      expect(payment.id, 'near-intent-7f3a');
+      expect(payment.id, '${c.me}:near-intent-7f3a');
     });
 
     testWidgets('a payment of nothing is refused', (t) async {
@@ -403,19 +403,19 @@ void main() {
       );
 
       // One tap asks; it does not settle.
-      await t.tap(find.byKey(const Key('splits_confirm_arrived_p1')));
+      await t.tap(find.byKey(const Key('splits_confirm_arrived_ana:p1')));
       await t.pumpAndSettle();
       expect(
         c.bills.firstWhere((b) => b.id == id).bill.confirmedPayments,
         isEmpty,
       );
-      await t.tap(find.byKey(const Key('splits_confirm_sure_p1')));
+      await t.tap(find.byKey(const Key('splits_confirm_sure_ana:p1')));
       await t.pumpAndSettle();
 
       final bill = c.bills.firstWhere((b) => b.id == id).bill;
-      expect(bill.confirmedPayments, contains('p1'));
+      expect(bill.confirmedPayments, contains('ana:p1'));
       // The offer is gone, because the debt is.
-      expect(find.byKey(const Key('splits_confirm_arrived_p1')), findsNothing);
+      expect(find.byKey(const Key('splits_confirm_arrived_ana:p1')), findsNothing);
 
       // And it can be taken back by the one who said it.
       final undo = find.byKey(
@@ -433,7 +433,7 @@ void main() {
         isEmpty,
       );
       expect(
-        find.byKey(const Key('splits_confirm_arrived_p1')),
+        find.byKey(const Key('splits_confirm_arrived_ana:p1')),
         findsOneWidget,
       );
     });
@@ -467,7 +467,7 @@ void main() {
           },
         ),
       ]);
-      final paymentId = '$txid:${c.me}';
+      final paymentId = 'ana:$txid:${c.me}';
 
       await t.pumpWidget(app(c, ActivityScreen(billId: id)));
       await t.pumpAndSettle();
@@ -522,7 +522,7 @@ void main() {
       );
       expect(
         find.descendant(
-          of: find.byKey(const Key('splits_confirm_near-intent-7f3a')),
+          of: find.byKey(const Key('splits_confirm_ana:near-intent-7f3a')),
           matching: find.textContaining('not a Zcash transaction'),
         ),
         findsOneWidget,

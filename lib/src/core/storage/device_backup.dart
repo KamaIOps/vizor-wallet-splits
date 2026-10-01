@@ -14,9 +14,9 @@ const _deviceBackupChannel = MethodChannel('com.zcash.wallet/network_privacy');
 ///
 /// Android has no runtime equivalent. `android:allowBackup="false"` in the
 /// manifest keeps app files out of cloud backup, but from targetSdk 31 that
-/// attribute no longer covers device-to-device transfer; excluding a
-/// directory from a phone-to-phone migration takes `<device-transfer>`
-/// data-extraction rules in the manifest, which the app does not carry.
+/// attribute no longer covers device-to-device transfer; that is
+/// `res/xml/data_extraction_rules.xml`, which excludes `tor` and `splits`
+/// from both.
 Future<void> excludeFromDeviceBackup(String directory) async {
   if (!Platform.isIOS) return;
   try {

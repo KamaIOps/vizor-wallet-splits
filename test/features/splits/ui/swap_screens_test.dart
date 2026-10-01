@@ -181,9 +181,10 @@ void main() {
       // The bill's own rate decides the ZEC figure, not a live price.
       expect(find.textContaining('0.01 ZEC'), findsOneWidget);
       expect(find.textContaining('USDC on base'), findsOneWidget);
-      // The provider's deposit address, not the recipient's.
+      // The provider's deposit address is where the ZEC goes, and the
+      // recipient's payout is named apart, as where the asset arrives.
       expect(find.text('u1provider'), findsOneWidget);
-      expect(find.text('0xben'), findsNothing);
+      expect(find.text('0xben'), findsOneWidget);
       // What Ben is guaranteed is the floor, not the quoted figure.
       expect(
         find.text('at least 9.405 USDC on base (quoted 9.5)'),
@@ -680,7 +681,7 @@ void main() {
       expect(await c.pendingSend(id), isNull);
       final payment = c.bills.single.bill.payments.single;
       expect(payment.method, 'swap');
-      expect(payment.id, 'near-intent-7f3a');
+      expect(payment.id, '${c.me}:near-intent-7f3a');
       expect(payment.amount, 1000);
       expect((await c.swapsInFlight(id)).single.reference, 'near-intent-7f3a');
     });

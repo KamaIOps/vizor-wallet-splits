@@ -68,9 +68,10 @@ class _PriceBillScreenState extends State<PriceBillScreen> {
     );
     if (!mounted) return;
     if (controller.lastError != null) return;
-    // Written is not applied: §10.1 takes the latest `setRate` by `at`, so one
-    // dated ahead of this device's clock outranks this one. Closing the screen
-    // would say the bill was repriced when it was not.
+    // Written is not applied: §10.1 takes the organiser's latest `setRate`
+    // over anybody else's, and otherwise the latest by `at`, so one dated
+    // ahead of this device's clock outranks this one. Closing the screen would
+    // say the bill was repriced when it was not.
     final view = controller.bills
         .where((b) => b.id == widget.billId)
         .firstOrNull;
@@ -80,12 +81,15 @@ class _PriceBillScreenState extends State<PriceBillScreen> {
       return;
     }
     final by = view?.rateSetBy;
+    final organisers = view != null && by != null && by == view.creatorId;
     setState(() {
-      _notApplied =
-          'The bill still carries the earlier price: '
-          '${by == null || view == null ? 'another' : 'the one ${view.bill.displayNameOf(by, creatorId: view.creatorId)} set'} '
-          'is dated later than yours. '
-          '${view?.creatorId == controller.me ? 'As the organiser you can withdraw it below.' : 'Ask the organiser to withdraw it.'}';
+      _notApplied = organisers
+          ? 'The bill still carries the organiser\'s price, which stands over '
+                'anybody else\'s. Ask the organiser to change it.'
+          : 'The bill still carries the earlier price: '
+                '${by == null || view == null ? 'another' : 'the one ${view.bill.displayNameOf(by, creatorId: view.creatorId)} set'} '
+                'is dated later than yours. '
+                '${view?.creatorId == controller.me ? 'As the organiser you can withdraw it below.' : 'Ask the organiser to withdraw it.'}';
     });
   }
 

@@ -40,10 +40,45 @@ Future<String> getWalletDbPath() async {
   return '${dir.path}${Platform.pathSeparator}$dbName';
 }
 
-/// Where the splits feature keeps this device's bills.
+/// Where the splits feature keeps this device's bills: one directory, with
+/// one directory per account inside it.
 Future<String> getSplitsDirectoryPath() async {
   final dir = await getWalletSupportDirectory();
   return '${dir.path}${Platform.pathSeparator}splits';
+}
+
+/// Where [accountUuid] keeps its bills. Accounts are kept apart: a bill, its
+/// send notes and its swap watches belong to the account that holds them,
+/// and another account on the same device must neither list nor clear them.
+Future<String> getSplitsAccountDirectoryPath(String accountUuid) async =>
+    '${await getSplitsDirectoryPath()}${Platform.pathSeparator}'
+    '${Uri.encodeComponent(accountUuid)}';
+
+/// Moves bills kept before accounts were kept apart into [accountUuid]'s
+/// directory: the files directly under the splits directory, which only that
+/// layout wrote. The first account to open the feature takes them, which on a
+/// device with one account is the account that wrote them.
+Future<void> adoptLegacySplits(String accountUuid) async {
+  final root = Directory(await getSplitsDirectoryPath());
+  if (!await root.exists()) return;
+  final legacy = [
+    await for (final e in root.list(followLinks: false))
+      if (e is File) e,
+  ];
+  if (legacy.isEmpty) return;
+  final into = Directory(await getSplitsAccountDirectoryPath(accountUuid));
+  await into.create(recursive: true);
+  for (final file in legacy) {
+    final name = file.uri.pathSegments.last;
+    await file.rename('${into.path}${Platform.pathSeparator}$name');
+  }
+}
+
+/// Deletes the bills [accountUuid] held. Their keys are deleted apart, from
+/// the keychain (`AppSecureStore.deleteSplitsSecretsFor`).
+Future<void> deleteSplitsForAccount(String accountUuid) async {
+  final directory = Directory(await getSplitsAccountDirectoryPath(accountUuid));
+  if (await directory.exists()) await directory.delete(recursive: true);
 }
 
 /// Deletes every bill this device holds. Their keys are in secure storage,

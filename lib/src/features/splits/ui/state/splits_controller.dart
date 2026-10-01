@@ -9,6 +9,8 @@ import 'package:splitz_core/splitz_core.dart' as protocol;
 
 import 'package:splitz_host/splitz_host.dart';
 
+import '../view/naming.dart' show formatBaseUnits;
+
 /// The transactions this account received, each with the zatoshi it brought.
 ///
 /// Only those that are mined: one still in the mempool may never land.
@@ -22,6 +24,30 @@ Future<List<splitz.IncomingTransaction>> _noneReceived() async => const [];
 typedef KnownTransactions = Future<Set<String>> Function();
 
 Future<Set<String>> _noneKnown() async => const {};
+
+/// Where a transaction this wallet built stands in its history.
+enum HeldTransaction {
+  /// In a block: it went through.
+  mined,
+
+  /// Not mined and not expired: the wallet may still broadcast it.
+  waiting,
+
+  /// Expired unmined: it can no longer go through.
+  expired,
+}
+
+/// Where each transaction this wallet's history holds stands, by id in the
+/// byte order a send reports.
+typedef HeldTransactions = Future<Map<String, HeldTransaction>> Function();
+
+Future<Map<String, HeldTransaction>> _noneHeld() async => const {};
+
+/// Whether this wallet's ZIP 321 reader reads [address] on the network it
+/// sends on (§14.6).
+typedef ReadsAddress = Future<bool> Function(String address);
+
+Future<bool> _readsAll(String _) async => true;
 
 /// One bill as a screen needs it: the folded state, and what the fold refused.
 class BillView {
@@ -39,9 +65,14 @@ class BillView {
     this.paymentEntries = const {},
     this.expenseAuthors = const {},
     this.paymentDigests = const {},
+    this.paymentAuthors = const {},
   });
 
   final protocol.Bill bill;
+
+  /// Who wrote each payment record on the bill, by payment id: what §14.4
+  /// counts as on its way is what its payer recorded.
+  final Map<String, String> paymentAuthors;
 
   /// Who opened it. §10.8 decides withdrawals by this, and a reader is told
   /// who the organiser is rather than shown a fragment of an id.
@@ -172,9 +203,13 @@ class SplitsController extends ChangeNotifier {
     SplitsSigner? signer,
     ReceivedTransactions received = _noneReceived,
     KnownTransactions known = _noneKnown,
+    HeldTransactions held = _noneHeld,
+    ReadsAddress readsAddress = _readsAll,
   }) : _wallet = wallet,
+       _readsAddress = readsAddress,
        _received = received,
        _known = known,
+       _held = held,
        _store = store,
        _keys = keys,
        _relay = relay,
@@ -187,6 +222,8 @@ class SplitsController extends ChangeNotifier {
   final SplitsWallet _wallet;
   final ReceivedTransactions _received;
   final KnownTransactions _known;
+  final HeldTransactions _held;
+  final ReadsAddress _readsAddress;
   final BillStore _store;
   final SplitsKeys _keys;
   final SplitsRelay _relay;
@@ -210,6 +247,7 @@ class SplitsController extends ChangeNotifier {
 
   List<BillView> _bills = const [];
   List<splitz.Arrival> _arrived = const [];
+  List<splitz.Arrival> _disputed = const [];
   List<int>? _identitySeed;
   String? _identityKey;
 
@@ -226,6 +264,22 @@ class SplitsController extends ChangeNotifier {
   /// to the person before [confirmArrivals] writes anything (§14.2).
   List<splitz.Arrival> get arrived => _arrived;
 
+  /// Whether this wallet's history holds [txid], compared as §14.7 compares
+  /// it; null when the history cannot be read.
+  Future<bool?> hasReceived(String txid) async {
+    try {
+      final key = splitz.txidKey(txid);
+      return (await _received()).any((t) => splitz.txidKey(t.txid) == key);
+    } on Object {
+      return null;
+    }
+  }
+
+  /// Payments to this device naming a transaction that another payer's
+  /// record also names (§14.7). None is proposed: which of them the money
+  /// came from is for the person to settle before confirming any by hand.
+  List<splitz.Arrival> get disputed => _disputed;
+
   /// Where this device stands with each person, per currency, across every
   /// bill it holds.
   splitz.Totals get totals => splitz.totalsAcross(_folded, me);
@@ -240,6 +294,7 @@ class SplitsController extends ChangeNotifier {
         replacedAddresses: v.replacedAddresses,
         identities: v.identities,
         paymentDigests: v.paymentDigests,
+        paymentAuthors: v.paymentAuthors,
       ),
   ];
 
@@ -336,11 +391,15 @@ class SplitsController extends ChangeNotifier {
       final key = await _signer.publicKeyFromSeed(seed);
       final host = _host(seed);
 
+      // The bill's key first: the create commits to it (§9.4), so a joiner
+      // refuses an invite carrying any other.
+      final billKey = _keys.generateKey();
       final unsigned = splitz.createBill(
         host: host,
         name: name,
         currency: currency,
         creatorKey: key,
+        billKey: billKey,
       );
       billId = unsigned['id'] as String;
       // A create is signed on its own id: it is the bill (§10.6).
@@ -349,7 +408,7 @@ class SplitsController extends ChangeNotifier {
         entry: unsigned,
         billId: billId!,
       );
-      await _keys.ensureBillKey(billId!);
+      await _keys.storeBillKey(billId!, billKey);
 
       final join = await splitz.signEntry(
         host: host,
@@ -404,6 +463,12 @@ class SplitsController extends ChangeNotifier {
     String? description,
   }) async {
     await _guard(() async {
+      // Written by somebody who is not on the bill, the fold sets it aside
+      // (§10.1): said before anything is written, in words that name the fix.
+      final view = _bills.where((b) => b.id == billId).firstOrNull;
+      if (view != null && view.bill.participant(me) == null) {
+        throw const SplitsRefusal('Join this bill before adding to it.');
+      }
       final seed = await _requireIdentity();
       final host = _host(seed);
       final entry = await splitz.signEntry(
@@ -418,8 +483,7 @@ class SplitsController extends ChangeNotifier {
         ),
         billId: billId,
       );
-      await _store.merge(billId, [entry]);
-      await _refresh();
+      await _mergeChecked(billId, entry);
     });
   }
 
@@ -446,8 +510,7 @@ class SplitsController extends ChangeNotifier {
         ),
         billId: billId,
       );
-      await _store.merge(billId, [entry]);
-      await _refresh();
+      await _mergeChecked(billId, entry);
     });
   }
 
@@ -494,8 +557,7 @@ class SplitsController extends ChangeNotifier {
         ),
         billId: billId,
       );
-      await _store.merge(billId, [entry]);
-      await _refresh();
+      await _mergeChecked(billId, entry);
     });
   }
 
@@ -516,8 +578,7 @@ class SplitsController extends ChangeNotifier {
         entry: splitz.voidEntry(host: host, targetId: entryId),
         billId: billId,
       );
-      await _store.merge(billId, [entry]);
-      await _refresh();
+      await _mergeChecked(billId, entry);
     });
   }
 
@@ -551,8 +612,7 @@ class SplitsController extends ChangeNotifier {
       // honest state — they bind their own identity by joining from their
       // own device with their own key.
       final entry = splitz.joinBill(host: _HostAs(host, id), name: name);
-      await _store.merge(billId, [entry]);
-      await _refresh();
+      await _mergeChecked(billId, entry);
     });
   }
 
@@ -588,8 +648,7 @@ class SplitsController extends ChangeNotifier {
         name: who.name,
         payTo: trimmed,
       );
-      await _store.merge(billId, [entry]);
-      await _refresh();
+      await _mergeChecked(billId, entry);
     });
   }
 
@@ -682,6 +741,14 @@ class SplitsController extends ChangeNotifier {
     String? displayName,
   }) async {
     await _guard(() async {
+      // A payout saved by somebody not yet on the bill would join them with
+      // no name, and every device would show an id where the person was. One
+      // already on it keeps the record they have.
+      final name = _named(displayName) ?? _nameOnBill(billId);
+      final view = _bills.where((b) => b.id == billId).firstOrNull;
+      if (name == null && view?.bill.participant(me) == null) {
+        throw const SplitsRefusal('Join this bill with a name first.');
+      }
       final seed = await _requireIdentity();
       final host = _host(seed);
       final entry = await splitz.signEntry(
@@ -690,15 +757,14 @@ class SplitsController extends ChangeNotifier {
           host: host,
           // A join replaces this participant's record wholesale, so the name
           // already on the bill is written again rather than dropped.
-          name: _named(displayName) ?? _nameOnBill(billId),
+          name: name,
           payTo: _wallet.sender.payToAddress,
           identityKey: await _signer.publicKeyFromSeed(seed),
           payouts: [for (final p in payouts) _payoutJson(p)],
         ),
         billId: billId,
       );
-      await _store.merge(billId, [entry]);
-      await _refresh();
+      await _mergeChecked(billId, entry);
     });
   }
 
@@ -738,6 +804,9 @@ class SplitsController extends ChangeNotifier {
     String? note,
   }) async {
     await _guard(() async {
+      // §14.8: nothing changes how a debt is paid while a send from its bill
+      // may still land, or the one debt is recorded paid twice.
+      await _refuseWhileSending(billId);
       final seed = await _requireIdentity();
       final host = _host(seed);
       final entry = await splitz.signEntry(
@@ -755,8 +824,7 @@ class SplitsController extends ChangeNotifier {
         ),
         billId: billId,
       );
-      await _store.merge(billId, [entry]);
-      await _refresh();
+      await _mergeChecked(billId, entry);
     });
   }
 
@@ -778,6 +846,9 @@ class SplitsController extends ChangeNotifier {
     String? note,
   }) async {
     await _guard(() async {
+      // §14.8: nothing changes how a debt is paid while a send from its bill
+      // may still land, or the one debt is recorded paid twice.
+      await _refuseWhileSending(billId);
       final seed = await _requireIdentity();
       final host = _host(seed);
       final entry = await splitz.signEntry(
@@ -796,8 +867,7 @@ class SplitsController extends ChangeNotifier {
         ),
         billId: billId,
       );
-      await _store.merge(billId, [entry]);
-      await _refresh();
+      await _mergeChecked(billId, entry);
     });
   }
 
@@ -833,8 +903,7 @@ class SplitsController extends ChangeNotifier {
         ),
         billId: billId,
       );
-      await _store.merge(billId, [entry]);
-      await _refresh();
+      await _mergeChecked(billId, entry);
     });
   }
 
@@ -880,15 +949,16 @@ class SplitsController extends ChangeNotifier {
   Future<void> _findArrivals() async {
     final generation = _refreshes;
     final folded = _folded;
-    List<splitz.Arrival> found;
+    splitz.Arrivals found;
     try {
-      found = splitz.arrivalsFor(folded, me, await _received()).arrived;
+      found = splitz.arrivalsFor(folded, me, await _received());
     } on Object catch (error) {
       debugPrint('splits: received transactions did not read: $error');
-      found = const [];
+      found = const splitz.Arrivals(arrived: [], short: [], unstated: []);
     }
     if (generation != _refreshes) return;
-    _arrived = found;
+    _arrived = found.arrived;
+    _disputed = found.disputed;
   }
 
   /// Merges entries that arrived from a scan or a relay.
@@ -954,6 +1024,23 @@ class SplitsController extends ChangeNotifier {
       );
       notifyListeners();
     } on Object catch (e) {
+      if (e is SplitsSyncException &&
+          e.code == protocol.SplitCode.inviteKeyMismatch) {
+        // §9.4: the key held for this bill is not the one it was made with,
+        // so it opens only what its maker sealed for this device. Kept, it
+        // would also refuse the bill's real invite as a conflict. Nothing
+        // the bill's own create commits to can be forged under its id, so
+        // this never drops the key of a bill that is genuine.
+        await _keys.forgetBill(billId);
+      }
+      // A sync pulls and merges before it pushes, so a push the relay
+      // refused still leaves what the others wrote in the store: shown, not
+      // held back until the next sync that fully succeeds.
+      try {
+        await _refresh();
+      } on Object {
+        // The failure being reported is the sync's.
+      }
       _syncStates[billId] = SplitsSyncState(
         phase: SplitsSyncPhase.failed,
         at: _wallet.now(),
@@ -971,19 +1058,41 @@ class SplitsController extends ChangeNotifier {
   /// One timer, whichever bill is open: two would race on one relay and each
   /// would refresh over the other's answer.
   void pollBill(String billId, {Duration every = const Duration(seconds: 5)}) {
-    stopPolling();
-    if (!hasRelay) return;
+    _polled.add((billId, every));
+    _pollTop();
+  }
+
+  /// Stops the poll [pollBill] started for [billId], and polls the bill a
+  /// screen still open beneath it asked for. Stops every poll when [billId]
+  /// is null.
+  ///
+  /// One timer serves the screen on top. A screen closing stops only its own
+  /// request: stopping whatever was running would leave a bill still on
+  /// screen unpolled while its notice says it is up to date.
+  void stopPolling([String? billId]) {
+    if (billId == null) {
+      _polled.clear();
+    } else {
+      final at = _polled.lastIndexWhere((p) => p.$1 == billId);
+      if (at >= 0) _polled.removeAt(at);
+    }
+    _pollTop();
+  }
+
+  /// The bills screens asked to poll, oldest first; the last is polled.
+  final List<(String, Duration)> _polled = [];
+
+  void _pollTop() {
+    _poller?.cancel();
+    _poller = null;
+    if (_polled.isEmpty || !hasRelay) return;
+    final (billId, every) = _polled.last;
     // Out of the current turn: a screen starts this from
     // `didChangeDependencies`, which runs during build, and notifying
     // listeners there marks a widget dirty while the framework is building
     // it.
     unawaited(Future<void>.microtask(() => syncBill(billId)));
     _poller = Timer.periodic(every, (_) => unawaited(syncBill(billId)));
-  }
-
-  void stopPolling() {
-    _poller?.cancel();
-    _poller = null;
   }
 
   @override
@@ -1003,9 +1112,40 @@ class SplitsController extends ChangeNotifier {
   }) async {
     final view = _bills.where((b) => b.id == billId).firstOrNull;
     if (view == null) return null;
+    final folded = await _storedFold(billId);
+    final unread = await _unreadAddresses(folded);
+    return splitz.obligationVia(
+      _host(_identitySeed, unread: unread),
+      folded,
+      via,
+    );
+  }
+
+  /// Every Zcash address [folded] could put in a request that this wallet's
+  /// reader refuses. A request is read whole, so one such address would stop
+  /// the payment to everybody else; the obligation reports it unpayable
+  /// instead (§14.6).
+  Future<Set<String>> _unreadAddresses(splitz.FoldedBill folded) async {
+    final addresses = <String>{
+      for (final p in folded.bill.participants) ...[
+        ?p.payTo,
+        for (final o in p.payouts)
+          if (o.type == 'zec') ?o.address,
+      ],
+    };
+    return {
+      for (final a in addresses)
+        if (!await _readsAddress(a)) a,
+    };
+  }
+
+  /// [billId] as the store holds it now, folded as [_refresh] folds it: what
+  /// a send checks against, rather than a published view a merge has not
+  /// reached yet.
+  Future<splitz.FoldedBill> _storedFold(String billId) async {
     final seed = _identitySeed;
     final entries = await _store.read(billId);
-    final folded = seed == null
+    return seed == null
         ? foldUnverified(_wallet, entries, billId: billId)
         : await foldVerified(
             _wallet,
@@ -1014,7 +1154,6 @@ class SplitsController extends ChangeNotifier {
             signer: _signer,
             seed: seed,
           );
-    return splitz.obligationVia(_host(seed), folded, via);
   }
 
   /// Where each payout in [chosen] now sits in its participant's declared
@@ -1120,19 +1259,16 @@ class SplitsController extends ChangeNotifier {
         // calling it, so there is nothing to write down.
         return splitz.settle(_host(seed), log, owed);
       }
+      final note = PendingSend(
+        billId: billId,
+        uri: uri,
+        carried: carried,
+        at: protocol.canonicalInstant(_wallet.now().toUtc().toIso8601String()),
+        sent: owed.carriedZatoshi,
+        rate: owed.rate,
+      );
       try {
-        await _sends.begin(
-          PendingSend(
-            billId: billId,
-            uri: uri,
-            carried: carried,
-            at: protocol.canonicalInstant(
-              _wallet.now().toUtc().toIso8601String(),
-            ),
-            sent: owed.carriedZatoshi,
-            rate: owed.rate,
-          ),
-        );
+        await _sends.begin(note);
       } on SendInFlight {
         throw const SplitsRefusal(
           'An earlier send isn’t resolved. Check your wallet.',
@@ -1159,7 +1295,13 @@ class SplitsController extends ChangeNotifier {
         }
         return settled;
       } finally {
-        await _sends.end(billId, how, txid: txid, recorded: recorded);
+        await _sends.end(
+          billId,
+          how,
+          txid: txid,
+          recorded: recorded,
+          wrote: note,
+        );
       }
     }
   }
@@ -1199,8 +1341,51 @@ class SplitsController extends ChangeNotifier {
     String? txid,
   }) async {
     await _guard(() async {
+      // Until the wallet answers, nobody knows that nothing left it: a note
+      // cleared now lets the same debt go out twice.
+      if (_sending.contains(billId) || _sends.underWay(billId)) {
+        throw const SplitsRefusal(
+          'That send is still with the wallet. Wait for it to answer.',
+        );
+      }
       final intent = await _sends.of(billId);
       if (intent == null) return;
+      final built = intent.txid;
+      if (!landed && built != null) {
+        switch (await _heldState(built)) {
+          case HeldTransaction.waiting:
+            throw const SplitsRefusal(
+              'Your wallet still holds this transaction and may send it. '
+              'Wait until it goes through or expires.',
+            );
+          case HeldTransaction.mined:
+            throw const SplitsRefusal(
+              'Your wallet shows this transaction went through. Record it '
+              'instead.',
+            );
+          case HeldTransaction.expired || null:
+            break;
+        }
+      }
+      if (!landed && built == null) {
+        // No id to look for: the app stopped before the wallet answered. Any
+        // transaction the wallet may still broadcast could be this one.
+        final Map<String, HeldTransaction> held;
+        try {
+          held = await _held();
+        } on Object {
+          throw const SplitsRefusal(
+            'Your wallet’s history could not be read to check this send. '
+            'Try again in a moment.',
+          );
+        }
+        if (held.values.contains(HeldTransaction.waiting)) {
+          throw const SplitsRefusal(
+            'Your wallet is still sending a transaction, and it may be this '
+            'one. Wait until it goes through or expires.',
+          );
+        }
+      }
       final swap = intent.swap;
       if (landed && swap != null) {
         // The provider's reference identifies it; no transaction id needed.
@@ -1249,9 +1434,60 @@ class SplitsController extends ChangeNotifier {
           throw const SplitsRefusal('Bill not on this phone. Open it again.');
         }
       }
-      await _sends.resolve(billId);
+      try {
+        await _sends.resolve(billId, seen: intent);
+      } on SendInFlight {
+        throw const SplitsRefusal(
+          'A newer send replaced this one. Open the bill again.',
+        );
+      }
       await _refresh();
     });
+  }
+
+  /// Merges this device's own [entry] into [billId] and reads the bill again,
+  /// throwing when the fold set it aside.
+  ///
+  /// An action whose entry the fold refused did nothing, and a screen that
+  /// closes as if it worked says otherwise. The refusal is given in the
+  /// protocol's own words (§1).
+  Future<void> _mergeChecked(String billId, Map<String, dynamic> entry) async {
+    await _store.merge(billId, [entry]);
+    await _refresh();
+    final view = _bills.where((b) => b.id == billId).firstOrNull;
+    final refused = view?.setAside
+        .where((a) => a.id == entry['id'])
+        .firstOrNull;
+    if (refused != null) {
+      throw SplitsRefusal(
+        protocol.describeCode(refused.code) ?? 'Not applied: ${refused.code}.',
+      );
+    }
+  }
+
+  /// Throws while a send from [billId] is under way or unresolved.
+  Future<void> _refuseWhileSending(String billId) async {
+    if (_sending.contains(billId) ||
+        _sends.underWay(billId) ||
+        await _sends.of(billId) != null) {
+      throw const SplitsRefusal(
+        'An earlier send isn’t resolved. Check your wallet.',
+      );
+    }
+  }
+
+  /// Where [txid] stands in this wallet's history, or null when it is not
+  /// there or the history cannot be read.
+  Future<HeldTransaction?> _heldState(String txid) async {
+    try {
+      final key = splitz.txidKey(txid);
+      for (final e in (await _held()).entries) {
+        if (splitz.txidKey(e.key) == key) return e.value;
+      }
+    } on Object {
+      return null;
+    }
+    return null;
   }
 
   /// [txid] in the byte order a send reports, when this wallet's history can
@@ -1403,9 +1639,11 @@ class SplitsController extends ChangeNotifier {
       _refuseMemo(quote);
       // The debt this quote pays must still be owed, and not already paid
       // and waiting: a screen left open after a first deposit would
-      // otherwise send a second one.
-      final held = _bills.where((b) => b.id == billId).firstOrNull?.bill;
-      final via = held == null || chosen == null
+      // otherwise send a second one. Every check below reads the bill the
+      // store holds now: a merge not yet published would otherwise pass the
+      // address against one bill and the amount against another.
+      final held = (await _storedFold(billId)).bill;
+      final via = chosen == null
           ? const <String, int>{}
           : payoutIndexes(held, {to: chosen});
       if (chosen != null && via.isEmpty) {
@@ -1424,11 +1662,23 @@ class SplitsController extends ChangeNotifier {
       // The quote delivers to the address it was asked for. A payee who has
       // since replaced their payout is owed at the new one, and a deposit on
       // the old quote pays an address they no longer use.
-      final payout = held == null
-          ? null
-          : _paidBy(held, to, chosen)?.payouts.firstOrNull;
+      final payout = _paidBy(held, to, chosen)?.payouts.firstOrNull;
       if (payout?.address == null || quote.recipient != payout!.address) {
         throw const SplitsRefusal('Their address changed. Get a new quote.');
+      }
+      // The quote's ZEC was priced at the rate the bill held when it was
+      // asked. A rate changed since prices the same debt differently, and the
+      // screen and the record would describe one rate while the deposit was
+      // sized by another.
+      final rate = held.rate;
+      if (rate == null ||
+          quote.amountInZatoshi !=
+              protocol.fiatToZatoshi(
+                amountMinorUnits,
+                rate,
+                amountCurrency: held.currency,
+              )) {
+        throw const SplitsRefusal('The bill’s price changed. Get a new quote.');
       }
       // Captured first, deliberately: after the wallet is called this device
       // may be anywhere.
@@ -1447,8 +1697,8 @@ class SplitsController extends ChangeNotifier {
         assetChain: quote.asset.chain,
       );
 
-      // The rate the quote was priced from, carried onto the record.
-      final rate = _bills.where((b) => b.id == billId).firstOrNull?.bill.rate;
+      // The rate the quote was priced from, carried onto the record: checked
+      // above to be the one that sized the deposit.
       final uri = protocol.renderUri([
         protocol.Zip321Payment(
           address: quote.depositAddress,
@@ -1457,20 +1707,17 @@ class SplitsController extends ChangeNotifier {
         ),
       ]);
 
+      final note = PendingSend(
+        billId: billId,
+        uri: uri,
+        carried: {to: amountMinorUnits},
+        at: protocol.canonicalInstant(_wallet.now().toUtc().toIso8601String()),
+        swap: watch,
+        zatoshi: zatoshi,
+        rate: rate,
+      );
       try {
-        await _sends.begin(
-          PendingSend(
-            billId: billId,
-            uri: uri,
-            carried: {to: amountMinorUnits},
-            at: protocol.canonicalInstant(
-              _wallet.now().toUtc().toIso8601String(),
-            ),
-            swap: watch,
-            zatoshi: zatoshi,
-            rate: rate,
-          ),
-        );
+        await _sends.begin(note);
       } on SendInFlight {
         throw const SplitsRefusal(
           'An earlier send isn’t resolved. Check your wallet.',
@@ -1492,6 +1739,9 @@ class SplitsController extends ChangeNotifier {
               amountMinorUnits,
               zatoshi,
               rate,
+              guaranteed: quote.minAmountOut == null
+                  ? null
+                  : formatBaseUnits(quote.minAmountOut!, quote.asset.decimals),
             );
           case WalletSendPhase.failed || WalletSendPhase.aborted:
             how = SendEnded.refused;
@@ -1500,7 +1750,13 @@ class SplitsController extends ChangeNotifier {
         }
         return outcome;
       } finally {
-        await _sends.end(billId, how, txid: txid, recorded: recorded);
+        await _sends.end(
+          billId,
+          how,
+          txid: txid,
+          recorded: recorded,
+          wrote: note,
+        );
       }
     }
   }
@@ -1530,10 +1786,13 @@ class SplitsController extends ChangeNotifier {
     SwapWatch watch,
     int amountMinorUnits,
     int? zatoshi,
-    protocol.ExchangeRate? rate,
-  ) async {
+    protocol.ExchangeRate? rate, {
+    String? guaranteed,
+  }) async {
     final held = _bills.where((b) => b.id == watch.billId).firstOrNull;
-    if (held?.bill.payments.any((p) => p.id == watch.reference) ?? false) {
+    // The record's id is the reference under this author (§10.3 step 5).
+    final recordId = splitz.authoredId(me, watch.reference);
+    if (held?.bill.payments.any((p) => p.id == recordId) ?? false) {
       await _watches.add(watch);
       return true;
     }
@@ -1550,7 +1809,12 @@ class SplitsController extends ChangeNotifier {
         reference: watch.reference,
         zatoshi: zatoshi,
         paidAtRate: rate == null ? null : protocol.rateToJson(rate),
-        note: '${watch.assetSymbol} on ${watch.assetChain}',
+        // What the recipient is guaranteed, when the quote said: the record
+        // claims the whole debt, and the payee confirming it is shown what
+        // was due to arrive (§14.2).
+        note: guaranteed == null
+            ? '${watch.assetSymbol} on ${watch.assetChain}'
+            : 'at least $guaranteed ${watch.assetSymbol} on ${watch.assetChain}',
       ),
       billId: watch.billId,
     );
@@ -1576,6 +1840,13 @@ class SplitsController extends ChangeNotifier {
       // Stop following a swap that has finished either way. A list that only
       // grows is one nobody reads, and a failed swap is followed up by the
       // refund reaching the wallet rather than by asking again.
+      if (status.state == SwapState.failed) {
+        // The deposit came back or never went through: the record saying the
+        // debt was paid by this swap is not true, and while it stands the
+        // debt reads as paid and waiting and nothing can pay it again. Its
+        // author may take it back (§10.8), and does, before the watch goes.
+        await _withdrawSwapRecord(watch);
+      }
       if (status.state == SwapState.delivered ||
           status.state == SwapState.failed) {
         await _watches.forget(watch.reference);
@@ -1583,6 +1854,30 @@ class SplitsController extends ChangeNotifier {
       await _refresh();
     });
     return state;
+  }
+
+  /// Withdraws this device's unconfirmed record of the swap [watch] follows.
+  Future<void> _withdrawSwapRecord(SwapWatch watch) async {
+    final folded = await _storedFold(watch.billId);
+    final bill = folded.bill;
+    for (final p in bill.payments) {
+      if (p.method != 'swap' ||
+          p.reference != watch.reference ||
+          p.from != me ||
+          bill.confirmedPayments.contains(p.id)) {
+        continue;
+      }
+      final target = folded.paymentEntries[p.id];
+      if (target == null) continue;
+      final seed = await _requireIdentity();
+      final host = _host(seed);
+      final entry = await splitz.signEntry(
+        host: host,
+        entry: splitz.voidEntry(host: host, targetId: target),
+        billId: watch.billId,
+      );
+      await _store.merge(watch.billId, [entry]);
+    }
   }
 
   /// Stops following a swap without asking about it again.
@@ -1638,8 +1933,13 @@ class SplitsController extends ChangeNotifier {
         return payable == null ? 'their Zcash address can’t be paid' : null;
       case 'swap':
         final (asset, chain) = (payout.asset, payout.chain);
-        if (asset == null || chain == null || payout.address == null) {
-          return 'their ${asset ?? 'swap'} payout is incomplete';
+        bool blank(String? s) => s == null || s.trim().isEmpty;
+        if (asset == null ||
+            chain == null ||
+            blank(asset) ||
+            blank(chain) ||
+            blank(payout.address)) {
+          return 'their ${blank(asset) ? 'swap' : asset} payout is incomplete';
         }
         final List<TradableAsset> carried;
         try {
@@ -1683,7 +1983,9 @@ class SplitsController extends ChangeNotifier {
   /// never taken without the person choosing it.
   Future<void> replaceKey(String billId, String key) async {
     await _guard(() async {
-      if (_sending.contains(billId) || await _sends.of(billId) != null) {
+      if (_sending.contains(billId) ||
+          _sends.underWay(billId) ||
+          await _sends.of(billId) != null) {
         throw const SplitsRefusal('Finish the earlier send first.');
       }
       await _keys.replaceBillKey(billId, key);
@@ -1742,7 +2044,9 @@ class SplitsController extends ChangeNotifier {
     await _guard(() async {
       // A send that may still land keeps its bill: forgetting it would
       // forget the only note that the debt is already paid.
-      if (_sending.contains(billId) || await _sends.of(billId) != null) {
+      if (_sending.contains(billId) ||
+          _sends.underWay(billId) ||
+          await _sends.of(billId) != null) {
         throw const SplitsRefusal('Finish the earlier send first.');
       }
       await _forget(billId);
@@ -1765,11 +2069,13 @@ class SplitsController extends ChangeNotifier {
     }
   }
 
-  WalletBillHost _host(List<int>? seed) => WalletBillHost(
-    _wallet,
-    me: seed == null ? null : _participant,
-    sign: seed == null ? null : _signer.signerFor(seed),
-  );
+  WalletBillHost _host(List<int>? seed, {Set<String> unread = const {}}) =>
+      WalletBillHost(
+        _wallet,
+        me: seed == null ? null : _participant,
+        sign: seed == null ? null : _signer.signerFor(seed),
+        readsAddress: unread.isEmpty ? null : (a) => !unread.contains(a),
+      );
 
   Future<List<int>> _requireIdentity() async {
     final seed = _identitySeed ??= await _keys.ensureIdentitySeed(
@@ -1830,6 +2136,7 @@ class SplitsController extends ChangeNotifier {
             paymentEntries: folded.paymentEntries,
             expenseAuthors: folded.expenseAuthors,
             paymentDigests: folded.paymentDigests,
+            paymentAuthors: folded.paymentAuthors,
             rateSetBy: folded.rateAuthor,
             rateEntry: folded.rateEntry,
             activity: activityOf(
@@ -1840,10 +2147,12 @@ class SplitsController extends ChangeNotifier {
             ),
           ),
         );
-      } on protocol.SplitError {
-        // A log that opens no bill is a state to show elsewhere, not a reason
-        // to take the whole list down. It is left out of the list rather than
-        // raised, and the entries stay on disk.
+      } on Object {
+        // A log that opens no bill, or one whose history cannot be read, is a
+        // state to show elsewhere, not a reason to take the whole list down.
+        // Every bill syncs from peers, so one peer's malformed entry would
+        // otherwise empty the list of bills they never held a key for. It is
+        // left out rather than raised, and the entries stay on disk.
         continue;
       }
     }
@@ -1855,7 +2164,8 @@ class SplitsController extends ChangeNotifier {
   static String _creatorOf(List<Map<String, dynamic>> entries) {
     for (final entry in entries) {
       if (entry['kind'] == 'createBill') {
-        return entry['author'] as String? ?? '';
+        final author = entry['author'];
+        return author is String ? author : '';
       }
     }
     return '';
@@ -1892,6 +2202,27 @@ class SplitsController extends ChangeNotifier {
     if (error is SplitsRefusal) return error.message;
     if (error is BillKeyConflict) {
       return 'This phone has another key for this bill. Ask which one is current.';
+    }
+    if (error is SplitsSyncException) {
+      return switch (error.kind) {
+        SyncFailure.noKey =>
+          'This phone doesn’t have this bill’s key. Scan its code again.',
+        SyncFailure.keyLocked => 'Unlock the wallet to sync this bill.',
+        SyncFailure.forgotten => 'This bill was removed while it synced.',
+        SyncFailure.foreignKey =>
+          protocol.describeCode(protocol.SplitCode.inviteKeyMismatch) ??
+              error.message,
+      };
+    }
+    if (error is SplitsRelayException) {
+      // What the relay said is for a developer; a person needs to know
+      // whether waiting helps. Nothing is lost either way: the bill is held
+      // on this phone and goes out on the next sync that gets through.
+      return error.isTransient
+          ? 'Couldn’t sync with the bill relay. Your changes are saved on '
+                'this phone and will go out when it answers.'
+          : 'This build can’t use the bill relay. Share the bill’s code '
+                'instead.';
     }
     return error.toString();
   }
@@ -1945,4 +2276,7 @@ class _HostAs implements splitz.BillHost {
 
   @override
   splitz.VerifyEntry? get verify => _inner.verify;
+
+  @override
+  splitz.ReadsAddress? get readsAddress => _inner.readsAddress;
 }
