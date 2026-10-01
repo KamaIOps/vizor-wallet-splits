@@ -21,9 +21,13 @@ class _Held implements ZecPrices {
   Future<int?> minorUnitsPerZec(String currency) => answer.future;
 }
 
-/// Ana prices Dinner at 1000.00 USD a ZEC; Ben pays his 10.00 USD as 0.01 ZEC,
-/// which this wallet received.
-Future<(SplitsController, _Held)> _bill() async {
+/// Ana prices Dinner at 1000.00 USD a ZEC; Ben pays his 10.00 USD as
+/// [zatoshi] (0.01 ZEC unless said), which this wallet received.
+Future<(SplitsController, _Held)> _bill({
+  int zatoshi = 1000000,
+  String? memo,
+}) async {
+  late final String billId;
   final prices = _Held();
   final c = SplitsController(
     wallet: FakeWallet(),
@@ -31,10 +35,17 @@ Future<(SplitsController, _Held)> _bill() async {
     keys: SplitsKeys(store: InMemorySecretStore(), random: Random(5)),
     relay: const UnconfiguredSplitsRelay(),
     prices: prices,
-    received: () async => const [entries.IncomingTransaction(_tx, 1000000)],
+    received: () async => [entries.IncomingTransaction(_tx, zatoshi)],
+    receivedTimes: () async => {_tx: DateTime.utc(2026, 9, 14, 18, 30)},
+    receivedMemos: (txids) async => memo == null
+        ? const {}
+        : {
+            _tx: [memo.replaceAll('<bill>', billId)],
+          },
   );
   await c.load();
   final id = (await c.createBill(name: 'Dinner', currency: 'USD'))!;
+  billId = id;
   await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
   final ben = await SignedPeer.named('ben');
   await c.accept(id, [
@@ -59,18 +70,23 @@ Future<(SplitsController, _Held)> _bill() async {
         to: c.me,
         amount: 1000,
         reference: _tx,
-        zatoshi: 1000000,
+        zatoshi: zatoshi,
       ),
       id,
     ),
   ]);
-  expect(c.arrived, hasLength(1));
   return (c, prices);
 }
 
-Future<(SplitsController, _Held)> _open(WidgetTester t) async {
+Future<(SplitsController, _Held)> _open(
+  WidgetTester t, {
+  int zatoshi = 1000000,
+  String? memo,
+}) async {
   late (SplitsController, _Held) held;
-  await t.runAsync(() async => held = await _bill());
+  await t.runAsync(
+    () async => held = await _bill(zatoshi: zatoshi, memo: memo),
+  );
   await t.pumpWidget(
     SplitsScope(
       controller: held.$1,
@@ -143,5 +159,41 @@ void main() {
     });
     await t.pump();
     expect(c.bills.single.bill.confirmedPayments, hasLength(1));
+  });
+
+  testWidgets(
+    'ZEC worth a fraction of the debt is shown and never one-tapped',
+    (t) async {
+      // 1000 zatoshi at 1000.00 USD a ZEC is worth 0.01 USD, not 10.00.
+      final (c, prices) = await _open(t, zatoshi: 1000);
+      await _answer(t, prices, price: 100000);
+      expect(c.arrived, isEmpty);
+      expect(c.underpriced, hasLength(1));
+      expect(find.byKey(const Key('splits_arrivals_confirm')), findsNothing);
+      expect(find.textContaining('this settles'), findsOneWidget);
+      expect(find.text('Nothing to confirm.'), findsNothing);
+    },
+  );
+
+  testWidgets('each payment says when its transaction arrived', (t) async {
+    final (_, prices) = await _open(t);
+    await _answer(t, prices, price: 100000);
+    expect(find.textContaining('received 2026-09-14'), findsOneWidget);
+  });
+
+  testWidgets('a memo naming this bill one-taps as before', (t) async {
+    final (c, prices) = await _open(t, memo: 'splitz:<bill>');
+    await _answer(t, prices, price: 100000);
+    expect(c.arrived, hasLength(1));
+    expect(_confirm(t).onPressed, isNotNull);
+  });
+
+  testWidgets("another bill's memo is shown, never one-tapped", (t) async {
+    final (c, prices) = await _open(t, memo: 'splitz:SomeOtherBill00000000');
+    await _answer(t, prices, price: 100000);
+    expect(c.arrived, isEmpty);
+    expect(c.unbound, hasLength(1));
+    expect(find.byKey(const Key('splits_arrivals_confirm')), findsNothing);
+    expect(find.text(unboundConcern), findsOneWidget);
   });
 }

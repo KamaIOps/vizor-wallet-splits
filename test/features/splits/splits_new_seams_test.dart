@@ -38,29 +38,36 @@ void main() {
   });
 
   group('prices', () {
-    test('the wallet feed first, the market for the rest', () async {
-      const prices = SplitsZecPrices(
-        wallet: FixedZecPrices({'USD': 138819}),
-        market: FixedZecPrices({'USD': 1, 'EUR': 122241}),
+    test('two markets that agree give the second one\'s figure', () async {
+      const prices = AgreeingZecPrices(
+        FixedZecPrices({'USD': 138819}),
+        FixedZecPrices({'USD': 138905, 'EUR': 122241}),
       );
-      expect(await prices.minorUnitsPerZec('USD'), 138819);
+      expect(await prices.minorUnitsPerZec('USD'), 138905);
       expect(await prices.minorUnitsPerZec('EUR'), 122241);
       expect(await prices.minorUnitsPerZec('GBP'), isNull);
     });
 
-    test('a market that cannot be reached leaves the bill to be priced by '
-        'hand', () async {
-      final prices = SplitsZecPrices(
-        wallet: const NoZecPrices(),
-        market: _Unreachable(),
+    test('two markets that disagree give no price', () async {
+      // (152701 - 138819) x 10000 = 138820000 > 138819 x 200 = 27763800:
+      // 1000 bp apart, past the 200 allowed.
+      const prices = AgreeingZecPrices(
+        FixedZecPrices({'USD': 138819}),
+        FixedZecPrices({'USD': 152701}),
       );
+      expect(await prices.minorUnitsPerZec('USD'), isNull);
+    });
+
+    test('markets that cannot be reached leave the bill to be priced by '
+        'hand', () async {
+      final prices = AgreeingZecPrices(_Unreachable(), _Unreachable());
       expect(await prices.minorUnitsPerZec('EUR'), isNull);
     });
 
     test('keeps §15.6', () async {
-      const prices = SplitsZecPrices(
-        wallet: FixedZecPrices({'USD': 138819}),
-        market: FixedZecPrices({'EUR': 122241}),
+      const prices = AgreeingZecPrices(
+        FixedZecPrices({'USD': 138819}),
+        FixedZecPrices({'EUR': 122241}),
       );
       expect(await checkZecPrices(prices), isEmpty);
       expect(await checkZecPrices(prices, priced: 'EUR'), isEmpty);
@@ -81,6 +88,107 @@ void main() {
         store: secure,
       );
       expect(await checkSecretStore(store, runId: 'wallet'), isEmpty);
+    });
+
+    group('names written before accounts were kept apart', () {
+      late AppSecureStore secure;
+      const billKey = 'splitz_bill_key_LvRN_fusXc5LJBeEjZNCBQ';
+      const seedA = 'splitz_identity_seed_v2_account-a';
+      const seedC = 'splitz_identity_seed_v2_account-c';
+
+      setUp(() async {
+        FlutterSecureStorage.setMockInitialValues({});
+        secure = AppSecureStore.testing(storage: const FlutterSecureStorage())
+          ..setSessionPassword('a session password');
+        await secure.writeSecretString(billKey, 'K');
+        await secure.writeSecretString(seedA, 'seed-a');
+        await secure.writeSecretString(seedC, 'seed-c');
+      });
+
+      KeychainSecretStore of(String account) =>
+          KeychainSecretStore(accountUuid: account, store: secure);
+
+      test('a shared bill key is read by every account', () async {
+        expect(await of('account-a').read(billKey), 'K');
+        expect(await of('account-b').read(billKey), 'K');
+        expect(await secure.readSecretStringWithOptions(billKey), 'K');
+      });
+
+      test('a forgotten bill key is gone for every account', () async {
+        expect(await of('account-a').read(billKey), 'K');
+        await of('account-a').delete(billKey);
+        expect(await of('account-a').read(billKey), isNull);
+        expect(await of('account-b').read(billKey), isNull);
+      });
+
+      test('an identity seed moves to its own account only', () async {
+        expect(await of('account-a').read(seedA), 'seed-a');
+        expect(await secure.readSecretStringWithOptions(seedA), isNull);
+        expect(await secure.readSecretStringWithOptions(seedC), 'seed-c');
+      });
+
+      test('removing an account removes its old-name identity', () async {
+        await secure.deleteSplitsSecretsFor('account-c');
+        expect(await secure.readSecretStringWithOptions(seedC), isNull);
+        expect(await secure.readSecretStringWithOptions(seedA), 'seed-a');
+        expect(await secure.readSecretStringWithOptions(billKey), 'K');
+      });
+    });
+
+    group('a passcode change', () {
+      const p0 = 'Firstpass1!';
+      const p1 = 'Secondpass1!';
+      const p2 = 'Thirdpass1!';
+      const raw = FlutterSecureStorage();
+      late AppSecureStore secure;
+
+      /// A keychain holding [stale] sealed under [p0] while the passcode is
+      /// [p1]: what a rotation that skipped it leaves behind.
+      Future<void> leaveUnderP0(String stale) async {
+        FlutterSecureStorage.setMockInitialValues({});
+        secure = AppSecureStore.testing(storage: raw);
+        await secure.configurePassword(p0);
+        await secure.writeAccountMnemonic('acct', 'abandon abandon abandon');
+        await secure.writeSecretString(stale, 'OLD');
+        final sealedUnderP0 = await raw.read(key: stale);
+        expect(
+          await secure.changePassword(currentPassword: p0, newPassword: p1),
+          isTrue,
+        );
+        await raw.write(key: stale, value: sealedUnderP0);
+        await secure.writeSecretString(
+          'splitz_bill_key_fresh@account-a',
+          'FRESH',
+        );
+      }
+
+      test('goes through past a splits secret under an older one', () async {
+        await leaveUnderP0('splitz_bill_key_b1');
+        final before = await raw.read(key: 'splitz_bill_key_b1');
+        expect(
+          await secure.changePassword(currentPassword: p1, newPassword: p2),
+          isTrue,
+        );
+        secure.clearSessionPassword();
+        expect(await secure.verifyPassword(p2), isTrue);
+        expect(
+          await secure.readSecretStringWithOptions(
+            'splitz_bill_key_fresh@account-a',
+          ),
+          'FRESH',
+        );
+        expect(await raw.read(key: 'splitz_bill_key_b1'), before);
+      });
+
+      test('still refuses over any other secret it cannot open', () async {
+        await leaveUnderP0(kPaymentLinkRecoveryStorageKey);
+        await expectLater(
+          secure.changePassword(currentPassword: p1, newPassword: p2),
+          throwsA(isA<StateError>()),
+        );
+        secure.clearSessionPassword();
+        expect(await secure.verifyPassword(p1), isTrue);
+      });
     });
   });
 }

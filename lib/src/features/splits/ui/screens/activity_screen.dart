@@ -12,12 +12,14 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:splitz_core/host.dart' show Arrival;
 import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:splitz_host/splitz_host.dart';
 
 import '../state/splits_controller.dart';
 import '../view/naming.dart';
-import 'arrivals_screen.dart' show disputedConcern, paymentConcerns;
+import 'arrivals_screen.dart'
+    show disputedConcern, paymentConcerns, unboundConcern, underpricedConcerns;
 import 'splits_scope.dart';
 
 class ActivityScreen extends StatefulWidget {
@@ -175,14 +177,20 @@ class _AwaitingTile extends StatelessWidget {
   /// What the Payments received screen would hold this record back for
   /// (§14.2), so that confirming it here is no easier than there. Cash
   /// carries no figures to check.
-  List<String> _concerns(SplitsController controller) => [
-    if (controller.disputed.any(
-      (a) => a.billId == billId && a.payment.id == payment.id,
-    ))
-      disputedConcern,
-    if (payment.method != 'cash')
-      ...paymentConcerns(payment: payment, view: view, live: null),
-  ];
+  List<String> _concerns(SplitsController controller) {
+    bool held(List<Arrival> list) =>
+        list.any((a) => a.billId == billId && a.payment.id == payment.id);
+    final figures = payment.method == 'cash'
+        ? const <String>[]
+        : paymentConcerns(payment: payment, view: view, live: null);
+    return [
+      if (held(controller.disputed)) disputedConcern,
+      if (held(controller.unbound)) unboundConcern,
+      ...(held(controller.underpriced)
+          ? underpricedConcerns(figures)
+          : figures),
+    ];
+  }
 
   Future<void> _arrived(
     BuildContext context,
@@ -365,6 +373,16 @@ class _AwaitingTile extends StatelessWidget {
                     : 'transaction $reference',
                 key: Key('splits_confirm_reference_${payment.id}'),
                 style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+              ),
+            // A swap's note is what its quote guaranteed would arrive, which
+            // can be less than the debt the record settles. It is the
+            // payer's word, so it is shown as theirs.
+            if (payment.note case final note? when note.trim().isNotEmpty)
+              Text(
+                payment.method == 'swap'
+                    ? 'their swap was to deliver $note'
+                    : 'their note: $note',
+                key: Key('splits_confirm_note_${payment.id}'),
               ),
             for (final (i, c) in concerns.indexed)
               Padding(

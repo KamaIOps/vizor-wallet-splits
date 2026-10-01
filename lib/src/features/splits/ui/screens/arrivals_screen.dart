@@ -99,7 +99,10 @@ class _ArrivalsScreenState extends State<ArrivalsScreen> {
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
-          if (arrived.isEmpty && controller.disputed.isEmpty)
+          if (arrived.isEmpty &&
+              controller.disputed.isEmpty &&
+              controller.underpriced.isEmpty &&
+              controller.unbound.isEmpty)
             const Text('Nothing to confirm.'),
           if (unread.isNotEmpty)
             Padding(
@@ -111,6 +114,21 @@ class _ArrivalsScreenState extends State<ArrivalsScreen> {
               ),
             ),
           for (final a in arrived) _Arrival(arrival: a, concerns: concerns[a]!),
+          for (final a in controller.underpriced)
+            _Arrival(
+              arrival: a,
+              concerns: underpricedConcerns(
+                arrivalConcerns(
+                  arrival: a,
+                  view: controller.bills
+                      .where((b) => b.id == a.billId)
+                      .firstOrNull,
+                  live: _live[a.payment.currency],
+                ),
+              ),
+            ),
+          for (final a in controller.unbound)
+            _Arrival(arrival: a, concerns: const [unboundConcern]),
           for (final a in controller.disputed)
             _Arrival(
               arrival: a,
@@ -132,7 +150,9 @@ class _ArrivalsScreenState extends State<ArrivalsScreen> {
                           if (context.mounted &&
                               controller.lastError == null &&
                               controller.arrived.isEmpty &&
-                              controller.disputed.isEmpty) {
+                              controller.disputed.isEmpty &&
+                              controller.underpriced.isEmpty &&
+                              controller.unbound.isEmpty) {
                             Navigator.of(context).pop();
                           }
                         },
@@ -151,6 +171,23 @@ class _ArrivalsScreenState extends State<ArrivalsScreen> {
     );
   }
 }
+
+/// What the payee is told about a record §14.7 holds as underpriced: the
+/// screen's own concerns, or, where they name nothing (a worth that rounds
+/// up to 95%), the protocol's.
+List<String> underpricedConcerns(List<String> concerns) =>
+    concerns.isNotEmpty ? concerns : const [underpricedConcern];
+
+/// What the payee is told when §14.7 holds a record back as underpriced and
+/// the screen's own checks name nothing more particular.
+const String underpricedConcern =
+    'This ZEC is worth less than what it settles at the bill\'s price. '
+    'Check the amount before confirming.';
+
+/// What the payee is told about a record §14.7 holds as unbound.
+const String unboundConcern =
+    'This transaction\'s note does not name this bill. Check it was sent for '
+    'this bill, and not for something else, before confirming.';
 
 /// What the payee is told about a record §14.7 holds as disputed.
 const String disputedConcern =
@@ -270,6 +307,7 @@ class _Arrival extends StatelessWidget {
     final error = Theme.of(context).colorScheme.error;
     final key = '${arrival.billId}_${payment.id}';
     final settles = formatAmount(payment.amount, payment.currency);
+    final when = controller.receivedAt(arrival.txid);
     return RowCard(
       key: Key('splits_arrival_$key'),
       child: Column(
@@ -283,6 +321,9 @@ class _Arrival extends StatelessWidget {
                 if (rate != null)
                   'at ${formatAmount(rate.minorUnitsPerZec, rate.currency)}/ZEC',
                 'tx ${arrival.txid.substring(0, 8)}…',
+                // §14.7: a transaction id proves money arrived, not that it
+                // was sent for this bill. When is what tells them apart.
+                if (when != null) 'received ${_day(when)}',
               ].join(' · '),
             ),
             trailing: settles,
@@ -336,3 +377,9 @@ class _Arrival extends StatelessWidget {
     );
   }
 }
+
+/// [at] as a calendar day in UTC, which a block time is: 2026-10-01.
+String _day(DateTime at) =>
+    '${at.year.toString().padLeft(4, '0')}-'
+    '${at.month.toString().padLeft(2, '0')}-'
+    '${at.day.toString().padLeft(2, '0')}';
