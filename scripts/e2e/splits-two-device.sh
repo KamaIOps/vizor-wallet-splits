@@ -21,6 +21,12 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="${VIZOR_ROOT:-$(cd "$here/../.." && pwd)}"
 protocol="${SPLITZ_PROTOCOL:-$HOME/Splitz-Protocol}"
 network="${SPLITS_NETWORK:-regtest}"
+# The wallet sends every name but `test` and `regtest` to mainnet, so a
+# misspelling such as `testnet` would run this lane there without a word.
+case "$network" in
+  main|test|regtest) ;;
+  *) echo "SPLITS_NETWORK must be main, test or regtest, not '$network'" >&2; exit 2 ;;
+esac
 
 . "$here/splits-devices.sh"
 trap splits_release_devices EXIT

@@ -290,7 +290,7 @@ Future<void> _payer(
   );
   expect(
     settled.records.single['payment']['id'],
-    splitz.paymentIdForSend(txid, carried.single.to),
+    splitz.paymentIdForSend(controller.me, txid, carried.single.to),
     reason: 'a record carries its own id; the transaction is the reference',
   );
   expect(settled.records.single['payment']['reference'], txid);

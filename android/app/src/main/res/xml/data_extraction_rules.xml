@@ -8,12 +8,19 @@
   device-to-device transfer is governed here instead and defaults to including
   app data. `domain="file"` is getFilesDir(), which is what
   getApplicationSupportDirectory() resolves to on Android.
+
+  `splits` holds every bill this device has seen, as the entries they are
+  made of, unsealed. Their keys stay in the keystore and do not travel, so a
+  transferred copy is readable by anyone who reads the new device's files and
+  is no bill its new owner can sync.
 -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="file" path="tor" />
+        <exclude domain="file" path="splits" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="tor" />
+        <exclude domain="file" path="splits" />
     </device-transfer>
 </data-extraction-rules>
