@@ -13,12 +13,10 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:splitz_core/splitz_core.dart' as splitz;
-import 'package:splitz_host/splitz_host.dart' show TradableAsset;
-import 'package:zcash_wallet/src/features/swap/domain/swap_asset.dart';
 
-import '../state/splits_controller.dart';
 import '../view/chrome.dart';
 import 'splits_scope.dart';
+import 'usdc_chains.dart';
 
 /// The three ways a person can ask to be paid.
 enum PayoutChoice {
@@ -62,6 +60,10 @@ class _PayoutScreenState extends State<PayoutScreen> {
   final _chain = TextEditingController();
   final _address = TextEditingController();
 
+  /// The list's scroll, so its scrollbar can stay visible: with every chain
+  /// listed, Save's fields run below the fold.
+  final _scroll = ScrollController();
+
   PayoutChoice _choice = PayoutChoice.zec;
 
   /// Ways a payer may use instead of [_choice], after it and in this order:
@@ -79,18 +81,8 @@ class _PayoutScreenState extends State<PayoutScreen> {
   /// Why Save did nothing, when the screen can tell before asking anyone.
   String? _unsaved;
 
-  /// The asset a swap payout asks for. The chain is chosen from where the
-  /// provider delivers it; anything else is typed by hand.
-  static const _usdc = 'USDC';
-
-  /// The chains USDC can arrive on, once the provider has said; null while
-  /// it has not been asked or has not answered.
-  List<TradableAsset>? _chains;
-
   /// Why the chains could not be listed, when they could not.
   String? _chainsUnavailable;
-
-  bool _askedForChains = false;
 
   /// The chain picked from [_chains], or null while none is.
   String? _pickedChain;
@@ -104,6 +96,7 @@ class _PayoutScreenState extends State<PayoutScreen> {
     _asset.dispose();
     _chain.dispose();
     _address.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -127,7 +120,7 @@ class _PayoutScreenState extends State<PayoutScreen> {
         _asset.text = first.asset ?? '';
         _chain.text = first.chain ?? '';
         _address.text = first.address ?? '';
-        if ((first.asset ?? '').toUpperCase() == _usdc) {
+        if ((first.asset ?? '').toUpperCase() == usdc) {
           _pickedChain = first.chain;
         } else {
           _typed = true;
@@ -165,7 +158,7 @@ class _PayoutScreenState extends State<PayoutScreen> {
     PayoutChoice.swap => [
       splitz.Payout(
         type: 'swap',
-        asset: _typed ? _asset.text.trim() : _usdc,
+        asset: _typed ? _asset.text.trim() : usdc,
         chain: _typed ? _chain.text.trim() : _pickedChain,
         address: _address.text.trim(),
       ),
@@ -207,69 +200,6 @@ class _PayoutScreenState extends State<PayoutScreen> {
     if (!mounted) return;
     setState(() => _saving = false);
     if (controller.lastError == null) navigator.pop();
-  }
-
-  /// A chain id as a person reads it — `base` is Base, `arb` Arbitrum.
-  static String _chainName(String chain) => SwapAsset.live(
-    assetId: '',
-    symbol: _usdc,
-    blockchain: chain,
-    decimals: 6,
-  ).chainLabel;
-
-  /// Every chain the provider delivers USDC on, one choice each.
-  ///
-  /// Read from the provider rather than written down here, so a chain it adds
-  /// or drops is offered or withdrawn without a release. When it cannot be
-  /// read, the asset and chain are typed instead of the lane going dark.
-  Widget _chainPicker(SplitsController controller) {
-    if (!_askedForChains) {
-      _askedForChains = true;
-      controller
-          .deliverableOn(_usdc)
-          .then(
-            (listed) {
-              if (!mounted) return;
-              setState(() {
-                _chains = listed;
-                if (listed.isEmpty) {
-                  _typed = true;
-                  _chainsUnavailable = 'the provider listed none';
-                }
-              });
-            },
-            onError: (Object e) {
-              if (!mounted) return;
-              setState(() {
-                _typed = true;
-                _chainsUnavailable = SplitsController.describe(e);
-              });
-            },
-          );
-    }
-    final listed = _chains;
-    if (listed == null) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 12),
-        child: Text('Asking where USDC can arrive…'),
-      );
-    }
-    final picked = _pickedChain?.toLowerCase();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const SectionLabel('Which chain should it arrive on?'),
-        for (final a in listed)
-          OptionPill(
-            key: Key('splits_payout_chain_${a.chain.toLowerCase()}'),
-            label: 'USDC on ${_chainName(a.chain)}',
-            selected: picked == a.chain.toLowerCase(),
-            onTap: _saving
-                ? null
-                : () => setState(() => _pickedChain = a.chain),
-          ),
-      ],
-    );
   }
 
   /// The asset and chain as free text, for a payout the picker cannot hold.
@@ -330,89 +260,107 @@ class _PayoutScreenState extends State<PayoutScreen> {
       ),
       body: Form(
         key: _form,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            RadioGroup<PayoutChoice>(
-              groupValue: _choice,
-              onChanged: (value) {
-                if (_saving || value == null) return;
-                setState(() => _choice = value);
-              },
-              child: Column(
-                children: [
-                  for (final choice in PayoutChoice.values)
-                    RadioListTile<PayoutChoice>(
-                      key: Key('splits_payout_${choice.name}'),
-                      value: choice,
-                      title: Text(choice.label),
-                      subtitle: Text(choice.detail),
-                    ),
-                ],
-              ),
-            ),
-            if (_choice == PayoutChoice.swap) ...[
-              if (!_typed)
-                _chainPicker(controller)
-              else ...[
-                if (_chainsUnavailable != null)
-                  Padding(
-                    key: const Key('splits_payout_chains_unavailable'),
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Text(
-                      'Couldn’t load chains. Type the asset and chain.',
-                    ),
-                  ),
-                ..._typedFields(),
-              ],
-              const SizedBox(height: 8),
-              TextFormField(
-                key: const Key('splits_payout_address'),
-                controller: _address,
-                decoration: InputDecoration(
-                  labelText: _typed || _pickedChain == null
-                      ? 'Your address'
-                      : 'Your USDC address on ${_chainName(_pickedChain!)}',
+        child: Scrollbar(
+          controller: _scroll,
+          thumbVisibility: true,
+          child: ListView(
+            controller: _scroll,
+            padding: const EdgeInsets.all(16),
+            children: [
+              RadioGroup<PayoutChoice>(
+                groupValue: _choice,
+                onChanged: (value) {
+                  if (_saving || value == null) return;
+                  setState(() => _choice = value);
+                },
+                child: Column(
+                  children: [
+                    for (final choice in PayoutChoice.values)
+                      RadioListTile<PayoutChoice>(
+                        key: Key('splits_payout_${choice.name}'),
+                        value: choice,
+                        title: Text(choice.label),
+                        subtitle: Text(choice.detail),
+                      ),
+                  ],
                 ),
-                validator: (v) => (v == null || v.trim().isEmpty)
-                    ? 'Nobody can be paid without an address'
-                    : null,
               ),
+              if (_choice == PayoutChoice.swap) ...[
+                if (!_typed)
+                  UsdcChainPicker(
+                    picked: _pickedChain,
+                    enabled: !_saving,
+                    onPicked: (chain) => setState(() => _pickedChain = chain),
+                    onUnavailable: (why) => setState(() {
+                      _typed = true;
+                      _chainsUnavailable = why;
+                    }),
+                  )
+                else ...[
+                  if (_chainsUnavailable != null)
+                    Padding(
+                      key: const Key('splits_payout_chains_unavailable'),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        'Couldn’t load chains. Type the asset and chain.',
+                      ),
+                    ),
+                  ..._typedFields(),
+                ],
+                const SizedBox(height: 8),
+                TextFormField(
+                  key: const Key('splits_payout_address'),
+                  controller: _address,
+                  decoration: InputDecoration(
+                    labelText: _typed || _pickedChain == null
+                        ? 'Your address'
+                        : 'Your USDC address on ${usdcChainName(_pickedChain!)}',
+                  ),
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'Nobody can be paid without an address'
+                      : !_typed && _pickedChain != null
+                      ? usdcAddressIssue(_pickedChain!, v)
+                      : null,
+                ),
+              ],
+              if (_choice == PayoutChoice.cash)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text('You confirm cash when it arrives.'),
+                ),
+              // A payer who cannot use the first way — no route to the asset,
+              // too far away for cash — may pay by one of these instead.
+              const SectionLabel('Also accept, if that doesn’t work'),
+              if (_choice != PayoutChoice.zec &&
+                  controller.payToAddress != null)
+                CheckboxListTile(
+                  key: const Key('splits_payout_also_zec'),
+                  value: _alsoZec,
+                  title: const Text('Zcash'),
+                  subtitle: const Text('Straight to your wallet'),
+                  onChanged: _saving
+                      ? null
+                      : (v) => setState(() => _alsoZec = v ?? false),
+                ),
+              if (_choice != PayoutChoice.cash)
+                CheckboxListTile(
+                  key: const Key('splits_payout_also_cash'),
+                  value: _alsoCash,
+                  title: const Text('Cash'),
+                  subtitle: const Text(
+                    'In person — you confirm when it arrives',
+                  ),
+                  onChanged: _saving
+                      ? null
+                      : (v) => setState(() => _alsoCash = v ?? false),
+                ),
+              for (final p in _kept)
+                ListTile(
+                  title: Text('${p.asset} on ${p.chain}'),
+                  subtitle: const Text('Kept from before'),
+                ),
             ],
-            if (_choice == PayoutChoice.cash)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text('You confirm cash when it arrives.'),
-              ),
-            // A payer who cannot use the first way — no route to the asset,
-            // too far away for cash — may pay by one of these instead.
-            const SectionLabel('Also accept, if that doesn’t work'),
-            if (_choice != PayoutChoice.zec && controller.payToAddress != null)
-              CheckboxListTile(
-                key: const Key('splits_payout_also_zec'),
-                value: _alsoZec,
-                title: const Text('Zcash'),
-                subtitle: const Text('Straight to your wallet'),
-                onChanged: _saving
-                    ? null
-                    : (v) => setState(() => _alsoZec = v ?? false),
-              ),
-            if (_choice != PayoutChoice.cash)
-              CheckboxListTile(
-                key: const Key('splits_payout_also_cash'),
-                value: _alsoCash,
-                title: const Text('Cash'),
-                subtitle: const Text('In person — you confirm when it arrives'),
-                onChanged: _saving
-                    ? null
-                    : (v) => setState(() => _alsoCash = v ?? false),
-              ),
-            for (final p in _kept)
-              ListTile(
-                title: Text('${p.asset} on ${p.chain}'),
-                subtitle: const Text('Kept from before'),
-              ),
-          ],
+          ),
         ),
       ),
     );

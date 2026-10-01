@@ -22,6 +22,7 @@ import 'payout_screen.dart';
 import 'share_bill_screen.dart';
 import 'text_entry_screen.dart';
 import 'splits_scope.dart';
+import '../view/removal_plan.dart';
 
 class PeopleScreen extends StatelessWidget {
   const PeopleScreen({super.key, required this.billId});
@@ -136,13 +137,22 @@ class _PersonTile extends StatelessWidget {
     // Offered where there is something to do about it, instead of a sentence
     // saying what is missing. An address is theirs to set once they have
     // joined from their own phone (§10.7), so only an unbound record gets one
-    // from here.
+    // from here. One already set can be changed; a payer is warned about the
+    // change before settling to it (§10.3).
+    final hasWay = lane != hostapi.SettleLane.none;
     final actions = <Widget>[
-      if (!isMe && lane == hostapi.SettleLane.none && !_bound)
+      if (!isMe && !_bound)
         TextButton.icon(
-          key: Key('splits_person_add_address_${participant.id}'),
-          icon: const Icon(Icons.qr_code_scanner, size: 18),
-          label: const Text('Add address'),
+          key: Key(
+            hasWay
+                ? 'splits_person_change_address_${participant.id}'
+                : 'splits_person_add_address_${participant.id}',
+          ),
+          icon: Icon(
+            hasWay ? Icons.edit_outlined : Icons.qr_code_scanner,
+            size: 18,
+          ),
+          label: Text(hasWay ? 'Change address' : 'Add address'),
           onPressed: () => askAndSetAddress(
             context,
             billId: billId,
@@ -246,35 +256,89 @@ Future<void> askAndAddPerson(
 }
 
 /// Takes [participant] off the bill, after saying what that needs.
+///
+/// Somebody an expense still names cannot come off (§10.8). Where this
+/// device wrote those expenses and they only shared the cost, it offers to
+/// take them out of every one first, the others sharing their part; what it
+/// cannot change is said, with who can.
 Future<void> confirmAndRemovePerson(
   BuildContext context, {
   required String billId,
   required protocol.Participant participant,
 }) async {
   final controller = SplitsScope.read(context);
-  final confirmed = await showDialog<bool>(
+  final view = controller.bills.where((b) => b.id == billId).firstOrNull;
+  if (view == null) return;
+  final plan = planRemoval(view, participant.id, controller.me);
+  final name = participant.name;
+  final edits = plan.edits.length;
+  final blocked = plan.blockers.isNotEmpty;
+
+  final choice = await showDialog<String>(
     context: context,
     builder: (dialog) => AlertDialog(
-      title: Text('Take ${participant.name} off the bill?'),
-      // Says the rule rather than letting it arrive as a refusal: §10.8
-      // will not remove somebody an expense still names.
-      content: const Text('Only if they’re on no expense or payment.'),
+      title: Text('Take $name off the bill?'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (!plan.namesThem)
+              const Text('They’re on no expense or payment.')
+            else ...[
+              if (edits > 0)
+                Text(
+                  'They’ll come off ${edits == 1 ? '1 expense' : '$edits expenses'}, '
+                  'and the others on ${edits == 1 ? 'it' : 'each'} share their part.',
+                ),
+              if (blocked) ...[
+                if (edits > 0) const SizedBox(height: 12),
+                const Text('These still name them:'),
+                for (final b in plan.blockers)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text('• $b'),
+                  ),
+              ],
+            ],
+          ],
+        ),
+      ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(dialog).pop(false),
-          child: const Text('Keep them'),
+          onPressed: () => Navigator.of(dialog).pop(null),
+          child: Text(blocked && edits == 0 ? 'OK' : 'Keep them'),
         ),
-        FilledButton(
-          key: const Key('splits_people_remove_confirm'),
-          onPressed: () => Navigator.of(dialog).pop(true),
-          child: const Text('Take them off'),
-        ),
+        if (!plan.namesThem)
+          FilledButton(
+            key: const Key('splits_people_remove_confirm'),
+            onPressed: () => Navigator.of(dialog).pop('remove'),
+            child: const Text('Take them off'),
+          )
+        else if (edits > 0)
+          FilledButton(
+            key: const Key('splits_people_remove_all'),
+            onPressed: () => Navigator.of(dialog).pop('edit'),
+            child: Text(
+              blocked
+                  ? 'Remove from the ${edits == 1 ? 'one' : '$edits'} I can'
+                  : 'Remove from all expenses',
+            ),
+          ),
       ],
     ),
   );
-  if (confirmed ?? false) {
-    await controller.removePerson(billId: billId, id: participant.id);
+  if (choice == null) return;
+  if (choice == 'edit') {
+    await controller.restateExpenses(
+      billId: billId,
+      splits: {for (final e in plan.edits) e.entryId: e.split},
+    );
+    if (controller.lastError != null) return;
+    // Off the bill only once nothing else names them.
+    if (blocked) return;
   }
+  await controller.removePerson(billId: billId, id: participant.id);
 }
 
 /// An id for somebody being added by hand.

@@ -48,6 +48,9 @@ Future<String> unpricedBill(SplitsController c, String currency) async {
   return id;
 }
 
+/// An address on every EVM chain, lower-case so no checksum applies.
+const _evm = '0x1111111111111111111111111111111111111111';
+
 void main() {
   group('settling prices the bill itself', () {
     testWidgets('an unpriced bill takes the live price and offers the send', (
@@ -156,7 +159,15 @@ void main() {
         find.byType(ListView),
         const Offset(0, -100),
       );
+      // Base is an EVM chain: an address that is not one is refused there,
+      // as the swap screen refuses it.
       await t.enterText(find.byKey(const Key('splits_payout_address')), '0xme');
+      await t.tap(find.byKey(const Key('splits_payout_save')));
+      await t.pumpAndSettle();
+      expect(find.text('Invalid EVM address'), findsOneWidget);
+      expect(c.bills.single.bill.participant(c.me)!.payouts, isEmpty);
+
+      await t.enterText(find.byKey(const Key('splits_payout_address')), _evm);
       await t.tap(find.byKey(const Key('splits_payout_save')));
       await t.pumpAndSettle();
 
@@ -164,7 +175,7 @@ void main() {
       expect(me.payouts.single.type, 'swap');
       expect(me.payouts.single.asset, 'USDC');
       expect(me.payouts.single.chain, 'base');
-      expect(me.payouts.single.address, '0xme');
+      expect(me.payouts.single.address, _evm);
     });
 
     testWidgets('no chain picked, nothing saved', (t) async {

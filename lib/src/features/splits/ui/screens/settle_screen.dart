@@ -2,7 +2,6 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:splitz_core/host.dart' as splitz;
 import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:splitz_host/splitz_host.dart' show BillEventKind, PendingSend;
@@ -15,6 +14,7 @@ import 'price_bill_screen.dart';
 import 'record_payment_screen.dart';
 import 'swap_screen.dart';
 import 'text_entry_screen.dart';
+import 'usdc_chains.dart' show usdcChainName;
 import 'splits_scope.dart';
 
 /// What this device owes, what the request will carry, and what it will not.
@@ -42,14 +42,9 @@ class _SettleScreenState extends State<SettleScreen> {
   /// a feed that has no figure now will not have one on the next rebuild.
   bool _autoPriced = false;
 
-  /// Payouts the payer picked (§14.8), by participant id, for any reason and
-  /// at any time before sending. Held as the payout itself so an edit to the
-  /// payee's list cannot redirect the choice.
-  final Map<String, protocol.Payout> _chosen = {};
-
   /// Payouts picked for the payer where a recipient's first one cannot be
   /// paid and a later one can, with why the first cannot. Read again on every
-  /// load, and never over a choice in [_chosen].
+  /// load.
   Map<String, (protocol.Payout, String)> _auto = const {};
 
   /// Where each payout in effect below the first sat in its payee's list when
@@ -76,9 +71,7 @@ class _SettleScreenState extends State<SettleScreen> {
           .firstOrNull;
       var via = held == null
           ? const <String, int>{}
-          : SplitsController.payoutIndexes(held.bill, _chosen);
-      // A choice the payee no longer declares falls back to their first.
-      _chosen.removeWhere((id, _) => !via.containsKey(id));
+          : SplitsController.payoutIndexes(held.bill, const {});
       var owed = await controller.obligation(widget.billId, via: via);
       if (!mounted) return;
       // An unpriced bill is priced here from the wallet's live feed, so
@@ -109,12 +102,11 @@ class _SettleScreenState extends State<SettleScreen> {
       }
       // A first payout this device cannot pay by — an address no request can
       // carry, an asset the provider does not deliver — is passed over for
-      // the next one it can, in the payee's order. Shown, and undone by
-      // picking another way.
+      // the next one it can, in the payee's order, and shown.
       final auto = <String, (protocol.Payout, String)>{};
       if (owed != null && held != null) {
         for (final u in owed.unpayable) {
-          if (_chosen.containsKey(u.id) || u.reason == 'unpriceable') continue;
+          if (u.reason == 'unpriceable') continue;
           final payouts = held.bill.participant(u.id)?.payouts ?? const [];
           if (payouts.length < 2) continue;
           final why = await controller.cannotPayBy(payouts.first);
@@ -130,7 +122,6 @@ class _SettleScreenState extends State<SettleScreen> {
         if (auto.isNotEmpty) {
           via = SplitsController.payoutIndexes(held.bill, {
             for (final MapEntry(:key, :value) in auto.entries) key: value.$1,
-            ..._chosen,
           });
           owed = await controller.obligation(widget.billId, via: via);
           if (!mounted) return;
@@ -213,61 +204,6 @@ class _SettleScreenState extends State<SettleScreen> {
     await _load();
   }
 
-  /// The sheet's answer for asking the payee to add a way.
-  static const _ask = 'ask';
-
-  /// Offers every other payout [id] declared, and asking them for one more.
-  ///
-  /// Open to any debt at any time: a payer may prefer another way, or the
-  /// first may have failed. A `zec` pick goes into the one request; a swap or
-  /// cash pick opens that lane.
-  Future<void> _otherWay(BillView view, String id, int amount) async {
-    final name = view.bill.displayNameOf(id, creatorId: view.creatorId);
-    final inEffect = _via[id] ?? 0;
-    final ways = _waysToPay(view, id, inEffect);
-    final picked = await showModalBottomSheet<Object>(
-      context: context,
-      builder: (sheet) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Text(
-                'Pay $name another way',
-                style: Theme.of(sheet).textTheme.titleMedium,
-              ),
-            ),
-            for (final (i, p) in ways)
-              ListTile(
-                key: Key('splits_other_way_${id}_$i'),
-                title: Text(_describePayout(p)),
-                subtitle: Text('Their ${ordinal(i + 1)} choice'),
-                onTap: () => Navigator.of(sheet).pop((i, p)),
-              ),
-            ListTile(
-              key: Key('splits_other_way_ask_$id'),
-              leading: const Icon(Icons.chat_bubble_outline),
-              title: Text('Ask $name for another way'),
-              onTap: () => Navigator.of(sheet).pop(_ask),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (picked == null || !mounted) return;
-    if (picked == _ask) {
-      await _askForAnotherWay(view, id);
-      return;
-    }
-    final (_, payout) = picked as (int, protocol.Payout);
-    _chosen[id] = payout;
-    await _load();
-    if (!mounted || payout.type == 'zec') return;
-    await _openLane(id, amount, payout);
-  }
-
   /// Opens the swap or cash lane for [id], paid by [payout] when the payer
   /// chose one and by their first otherwise.
   ///
@@ -280,7 +216,7 @@ class _SettleScreenState extends State<SettleScreen> {
     ).bills.where((b) => b.id == widget.billId).firstOrNull;
     if (view == null) return;
     final swap = (payout?.type ?? _payoutAt(view, id, 0)?.type) == 'swap';
-    final result = await Navigator.of(context).push<Object?>(
+    await Navigator.of(context).push<Object?>(
       MaterialPageRoute<Object?>(
         builder: (_) => swap
             ? SwapScreen(
@@ -298,39 +234,6 @@ class _SettleScreenState extends State<SettleScreen> {
     );
     if (!mounted) return;
     await _load();
-    if (!mounted || result != SwapScreen.anotherWay) return;
-    final now = SplitsScope.read(
-      context,
-    ).bills.where((b) => b.id == widget.billId).firstOrNull;
-    if (now != null) await _otherWay(now, id, amount);
-  }
-
-  /// Hands the payee a message asking for a way to be paid that suits them.
-  ///
-  /// Nothing about the bill goes with it: they add the payout on their own
-  /// device, where only they can write it (§10.7), and it reaches this one on
-  /// the next sync.
-  Future<void> _askForAnotherWay(BillView view, String id) async {
-    final controller = SplitsScope.read(context);
-    String who(String x) =>
-        view.bill.displayNameOf(x, creatorId: view.creatorId);
-    final text =
-        '${who(controller.me)} wants to pay you for “${view.bill.name}” '
-        'another way. In the app, open the bill, tap ⋯ → How you get paid, '
-        'and add a way that works for you.';
-    final share = SplitsScope.sharerOf(context);
-    if (share != null) {
-      await share(context, text);
-      return;
-    }
-    await Clipboard.setData(ClipboardData(text: text));
-    if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(
-        key: Key('splits_other_way_asked_$id'),
-        content: Text('Message copied. Send it to ${who(id)}.'),
-      ),
-    );
   }
 
   Future<void> _resolve({bool landed = false, String? txid}) async {
@@ -534,7 +437,7 @@ class _SettleScreenState extends State<SettleScreen> {
           // Only the recipients this request actually pays: an address change
           // for somebody not in it — not in the plan, or settled another way —
           // is history, not a decision about where this money goes.
-          for (final replaced in view.replacedAddresses)
+          for (final replaced in view.redirectedAddresses)
             if (_owed?.carriedTo.containsKey(replaced.id) ?? false)
               RowCard(
                 key: Key('splits_settle_replaced_${replaced.id}'),
@@ -566,28 +469,14 @@ class _SettleScreenState extends State<SettleScreen> {
                           refundAuthors: _refundAuthors(view),
                           me: controller.me,
                         ) ??
-                        Text(
-                          (_via[s.to] ?? 0) > 0
-                              ? 'Their ${ordinal(_via[s.to]! + 1)} choice, '
-                                    'in the one payment below'
-                              : 'Shielded ZEC, in the one payment below',
-                        ),
+                        // A lower choice is said by the `_Passed` line under
+                        // the row and on the review (§14.8).
+                        const Text('Shielded ZEC'),
                     trailing: formatAmount(s.amount, currency),
                   ),
                 ),
                 if (_auto[s.to] case (_, final why))
                   _Passed(id: s.to, why: why),
-                _SwitchActions(
-                  id: s.to,
-                  enabled: _canSwitch(controller),
-                  firstChoice:
-                      _chosen.containsKey(s.to) && (_via[s.to] ?? 0) > 0,
-                  onFirstChoice: () {
-                    _chosen.remove(s.to);
-                    _load();
-                  },
-                  onOtherWay: () => _otherWay(view, s.to, s.amount),
-                ),
               ],
             for (final a in _owed!.awaiting) ...[
               RowCard(
@@ -638,12 +527,6 @@ class _SettleScreenState extends State<SettleScreen> {
                 inEffect: _via[u.id] ?? 0,
                 passed: _auto[u.id]?.$2,
                 canSwitch: _canSwitch(controller),
-                firstChoice: _chosen.containsKey(u.id) && (_via[u.id] ?? 0) > 0,
-                onFirstChoice: () {
-                  _chosen.remove(u.id);
-                  _load();
-                },
-                onOtherWay: () => _otherWay(view, u.id, u.minorUnits),
                 onOpen: () {
                   final at = _via[u.id] ?? 0;
                   _openLane(
@@ -664,7 +547,7 @@ class _SettleScreenState extends State<SettleScreen> {
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               const SizedBox(height: 8),
-              _RateLine(view: view, who: who),
+              _RateLine(view: view),
             ],
           ],
           for (final s in owedToMe)
@@ -691,7 +574,6 @@ class _SettleScreenState extends State<SettleScreen> {
               key: Key('splits_settle_between_${s.from}_${s.to}'),
               child: CardLine(
                 title: '${who(s.from)} → ${who(s.to)}',
-                subtitle: const Text('Between them — only they can settle it'),
                 trailing: formatAmount(s.amount, currency),
               ),
             ),
@@ -723,9 +605,6 @@ class _Unpayable extends StatelessWidget {
     required this.inEffect,
     required this.passed,
     required this.canSwitch,
-    required this.firstChoice,
-    required this.onFirstChoice,
-    required this.onOtherWay,
     required this.onOpen,
     required this.onReturn,
   });
@@ -743,11 +622,6 @@ class _Unpayable extends StatelessWidget {
   final String? passed;
 
   final bool canSwitch;
-
-  /// Whether the payer chose [inEffect] themselves and can take it back.
-  final bool firstChoice;
-  final VoidCallback onFirstChoice;
-  final VoidCallback onOtherWay;
 
   /// Opens the swap or cash lane for the payout in effect.
   final VoidCallback onOpen;
@@ -781,10 +655,9 @@ class _Unpayable extends StatelessWidget {
         'unpriceable' => 'Needs more than one payment request',
         _ =>
           lane == splitz.SettleLane.swap
-              ? '${rank}Gets ${payout?.asset ?? 'another asset'}'
-                    '${payout?.chain == null ? '' : ' on ${payout!.chain}'}'
-                    ' — tap to pay'
-              : '${rank}Gets cash — tap to record it',
+              ? '${rank}Pay in ${payout?.asset ?? 'another asset'}'
+                    '${payout?.chain == null ? '' : ' on ${usdcChainName(payout!.chain!)}'}'
+              : '${rank}Cash',
       }),
       trailing: formatAmount(u.minorUnits, currency),
       chevron: !deadEnd,
@@ -807,21 +680,13 @@ class _Unpayable extends StatelessWidget {
         ),
         if (passed != null) _Passed(id: u.id, why: passed!),
         // Unpriceable is about the amount, which no other payout changes.
-        if (u.reason != 'unpriceable')
-          _SwitchActions(
-            id: u.id,
-            enabled: canSwitch,
-            firstChoice: firstChoice,
-            onFirstChoice: onFirstChoice,
-            onOtherWay: onOtherWay,
-          ),
         if (canAddAddress)
           Align(
             alignment: Alignment.centerRight,
             child: TextButton.icon(
               key: Key('splits_settle_add_address_${u.id}'),
               icon: const Icon(Icons.qr_code_scanner, size: 18),
-              label: Text('Add ${who(u.id)}’s address'),
+              label: Text('How ${who(u.id)} gets paid'),
               onPressed: () async {
                 await askAndSetAddress(
                   context,
@@ -861,73 +726,6 @@ class _Passed extends StatelessWidget {
   );
 }
 
-/// Changing how one person is paid: back to their first choice, when the
-/// payer picked another, and any other way at all.
-class _SwitchActions extends StatelessWidget {
-  const _SwitchActions({
-    required this.id,
-    required this.enabled,
-    required this.firstChoice,
-    required this.onFirstChoice,
-    required this.onOtherWay,
-  });
-
-  final String id;
-  final bool enabled;
-  final bool firstChoice;
-  final VoidCallback onFirstChoice;
-  final VoidCallback onOtherWay;
-
-  @override
-  Widget build(BuildContext context) => Align(
-    alignment: Alignment.centerRight,
-    child: Wrap(
-      alignment: WrapAlignment.end,
-      children: [
-        if (firstChoice)
-          TextButton(
-            key: Key('splits_settle_first_choice_$id'),
-            onPressed: enabled ? onFirstChoice : null,
-            child: const Text('Use their first choice'),
-          ),
-        TextButton(
-          key: Key('splits_settle_other_way_$id'),
-          onPressed: enabled ? onOtherWay : null,
-          child: const Text('Pay another way'),
-        ),
-      ],
-    ),
-  );
-}
-
-/// [id]'s declared payouts other than the one at [inEffect] that this device
-/// could settle by, in their order, with each one's position in the list.
-List<(int, protocol.Payout)> _waysToPay(
-  BillView view,
-  String id,
-  int inEffect,
-) {
-  final payouts = view.bill.participant(id)?.payouts ?? const [];
-  return [
-    for (final (i, p) in payouts.indexed)
-      if (i != inEffect &&
-          switch (p.type) {
-            // One a request can carry, or it would only be withheld again.
-            'zec' =>
-              protocol.Participant(
-                    id: id,
-                    name: '',
-                    payouts: [p],
-                  ).payableAddress !=
-                  null,
-            'swap' => p.asset != null && p.chain != null && p.address != null,
-            'cash' => true,
-            _ => false,
-          })
-        (i, p),
-  ];
-}
-
 /// [id]'s payout at [index] in their declared order, or null.
 protocol.Payout? _payoutAt(BillView view, String id, int index) {
   final payouts = view.bill.participant(id)?.payouts ?? const [];
@@ -950,11 +748,11 @@ class _SentResult extends StatelessWidget {
         'Built, not sent yet',
         settled.detail ?? 'Not on the network yet. Check before retrying.',
       ),
-      // Nothing left the wallet, so any debt in it can be paid another way.
+      // Nothing left the wallet, so sending again spends nothing twice.
       splitz.SendResult.failed => (
         'Not sent',
-        '${settled.detail ?? 'Nothing was spent.'} Send again, or pay '
-            'someone another way below.',
+        '${describeSendFailure(settled.detail ?? 'Nothing was spent.')} '
+            'Send again when that is fixed.',
       ),
     };
 
@@ -1013,14 +811,6 @@ String? payerSummary(
   return parts.length < 2 ? null : parts.join(' + ');
 }
 
-/// [payout] as a payer picks it: where the money goes.
-String _describePayout(protocol.Payout payout) => switch (payout.type) {
-  'zec' => 'Zcash to ${_short(payout.address ?? '')}',
-  'swap' => '${payout.asset} on ${payout.chain}',
-  'cash' => 'Cash',
-  _ => payout.type,
-};
-
 /// The lane [id] is paid in when the payout at [index] of theirs is in
 /// effect (§9.1, §14.8), or none when they are not on the bill.
 splitz.SettleLane _laneAt(BillView view, String id, int index) {
@@ -1044,11 +834,11 @@ Set<String> _refundAuthors(BillView view) => {
     if (e.amount < 0) view.expenseAuthors[e.id] ?? '',
 };
 
-/// Why a payment asks for what it does, when the payee alone does not say.
+/// The part of a payment no debt of the payer's explains, when there is one.
 ///
 /// §6.3: netting reroutes payments, so a person can be asked to pay somebody
-/// they never shared an expense with, and the part of a payment no debt of
-/// theirs explains is the part a peer's hostile entry would put there.
+/// they never shared an expense with; that rerouting is not called out. The
+/// part no debt explains is the part a peer's hostile entry would put there.
 ///
 /// Only a negative expense produces that part. When [me] entered every one
 /// on the bill, it is this person's own refund and is stated without alarm;
@@ -1060,16 +850,8 @@ Widget? _explain(
   required Set<String> refundAuthors,
   required String me,
 }) {
-  final elsewhere = <String, int>{};
-  for (final c in s.covers) {
-    if (c.to != s.to) elsewhere[c.to] = (elsewhere[c.to] ?? 0) + c.amount;
-  }
-  final lines = <String>[
-    for (final e in elsewhere.entries)
-      'includes ${formatAmount(e.value, currency)} you owe ${who(e.key)}',
-  ];
   final unexplained = s.unexplained;
-  if (lines.isEmpty && unexplained == 0) return null;
+  if (unexplained == 0) return null;
   final amount = formatAmount(unexplained, currency);
   final others = [
     for (final a in refundAuthors)
@@ -1079,7 +861,6 @@ Widget? _explain(
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      for (final l in lines) Text(l),
       if (unexplained > 0)
         Builder(
           builder: (context) => Text(
@@ -1100,21 +881,30 @@ Widget? _explain(
   );
 }
 
-/// What one ZEC was priced at for this request, and who said so (§14.2).
+/// What one ZEC was priced at for this request (§14.2).
+///
+/// On the review a payment is sent from, it also names who set the rate:
+/// §14.2 requires it there, because a participant who is owed money can set
+/// one. A rate the payee set is called out beside it
+/// (`splits_review_setter_paid`).
 class _RateLine extends StatelessWidget {
-  const _RateLine({required this.view, required this.who});
+  const _RateLine({required this.view, this.namesSetter = false});
 
   final BillView view;
-  final String Function(String) who;
+  final bool namesSetter;
 
   @override
   Widget build(BuildContext context) {
     final rate = view.bill.rate;
     if (rate == null) return const SizedBox.shrink();
     final by = view.rateSetBy;
+    final figure =
+        '1 ZEC = ${formatAmount(rate.minorUnitsPerZec, view.bill.currency)}';
     return Text(
-      '1 ZEC = ${formatAmount(rate.minorUnitsPerZec, view.bill.currency)}, '
-      'set by ${by == null ? 'nobody on the bill' : who(by)}',
+      !namesSetter
+          ? figure
+          : '$figure, priced by '
+                '${by == null ? 'nobody on the bill' : view.bill.displayNameOf(by, creatorId: view.creatorId)}',
       key: const Key('splits_settle_rate'),
       style: Theme.of(context).textTheme.bodySmall,
     );
@@ -1167,7 +957,7 @@ class _ReviewSend extends StatelessWidget {
     final error = Theme.of(context).colorScheme.error;
     final rate = view.bill.rate?.minorUnitsPerZec;
     final off = _percentOff(rate, live);
-    final replaced = {for (final r in view.replacedAddresses) r.id};
+    final replaced = {for (final r in view.redirectedAddresses) r.id};
 
     return AlertDialog(
       title: const Text('Send this?'),
@@ -1229,7 +1019,7 @@ class _ReviewSend extends StatelessWidget {
               ),
             Text('Total ${_zec(total)}, one transaction'),
             const SizedBox(height: 8),
-            _RateLine(view: view, who: who),
+            _RateLine(view: view, namesSetter: true),
             if (live == null) ...[
               const SizedBox(height: 8),
               Text(

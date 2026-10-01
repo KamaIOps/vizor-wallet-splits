@@ -204,6 +204,28 @@ String formatAmount(
   return '${negative ? '-' : ''}$whole.$fraction$suffix';
 }
 
+/// The sign every reader of [currency] knows it by, or null for one shown
+/// by its ISO 4217 code.
+String? currencySymbol(String currency) => switch (currency) {
+  'USD' => r'$',
+  'EUR' => '€',
+  'GBP' => '£',
+  'INR' => '₹',
+  'JPY' => '¥',
+  _ => null,
+};
+
+/// [minorUnits] with its currency's sign in front — `$3000.00`, `-$5.00` —
+/// or, for a currency with none, as [formatAmount] writes it.
+String formatWithSymbol(int minorUnits, String currency) {
+  final symbol = currencySymbol(currency);
+  if (symbol == null) return formatAmount(minorUnits, currency);
+  final figure = formatAmount(minorUnits, currency, withCurrency: false);
+  return figure.startsWith('-')
+      ? '-$symbol${figure.substring(1)}'
+      : '$symbol$figure';
+}
+
 /// [zatoshi] as ZEC with every digit (§8.2), for a figure a record states.
 ///
 /// A count no transaction carries — none, fewer, or more than will ever
@@ -216,6 +238,21 @@ String formatZec(int zatoshi) => zatoshi == 0
     : zatoshi > protocol.maxZatoshi
     ? 'more ZEC than exists'
     : '${protocol.renderAmount(zatoshi)} ZEC';
+
+/// The wallet's reason a send could not be built, with any zatoshi count it
+/// names said as ZEC. The wallet states its balance shortfall as
+/// "Insufficient balance (have H, need N including fee)", both in zatoshi.
+String describeSendFailure(String detail) {
+  final short = RegExp(
+    r'insufficient balance \(have (\d+), need (\d+) including fee\)',
+    caseSensitive: false,
+  ).firstMatch(detail);
+  final have = int.tryParse(short?.group(1) ?? '');
+  final need = int.tryParse(short?.group(2) ?? '');
+  if (have == null || need == null) return detail;
+  return 'Not enough ZEC: this payment needs ${formatZec(need)} including '
+      'the fee, and the wallet has ${formatZec(have)}.';
+}
 
 /// [base] units of a token with [decimals] places, as whole tokens.
 ///

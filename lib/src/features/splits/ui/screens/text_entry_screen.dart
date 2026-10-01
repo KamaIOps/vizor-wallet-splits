@@ -4,6 +4,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../view/chrome.dart';
+import 'payout_for_screen.dart';
 import 'splits_scope.dart';
 
 /// Asks for one line of text and pops with it, or with null on back.
@@ -139,32 +140,19 @@ String zcashAddressIn(String code) {
   return text;
 }
 
-/// Asks for [name]'s Zcash address, typed, pasted or scanned, and sets it on
-/// the bill for participant [id]. Returns whether one was set.
+/// Asks how [name] gets paid — a Zcash address, or USDC on a chain they
+/// name — typed, pasted or scanned, and sets it on the bill for participant
+/// [id]. Returns whether one was set.
 Future<bool> askAndSetAddress(
   BuildContext context, {
   required String billId,
   required String id,
   required String name,
 }) async {
-  final address = await askForText(
-    context,
-    title: '$name’s address',
-    hint: 'Zcash address',
-    action: 'Save',
-    fieldKey: const Key('splits_address_field'),
-    actionKey: const Key('splits_address_save'),
-    scannable: true,
-    fromScan: zcashAddressIn,
+  final saved = await Navigator.of(context).push<bool>(
+    MaterialPageRoute<bool>(
+      builder: (_) => PayoutForScreen(billId: billId, id: id, name: name),
+    ),
   );
-  if (address == null || address.trim().isEmpty || !context.mounted) {
-    return false;
-  }
-  final controller = SplitsScope.read(context);
-  await controller.setAddressFor(
-    billId: billId,
-    id: id,
-    address: zcashAddressIn(address),
-  );
-  return controller.lastError == null;
+  return saved ?? false;
 }
