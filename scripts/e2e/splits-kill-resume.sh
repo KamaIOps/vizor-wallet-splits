@@ -18,6 +18,12 @@
 # outcome a guessed delay lands on only by luck. The lane then also requires
 # the node's mempool to be empty at the kill.
 #
+# HOLD_BROADCAST=expire holds it the same way, then keeps it from the node
+# after the relaunch too: every rebroadcast is dropped while blocks are mined,
+# so the transaction expires unmined. The relaunched app must then clear the
+# note and send the debt again, and the lane requires that branch. The test
+# switches the proxy back to relaying before that second send.
+#
 # Needs Docker with scripts/regtest/up.sh already run.
 set -euo pipefail
 
@@ -56,7 +62,9 @@ cleanup() {
 trap cleanup EXIT
 
 lwd_define=()
-if [ "$hold" = 1 ]; then
+case "$hold" in 0 | 1 | expire) ;; *) echo "HOLD_BROADCAST is 0, 1 or expire" >&2; exit 1 ;; esac
+resume_define=()
+if [ "$hold" != 0 ]; then
   echo relay >"$work/proxy.mode"
   python3 "$here/lwd-hold-proxy.py" "$proxy_port" 9067 "$work/proxy.mode" >"$work/proxy.log" 2>&1 &
   proxy=$!
@@ -74,7 +82,8 @@ phase() {
       --dart-define=ZCASH_DEFAULT_NETWORK=regtest \
       --dart-define=ZCASH_E2E_NETWORK=regtest \
       --dart-define=SPLITS_PHASE="$name" \
-      --dart-define=SPLITS_PAYEE_ADDRESS="$payee" ${lwd_define[@]+"${lwd_define[@]}"}) >"$work/phase-$name.log" 2>&1
+      --dart-define=SPLITS_PAYEE_ADDRESS="$payee" ${lwd_define[@]+"${lwd_define[@]}"} \
+      ${resume_define[@]+"${resume_define[@]}"}) >"$work/phase-$name.log" 2>&1
     echo $? >"$work/$name.status"
   ) &
   pid=$!
@@ -105,7 +114,7 @@ for _ in $(seq 900); do
   sleep 0.2
 done
 grep -q KILLPOINT "$work/phase-send.log" || { echo "no KILLPOINT" >&2; exit 1; }
-if [ "$hold" = 1 ]; then
+if [ "$hold" != 0 ]; then
   # Armed only now: funding and the sync before it relay untouched.
   echo hold >"$work/proxy.mode"
   for _ in $(seq 600); do
@@ -122,12 +131,18 @@ victim="$(app_pid)"
 kill -9 "$victim"
 echo "killed the app (pid $victim) $(date +%T)"
 grep -q "SETTLED" "$work/phase-send.log" && echo "note: the send had already finished"
-if [ "$hold" = 1 ]; then
+if [ "$hold" != 0 ]; then
   mempool="$(zcash_cli getrawmempool | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"
   echo "node mempool at the kill: $mempool"
   [ "$mempool" = 0 ] || { echo "── the transaction reached the node before the kill ──" >&2; exit 1; }
   grep -q SETTLED "$work/phase-send.log" && { echo "── the send finished before the kill ──" >&2; exit 1; }
-  echo relay >"$work/proxy.mode"
+  if [ "$hold" = expire ]; then
+    echo drop >"$work/proxy.mode"
+    resume_define=(--dart-define=SPLITS_PROXY_MODE_FILE="$work/proxy.mode"
+      --dart-define=SPLITS_EXPECT_EXPIRY=true)
+  else
+    echo relay >"$work/proxy.mode"
+  fi
 fi
 sleep 3
 kill -- "-$pid" 2>/dev/null || true
@@ -167,5 +182,11 @@ fi
 if [ "$count" != 1 ]; then
   echo "── the payee was not paid exactly once ──" >&2
   exit 1
+fi
+if [ "$hold" = expire ]; then
+  dropped="$(grep -c DROPPED "$work/proxy.log" || true)"
+  echo "rebroadcasts dropped: $dropped"
+  grep -q "BRANCH killed-before-broadcast" "$work/phase-resume.log" ||
+    { echo "── the held send did not expire and get sent again ──" >&2; exit 1; }
 fi
 echo "── killed mid-send, relaunched, paid exactly once ──"

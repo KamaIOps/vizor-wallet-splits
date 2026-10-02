@@ -11,6 +11,11 @@ makes is a few hundred bytes. The wallet has built and stored the transaction
 by then and is waiting on the broadcast, which never reaches the node. The
 proxy prints `HELD <n> bytes` once per held chunk.
 
+While <mode-file> reads `drop`, such a chunk is not forwarded either, and its
+connection is closed at once, so the broadcast fails and the wallet reconnects
+for everything else. Every rebroadcast of a stored transaction is refused this
+way until it expires. The proxy prints `DROPPED <n> bytes` once per chunk.
+
 Any other content of <mode-file>, or no file, relays everything.
 """
 
@@ -39,10 +44,15 @@ def pipe(src, dst, mode_file, upstream):
                 break
             if held:
                 continue
-            if upstream and len(data) >= HOLD_BYTES and mode(mode_file) == "hold":
-                held = True
-                print(f"HELD {len(data)} bytes", flush=True)
-                continue
+            if upstream and len(data) >= HOLD_BYTES:
+                current = mode(mode_file)
+                if current == "hold":
+                    held = True
+                    print(f"HELD {len(data)} bytes", flush=True)
+                    continue
+                if current == "drop":
+                    print(f"DROPPED {len(data)} bytes", flush=True)
+                    break
             dst.sendall(data)
     except OSError:
         pass
