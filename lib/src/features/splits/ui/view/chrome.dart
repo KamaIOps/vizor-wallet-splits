@@ -98,16 +98,55 @@ class CardLine extends StatelessWidget {
   final bool chevron;
   final Widget? leading;
 
+  /// The narrowest a title is squeezed to beside a figure that needs the room.
+  static const double _titleFloor = 48;
+
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
     return LayoutBuilder(
-      builder: (context, box) => _row(text, scheme, box.maxWidth),
+      builder: (context, box) => _row(context, text, scheme, box.maxWidth),
     );
   }
 
-  Widget _row(TextTheme text, ColorScheme scheme, double width) {
+  Widget _row(
+    BuildContext context,
+    TextTheme text,
+    ColorScheme scheme,
+    double width,
+  ) {
+    final figure = trailing;
+    final style = DefaultTextStyle.of(context).style.merge(text.bodyLarge);
+    var scaler = MediaQuery.textScalerOf(context);
+    var cap = width * 0.45;
+    if (figure != null) {
+      // The box is never narrower than the figure's widest word, so the
+      // line breaks between words and never inside the digits; the title
+      // wraps instead. A word wider than the row allows is drawn smaller.
+      // The leading widget and the chevron are 24-wide icons.
+      final room =
+          width -
+          (leading != null ? 36 : 0) -
+          12 -
+          (chevron ? 28 : 0) -
+          _titleFloor;
+      final direction = Directionality.of(context);
+      var widest = _widestWord(figure, style, scaler, direction);
+      if (widest > room && room > 0) {
+        // Re-measured after each step: letter spacing does not scale with
+        // the text, so one proportional step can leave the word too wide.
+        final size = style.fontSize ?? 14;
+        for (var i = 0; i < 4 && widest > room; i++) {
+          final shown = scaler.scale(size) * room / widest;
+          scaler = TextScaler.linear(shown / size);
+          widest = _widestWord(figure, style, scaler, direction);
+        }
+        cap = room;
+      } else if (widest > cap) {
+        cap = widest;
+      }
+    }
     return Row(
       children: [
         if (leading != null) ...[leading!, const SizedBox(width: 12)],
@@ -127,17 +166,18 @@ class CardLine extends StatelessWidget {
             ],
           ),
         ),
-        // At its own width against the right edge, and never more than
-        // 45% of the row: a figure that cannot shrink crushes the name beside
-        // it to a letter a line and is clipped itself at a large text size.
-        if (trailing != null) ...[
+        // At its own width against the right edge, and no more than 45% of
+        // the row unless its figure needs more: a figure that cannot shrink
+        // otherwise crushes the name beside it to a letter a line.
+        if (figure != null) ...[
           const SizedBox(width: 12),
           ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: width * 0.45),
+            constraints: BoxConstraints(maxWidth: cap),
             child: Text(
-              trailing!,
+              figure,
               style: text.bodyLarge,
               textAlign: TextAlign.end,
+              textScaler: scaler,
             ),
           ),
         ],
@@ -147,6 +187,32 @@ class CardLine extends StatelessWidget {
         ],
       ],
     );
+  }
+
+  /// The width of the widest space-separated word of [line], as drawn.
+  static double _widestWord(
+    String line,
+    TextStyle style,
+    TextScaler scaler,
+    TextDirection direction,
+  ) {
+    var widest = 0.0;
+    for (final word in line.split(' ')) {
+      if (word.isEmpty) continue;
+      final painter = TextPainter(
+        text: TextSpan(text: word, style: style),
+        textDirection: direction,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      // Rounded up: a box exactly as wide as the word can still wrap it on
+      // a fractional pixel.
+      if (painter.width.ceilToDouble() + 1 > widest) {
+        widest = painter.width.ceilToDouble() + 1;
+      }
+      painter.dispose();
+    }
+    return widest;
   }
 }
 
