@@ -83,7 +83,8 @@ void main() {
     await t.pumpAndSettle();
 
     expect(find.byType(BillScreen), findsNothing);
-    expect(find.textContaining('hasn’t synced yet'), findsOneWidget);
+    expect(find.textContaining('hasn’t reached the relay yet'), findsOneWidget);
+    expect(find.textContaining('open the invite again'), findsOneWidget);
     expect(await keys.readBillKey(id), isNotNull);
   });
 
@@ -105,7 +106,10 @@ void main() {
     await t.pumpAndSettle();
 
     expect(find.byType(BillScreen), findsNothing);
-    expect(find.textContaining('Now scan the bill’s code'), findsOneWidget);
+    expect(
+      find.textContaining('ask whoever sent the invite to show theirs'),
+      findsOneWidget,
+    );
     expect(await keys.readBillKey(id), isNotNull);
   });
 

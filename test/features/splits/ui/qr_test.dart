@@ -211,6 +211,9 @@ void _scannerTests() {
 
     await t.tap(find.byKey(const Key('splits_scan_camera')));
     await t.pumpAndSettle();
+    expect(c.bills, isEmpty, reason: 'a scan is previewed, not taken');
+    await t.tap(find.byKey(const Key('splits_scan_read')));
+    await t.pumpAndSettle();
 
     expect(opened, 1);
     // The bill the camera read is now held here, by the same path a paste

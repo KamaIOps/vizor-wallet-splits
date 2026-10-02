@@ -348,6 +348,13 @@ class SplitsController extends ChangeNotifier {
   /// bill it holds.
   splitz.Totals get totals => splitz.totalsAcross(_folded, me);
 
+  /// [totals] over [billId] alone: where this device stands with each
+  /// person on that one bill, with what it has sent and not had confirmed.
+  splitz.Totals totalsOn(String billId) => splitz.totalsAcross([
+    for (final f in _folded)
+      if (f.bill.id == billId) f,
+  ], me);
+
   /// The bills as the host layer folds them, from what each view holds.
   List<splitz.FoldedBill> get _folded => [
     for (final v in _bills)

@@ -32,23 +32,36 @@ class _NewBillScreenState extends State<NewBillScreen> {
     super.dispose();
   }
 
+  /// Whether a bill is being opened. Set before the first await, so a
+  /// second tap in the same frame opens nothing.
+  bool _opening = false;
+
   Future<void> _open() async {
+    if (_opening) return;
     if (!_form.currentState!.validate()) return;
     final controller = SplitsScope.read(context);
     final navigator = Navigator.of(context);
 
-    final id = await controller.createBill(
-      name: _name.text.trim(),
-      currency: _currency.text.trim().toUpperCase(),
-      displayName: _displayName.text.trim().isEmpty
-          ? null
-          : _displayName.text.trim(),
-    );
+    setState(() => _opening = true);
+    final String? id;
+    try {
+      id = await controller.createBill(
+        name: _name.text.trim(),
+        currency: _currency.text.trim().toUpperCase(),
+        displayName: _displayName.text.trim().isEmpty
+            ? null
+            : _displayName.text.trim(),
+      );
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
     if (!mounted) return;
-    if (id == null) return; // the error is on the controller, and shown.
-    navigator.pushReplacement(
-      MaterialPageRoute<void>(builder: (_) => BillScreen(billId: id)),
-    );
+    // Null leaves the error on the controller, where it is shown.
+    if (id case final billId?) {
+      navigator.pushReplacement(
+        MaterialPageRoute<void>(builder: (_) => BillScreen(billId: billId)),
+      );
+    }
   }
 
   @override
@@ -60,8 +73,10 @@ class _NewBillScreenState extends State<NewBillScreen> {
         children: [
           FilledButton(
             key: const Key('splits_new_bill_open'),
-            onPressed: controller.busy ? null : _open,
-            child: Text(controller.busy ? 'Opening…' : 'Open the bill'),
+            onPressed: controller.busy || _opening ? null : _open,
+            child: Text(
+              controller.busy || _opening ? 'Opening…' : 'Open the bill',
+            ),
           ),
         ],
       ),

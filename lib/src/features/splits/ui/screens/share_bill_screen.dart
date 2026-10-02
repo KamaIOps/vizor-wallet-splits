@@ -8,6 +8,8 @@ import 'package:splitz_core/splitz_core.dart' as protocol;
 
 import '../../splits_invite_link.dart';
 
+import '../state/splits_controller.dart';
+import '../view/chrome.dart';
 import 'splits_scope.dart';
 
 /// The invite, and the whole bill as one code when it still fits.
@@ -31,6 +33,9 @@ class _ShareBillScreenState extends State<ShareBillScreen> {
   bool _tooBig = false;
   bool _loaded = false;
 
+  /// Why neither code could be drawn, or null.
+  String? _failed;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -42,13 +47,31 @@ class _ShareBillScreenState extends State<ShareBillScreen> {
 
   Future<void> _build() async {
     final controller = SplitsScope.read(context);
-    // An invite says when its sender stops standing behind it (§11.1). Long
-    // enough for a code shown at the table to be scanned days later.
-    final invite = await controller.inviteFor(
-      widget.billId,
-      expiry: controller.now().add(const Duration(days: 30)),
-    );
-    final payload = await controller.shareableBill(widget.billId);
+    final String invite;
+    final String? payload;
+    try {
+      // An invite says when its sender stops standing behind it (§11.1).
+      // Long enough for a code shown at the table to be scanned days later.
+      invite = await controller.inviteFor(
+        widget.billId,
+        expiry: controller.now().add(const Duration(days: 30)),
+      );
+      payload = await controller.shareableBill(widget.billId);
+    } on Object catch (error) {
+      // Both codes carry the bill's key. A key store that cannot be read
+      // leaves nothing to draw, and that is said rather than left loading.
+      if (!mounted) return;
+      final held = controller.bills.any((b) => b.id == widget.billId);
+      setState(
+        () => _failed = !held
+            ? 'This device no longer holds this bill.'
+            : error is StateError
+            ? 'This bill’s key couldn’t be read. Unlock the wallet and open '
+                  'this again.'
+            : SplitsController.describe(error),
+      );
+      return;
+    }
     if (!mounted) return;
     setState(() {
       _inviteLink = protocol.renderInviteLink(
@@ -64,27 +87,53 @@ class _ShareBillScreenState extends State<ShareBillScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final hasRelay = SplitsScope.of(context).hasRelay;
+    // Past the cap with no relay, an invite brings only the key: whoever
+    // follows it is sent to a bill code that does not exist. So it is not
+    // offered, and the reason is.
+    final unshareable = _tooBig && !hasRelay;
     return Scaffold(
       appBar: AppBar(title: const Text('Share this bill')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          if (_payload != null) ...[
-            _Code(label: 'Bill code', about: _billSentence, value: _payload!),
-            const SizedBox(height: 16),
-          ] else if (!_tooBig)
-            const _Loading(),
-          if (_inviteLink != null)
-            _Code(
-              label: 'Invite',
-              about: inviteSentence,
-              // The https link, in the code as in a message: a phone's camera
-              // hands a custom scheme to whichever app claims it, and this
-              // key with it. Every scanner here reads the link as the invite.
-              value: _inviteLink!,
+          if (_failed != null)
+            NoticeCard(
+              key: const Key('splits_share_failed'),
+              message: _failed!,
+              error: true,
             )
-          else
-            const _Loading(),
+          else ...[
+            if (_payload != null) ...[
+              _Code(label: 'Bill code', about: _billSentence, value: _payload!),
+              const SizedBox(height: 16),
+            ] else if (_tooBig)
+              NoticeCard(
+                key: const Key('splits_share_too_big'),
+                message: unshareable
+                    ? 'This bill is too big for one code, and this build has '
+                          'no bill relay to send it through. Nobody can join '
+                          'it from this phone.'
+                    : 'This bill is too big for one code. Share the invite: '
+                          'whoever joins with it gets the bill from the relay.',
+              )
+            else
+              const _Loading(),
+            if (unshareable)
+              const SizedBox.shrink()
+            else if (_inviteLink != null)
+              _Code(
+                label: 'Invite',
+                about: inviteSentence,
+                // The https link, in the code as in a message: a phone's
+                // camera hands a custom scheme to whichever app claims it,
+                // and this key with it. Every scanner here reads the link as
+                // the invite.
+                value: _inviteLink!,
+              )
+            else
+              const _Loading(),
+          ],
         ],
       ),
     );
