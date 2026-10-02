@@ -10,6 +10,25 @@ import 'package:zcash_wallet/src/features/splits/ui/view/removal_plan.dart';
 
 import 'support/fake_wallet.dart';
 
+/// [who]'s removal as [me] would plan it, from what [store] holds.
+Future<RemovalPlan> planAs(
+  BillStore store,
+  FakeWallet wallet,
+  String id,
+  String who,
+  String me,
+) async {
+  final log = await store.read(id);
+  final folded = foldUnverified(wallet, log, billId: id);
+  return planRemoval(
+    folded: folded,
+    creatorId: log.firstWhere((e) => e['kind'] == 'createBill')['author'],
+    log: log,
+    id: who,
+    me: me,
+  );
+}
+
 void main() {
   group('a split without somebody', () {
     test('equal and shares drop them; the rest share it', () {
@@ -116,7 +135,7 @@ void main() {
       );
     });
     final ben = c.bills.single.bill.participant('ben')!;
-    final plan = planRemoval(c.bills.single, 'ben', c.me);
+    final plan = (await t.runAsync(() => c.removalPlan(id, 'ben')))!;
     expect(plan.edits, hasLength(1));
     expect(plan.blockers, isEmpty);
 
@@ -178,16 +197,17 @@ void main() {
         },
       ),
     ]);
-    final plan = planRemoval(c.bills.single, 'ben', c.me);
+    final plan = (await c.removalPlan(id, 'ben'))!;
     expect(plan.edits, isEmpty);
     expect(plan.blockers, ['They paid for Hotel.']);
   });
 
   test('the creator restates an expense somebody else wrote', () async {
     final wallet = FakeWallet();
+    final store = BillStore(InMemoryBillStorage());
     final c = SplitsController(
       wallet: wallet,
-      store: BillStore(InMemoryBillStorage()),
+      store: store,
       keys: SplitsKeys(store: InMemorySecretStore(), random: Random(3)),
       relay: const UnconfiguredSplitsRelay(),
     );
@@ -212,18 +232,15 @@ void main() {
     ]);
 
     // Anybody but the creator is told whose expense it is.
-    expect(planRemoval(c.bills.single, 'ben', 'cai').edits, isNotEmpty);
-    expect(planRemoval(c.bills.single, 'ben', 'dee').blockers, [
+    expect((await planAs(store, wallet, id, 'ben', 'cai')).edits, isNotEmpty);
+    expect((await planAs(store, wallet, id, 'ben', 'dee')).blockers, [
       'Boat was added by Cai, who can take them out of it.',
     ]);
 
-    final plan = planRemoval(c.bills.single, 'ben', c.me);
+    final plan = (await c.removalPlan(id, 'ben'))!;
     expect(plan.blockers, isEmpty);
     wallet.tick();
-    await c.restateExpenses(
-      billId: id,
-      splits: {for (final e in plan.edits) e.entryId: e.split},
-    );
+    await c.restateExpenses(billId: id, without: 'ben', confirmed: plan);
     expect(c.lastError, isNull);
     wallet.tick();
     await c.removePerson(billId: id, id: 'ben');
