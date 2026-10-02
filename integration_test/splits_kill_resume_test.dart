@@ -41,6 +41,13 @@ import 'support/mobile_regtest_flow.dart';
 const _phase = String.fromEnvironment('SPLITS_PHASE');
 const _payee = String.fromEnvironment('SPLITS_PAYEE_ADDRESS');
 
+/// Set when the runner keeps the held send from the node until it expires:
+/// the relaunch must find it built and unmined, see it expire, and send the
+/// debt again. [_proxyModeFile] is the file that tells the proxy in front of
+/// lightwalletd to relay that second send.
+const _expectExpiry = bool.fromEnvironment('SPLITS_EXPECT_EXPIRY');
+const _proxyModeFile = String.fromEnvironment('SPLITS_PROXY_MODE_FILE');
+
 /// What the payee covered, split two ways: this device owes half, 10.00.
 const _spent = 2000;
 const _owed = 1000;
@@ -164,6 +171,9 @@ Future<void> _resume(
     // 2 · Built and not yet mined or expired: saying nothing went out is
     // refused, since the wallet may still broadcast it.
     final builtAtRelaunch = await _builtUnmined(container, uuid);
+    if (_expectExpiry) {
+      expect(builtAtRelaunch, isTrue, reason: 'the held send is not built');
+    }
     if (builtAtRelaunch) {
       final built = await c.failureOf(() => c.resolveSend(id));
       logE2e('BUILT-UNMINED claim nothing was sent: $built');
@@ -175,6 +185,10 @@ Future<void> _resume(
     if (sent == null) {
       // Nothing left the wallet: the note is cleared and the debt is sent.
       await _ok(c, () => c.resolveSend(id));
+      if (_proxyModeFile.isNotEmpty) {
+        File(_proxyModeFile).writeAsStringSync('relay\n');
+        logE2e('PROXY relay');
+      }
       // Blocks were mined while the history was read; the wallet spends only
       // once it has scanned them, as a person resending would wait for.
       await _waitSpendable(tester, container, uuid, 2 * _owedZatoshi);
@@ -192,6 +206,7 @@ Future<void> _resume(
       // It did leave: saying it did not is refused, and recording it is not.
       // [sent] is in the history's stored order; the record must carry the
       // order a send reports, which the payee's wallet matches against.
+      expect(_expectExpiry, isFalse, reason: 'the held send was mined');
       sentTxid = txidForDisplay(sent);
       final denied = await c.failureOf(() => c.resolveSend(id));
       logE2e('claim nothing was sent: $denied');
