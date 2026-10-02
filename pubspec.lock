@@ -1068,6 +1068,20 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.10.2"
+  splitz_core:
+    dependency: "direct main"
+    description:
+      path: "../Splitz-Protocol/dart"
+      relative: true
+    source: path
+    version: "1.0.0"
+  splitz_host:
+    dependency: "direct main"
+    description:
+      path: "../Splitz-Protocol/splitz_host"
+      relative: true
+    source: path
+    version: "0.1.0"
   stack_trace:
     dependency: transitive
     description:
