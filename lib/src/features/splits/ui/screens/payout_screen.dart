@@ -15,7 +15,6 @@ import 'package:flutter/material.dart';
 import 'package:splitz_core/splitz_core.dart' as splitz;
 
 import '../view/chrome.dart';
-import 'record_payment_screen.dart' show fieldNoteLines;
 import 'splits_scope.dart';
 import 'usdc_chains.dart';
 
@@ -55,7 +54,7 @@ class PayoutScreen extends StatefulWidget {
   State<PayoutScreen> createState() => _PayoutScreenState();
 }
 
-class _PayoutScreenState extends State<PayoutScreen> {
+class _PayoutScreenState extends State<PayoutScreen> with SplitsActions {
   final _form = GlobalKey<FormState>();
   final _asset = TextEditingController();
   final _chain = TextEditingController();
@@ -168,6 +167,9 @@ class _PayoutScreenState extends State<PayoutScreen> {
   };
 
   Future<void> _save() async {
+    // Set before the first await below: a second tap in the same frame
+    // reaches this before any rebuild has disabled the button.
+    if (_saving) return;
     // Checked here and not only by the form: the form validates the fields
     // its list has built, and with many chains the address is below the
     // fold. Every refusal is said beside Save — a Save that silently stays
@@ -194,13 +196,15 @@ class _PayoutScreenState extends State<PayoutScreen> {
     });
     final controller = SplitsScope.read(context);
     final navigator = Navigator.of(context);
-    await controller.setPayouts(
-      billId: widget.billId,
-      payouts: _declared(controller.payToAddress),
+    final saved = await act(
+      () => controller.setPayouts(
+        billId: widget.billId,
+        payouts: _declared(controller.payToAddress),
+      ),
     );
     if (!mounted) return;
     setState(() => _saving = false);
-    if (controller.lastError == null) navigator.pop();
+    if (saved) navigator.pop();
   }
 
   /// Clears a refusal once the field it asked about is typed into.
@@ -258,7 +262,7 @@ class _PayoutScreenState extends State<PayoutScreen> {
           // Beside Save rather than at the end of the list: with many chains
           // the end is below the fold, and a refused Save would look like
           // nothing happened.
-          if (_unsaved ?? controller.lastError case final said?)
+          if (_unsaved ?? failure case final said?)
             Text(
               said,
               key: const Key('splits_payout_unsaved'),
