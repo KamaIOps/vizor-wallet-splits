@@ -136,6 +136,8 @@ void main() {
       await _settle(tester);
       await _typeIntoField(tester, 'Code', payload);
       await _tapText(tester, 'Read it');
+      // Read first, then taken only when asked.
+      await _tapText(tester, 'Join');
       await _settle(tester);
       expect(
         find.text('By code'),

@@ -159,6 +159,11 @@ void main() {
     await t.enterText(find.byType(TextField), payload!);
     await t.tap(find.text('Read it'));
     await t.pumpAndSettle();
+    // Read first, then taken only when asked.
+    expect(find.textContaining('A bill code for “Dinner”'), findsOneWidget);
+    expect(mine.bills, isEmpty);
+    await t.tap(find.text('Join'));
+    await t.pumpAndSettle();
 
     expect(mine.bills.single.id, id);
     expect(

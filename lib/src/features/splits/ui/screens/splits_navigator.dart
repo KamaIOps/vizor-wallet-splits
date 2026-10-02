@@ -49,6 +49,7 @@ class SplitsNavigator extends StatefulWidget {
 /// feature is already open.
 class SplitsNavigatorState extends State<SplitsNavigator> {
   final _navigator = GlobalKey<NavigatorState>();
+  final _top = _TopRoute();
 
   @override
   void initState() {
@@ -62,12 +63,25 @@ class SplitsNavigatorState extends State<SplitsNavigator> {
   }
 
   /// Reads [code] on the scan screen, pushed over whatever is showing.
+  ///
+  /// A Join screen already on top is replaced rather than stacked under a
+  /// second one: two links opened in a row leave one screen, showing the
+  /// later code.
   void openCode(String code) {
-    _navigator.currentState?.push(
-      MaterialPageRoute<void>(
-        builder: (_) => ScanBillScreen(initialCode: code),
-      ),
+    final navigator = _navigator.currentState;
+    if (navigator == null) return;
+    final route = MaterialPageRoute<void>(
+      settings: const RouteSettings(name: ScanBillScreen.routeName),
+      builder: (_) => ScanBillScreen(initialCode: code),
     );
+    final top = _top.route;
+    if (top != null &&
+        top.isCurrent &&
+        top.settings.name == ScanBillScreen.routeName) {
+      navigator.replace(oldRoute: top, newRoute: route);
+    } else {
+      navigator.push(route);
+    }
   }
 
   @override
@@ -95,6 +109,7 @@ class SplitsNavigatorState extends State<SplitsNavigator> {
         behavior: const _WithScrollbar(),
         child: Navigator(
           key: _navigator,
+          observers: [_top],
           onGenerateRoute: (settings) => MaterialPageRoute<void>(
             settings: settings,
             builder: (_) => const BillsScreen(),
@@ -103,6 +118,29 @@ class SplitsNavigatorState extends State<SplitsNavigator> {
       ),
     ),
   );
+}
+
+/// The route on top of the feature's navigator.
+class _TopRoute extends NavigatorObserver {
+  Route<dynamic>? route;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      this.route = route;
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      this.route = previousRoute;
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (route == this.route) this.route = previousRoute;
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    if (oldRoute == route) route = newRoute;
+  }
 }
 
 /// A visible scrollbar on every scrolling screen of the feature, on every
