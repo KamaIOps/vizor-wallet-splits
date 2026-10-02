@@ -260,8 +260,12 @@ class _BillScreenState extends State<BillScreen> {
             NoticeCard(
               // §13: a wallet MUST show a changed pay-to address before it
               // settles to one. Buried in a list it is not shown.
-              message:
-                  '${who(replaced.id)} changed their address. Check with them before paying.',
+              // Until somebody joins with their own key, anybody holding the
+              // invite can write their record (§10.7): the change is not
+              // said to be theirs.
+              message: view.identities.bound.containsKey(replaced.id)
+                  ? '${who(replaced.id)} changed their address. Check with them before paying.'
+                  : '${who(replaced.id)}’s address changed, and anyone with the invite could have changed it. Check with them before paying.',
               error: true,
             ),
           for (final name in view.bill.sharedNames)

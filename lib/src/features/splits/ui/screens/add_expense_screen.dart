@@ -292,7 +292,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                   ChoiceChip(
                     key: Key('splits_paid_by_${p.id}'),
                     showCheckmark: false,
-                    label: Text(
+                    label: _PersonLabel(
                       view.bill.displayNameOf(p.id, creatorId: view.creatorId),
                     ),
                     selected: _paidBy == p.id,
@@ -575,26 +575,28 @@ class _Sharer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(
-          child: CheckboxListTile(
-            key: Key('splits_sharer_$id'),
-            dense: true,
-            value: _sharing,
-            onChanged: (_) {
-              draft.toggle(id);
-              onChanged();
-            },
-            title: Text(name),
-            subtitle: allocated == null
-                ? null
-                : Text(formatAmount(allocated!, currency)),
-          ),
+        CheckboxListTile(
+          key: Key('splits_sharer_$id'),
+          dense: true,
+          value: _sharing,
+          onChanged: (_) {
+            draft.toggle(id);
+            onChanged();
+          },
+          title: Text(name),
+          subtitle: allocated == null
+              ? null
+              : Text(formatAmount(allocated!, currency)),
         ),
+        // On its own line, the row's whole width: beside the name, a figure
+        // of seven characters and its unit do not fit a narrow phone at a
+        // large text size, and a figure partly hidden is a figure misread.
         if (_sharing && draft.kind != SplitKind.equal)
-          SizedBox(
-            width: 120,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: TextFormField(
               key: Key('splits_figure_$id'),
               initialValue: _initialText,
@@ -607,7 +609,6 @@ class _Sharer extends StatelessWidget {
               onChanged: _set,
             ),
           ),
-        const SizedBox(width: 16),
       ],
     );
   }
@@ -627,6 +628,22 @@ class _Sharer extends StatelessWidget {
       _ => '$figure',
     };
   }
+}
+
+/// A participant's name on a chip, whole.
+///
+/// A chip fades the end of a label that does not fit, and the end is where
+/// [BillNaming.displayNameOf] puts what tells two people of one name apart:
+/// so the name wraps instead, and a chip choosing between them never shows
+/// the two the same.
+class _PersonLabel extends StatelessWidget {
+  const _PersonLabel(this.name);
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) =>
+      Text(name, softWrap: true, overflow: TextOverflow.visible);
 }
 
 /// The lines of an itemized split (§4.5), and the extra spread over them.
@@ -688,43 +705,6 @@ class _Items extends StatelessWidget {
                           },
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      SizedBox(
-                        width: 110,
-                        child: TextFormField(
-                          key: Key('splits_item_cost_$i'),
-                          initialValue: draft.items[i].minorUnits == 0
-                              ? ''
-                              : formatAmount(
-                                  draft.items[i].minorUnits,
-                                  currency,
-                                  withCurrency: false,
-                                ),
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(
-                            suffixText: currency,
-                            isDense: true,
-                          ),
-                          // What is saved is what the field shows: cleared is
-                          // nothing, and text that is not a figure is refused
-                          // rather than standing in for the last one that was.
-                          validator: _figure,
-                          onChanged: (v) {
-                            final parsed = v.trim().isEmpty
-                                ? 0
-                                : parseMinorUnits(v, currency: currency);
-                            onReadable(
-                              itemField(draft.items[i]),
-                              parsed != null,
-                            );
-                            if (parsed == null) return;
-                            draft.items[i].minorUnits = parsed;
-                            onChanged();
-                          },
-                        ),
-                      ),
                       IconButton(
                         key: Key('splits_item_remove_$i'),
                         icon: const Icon(Icons.close),
@@ -735,13 +715,47 @@ class _Items extends StatelessWidget {
                       ),
                     ],
                   ),
+                  // Below the name rather than beside it, at the card's
+                  // width: a fixed narrow box beside the name hides most of
+                  // a figure at a large text size.
+                  TextFormField(
+                    key: Key('splits_item_cost_$i'),
+                    initialValue: draft.items[i].minorUnits == 0
+                        ? ''
+                        : formatAmount(
+                            draft.items[i].minorUnits,
+                            currency,
+                            withCurrency: false,
+                          ),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'Cost',
+                      suffixText: currency,
+                      isDense: true,
+                    ),
+                    // What is saved is what the field shows: cleared is
+                    // nothing, and text that is not a figure is refused
+                    // rather than standing in for the last one that was.
+                    validator: _figure,
+                    onChanged: (v) {
+                      final parsed = v.trim().isEmpty
+                          ? 0
+                          : parseMinorUnits(v, currency: currency);
+                      onReadable(itemField(draft.items[i]), parsed != null);
+                      if (parsed == null) return;
+                      draft.items[i].minorUnits = parsed;
+                      onChanged();
+                    },
+                  ),
                   Wrap(
                     spacing: 8,
                     children: [
                       for (final p in view.bill.participants)
                         FilterChip(
                           key: Key('splits_item_${i}_${p.id}'),
-                          label: Text(
+                          label: _PersonLabel(
                             view.bill.displayNameOf(
                               p.id,
                               creatorId: view.creatorId,
