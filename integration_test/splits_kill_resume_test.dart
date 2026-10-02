@@ -29,6 +29,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:splitz_core/host.dart' as splitz;
 import 'package:zcash_wallet/app.dart';
 import 'package:zcash_wallet/src/core/storage/wallet_paths.dart';
+import 'package:zcash_wallet/src/features/splits/splits_received.dart';
 import 'package:zcash_wallet/src/features/splits/splits_wallet_adapter.dart';
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 import 'package:zcash_wallet/src/providers/account_provider.dart';
@@ -150,6 +151,7 @@ Future<void> _resume(
     'records=${c.bills.single.bill.payments.length}',
   );
 
+  String? sentTxid;
   if (note != null) {
     // 1 · Nothing goes out a second time while the first is unresolved.
     final again = await c.failureOf(() async {
@@ -159,7 +161,16 @@ Future<void> _resume(
     logE2e('second send while unresolved: $again');
     expect(again, isNotNull, reason: 'a second send was not refused');
 
-    // 2 · Resolved from the wallet's own history, once the chain has it.
+    // 2 · Built and not yet mined or expired: saying nothing went out is
+    // refused, since the wallet may still broadcast it.
+    final builtAtRelaunch = await _builtUnmined(container, uuid);
+    if (builtAtRelaunch) {
+      final built = await c.failureOf(() => c.resolveSend(id));
+      logE2e('BUILT-UNMINED claim nothing was sent: $built');
+      expect(built, isNotNull, reason: 'a built send was called unsent');
+    }
+
+    // 3 · Resolved from the wallet's own history, once the chain has it.
     final sent = await _sentToPayee(tester, container, uuid);
     if (sent == null) {
       // Nothing left the wallet: the note is cleared and the debt is sent.
@@ -179,33 +190,61 @@ Future<void> _resume(
       logE2e('BRANCH killed-before-broadcast; sent again ${settled?.txid}');
     } else {
       // It did leave: saying it did not is refused, and recording it is not.
+      // [sent] is in the history's stored order; the record must carry the
+      // order a send reports, which the payee's wallet matches against.
+      sentTxid = txidForDisplay(sent);
       final denied = await c.failureOf(() => c.resolveSend(id));
       logE2e('claim nothing was sent: $denied');
       expect(denied, isNotNull, reason: 'the wallet holds this send');
       await _ok(c, () => c.resolveSend(id, landed: true, txid: sent));
-      logE2e('BRANCH killed-after-broadcast; recorded $sent');
+      logE2e(
+        builtAtRelaunch
+            ? 'BRANCH built-not-broadcast; the wallet sent it on relaunch, '
+                  'recorded $sentTxid'
+            : 'BRANCH killed-after-broadcast; recorded $sentTxid',
+      );
     }
   } else {
     logE2e('BRANCH send-finished-before-kill');
   }
 
-  // 3 · Exactly one record, and nothing more to pay.
+  // 4 · Exactly one record, and nothing more to pay.
   await c.load();
   final view = c.bills.single;
   final toBen = view.bill.payments.where((p) => p.to == 'ben').toList();
   expect(toBen, hasLength(1), reason: 'one payment record, not two');
   expect(toBen.single.amount, _owed);
+  if (sentTxid != null) expect(toBen.single.reference, sentTxid);
   expect(await c.pendingSend(id), isNull);
   final after = (await c.obligation(id))!;
   expect(after.settlements.where((s) => s.to == 'ben'), isEmpty);
-  logE2e('DONE one record of ${toBen.single.amount}');
+  logE2e(
+    'DONE one record of ${toBen.single.amount} '
+    'reference=${toBen.single.reference}',
+  );
+}
+
+/// Whether the wallet holds a send to the payee neither mined nor expired.
+Future<bool> _builtUnmined(ProviderContainer container, String uuid) async {
+  final history = await rust_sync.getTransactionHistory(
+    dbPath: await getWalletDbPath(),
+    network: container.read(rpcEndpointProvider).networkName,
+    accountUuid: uuid,
+  );
+  return history.any(
+    (t) =>
+        t.accountBalanceDelta <= -_owedZatoshi &&
+        t.minedHeight <= BigInt.zero &&
+        !t.expiredUnmined,
+  );
 }
 
 /// The txid of this wallet's send to the payee since the bill was opened,
 /// once mined, or null when the wallet shows none.
 ///
 /// Waits for the chain: a broadcast the kill interrupted may still be
-/// relayed, and an unmined one may yet expire.
+/// relayed, and one built and never broadcast stays the wallet's until it is
+/// mined or expires, so null is returned only once no send is left alive.
 Future<String?> _sentToPayee(
   WidgetTester tester,
   ProviderContainer container,
@@ -213,7 +252,8 @@ Future<String?> _sentToPayee(
 ) async {
   final dbPath = await getWalletDbPath();
   final network = container.read(rpcEndpointProvider).networkName;
-  final end = DateTime.now().add(const Duration(minutes: 3));
+  final quiet = DateTime.now().add(const Duration(minutes: 3));
+  final end = DateTime.now().add(const Duration(minutes: 10));
   while (DateTime.now().isBefore(end)) {
     final history = await rust_sync.getTransactionHistory(
       dbPath: dbPath,
@@ -230,6 +270,10 @@ Future<String?> _sentToPayee(
     );
     final mined = sends.where((t) => t.minedHeight > BigInt.zero);
     if (mined.isNotEmpty) return mined.first.txidHex;
+    final alive = sends.where((t) => !t.expiredUnmined);
+    if (alive.isEmpty && (sends.isNotEmpty || DateTime.now().isAfter(quiet))) {
+      return null;
+    }
     for (var i = 0; i < 100; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
