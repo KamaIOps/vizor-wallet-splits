@@ -48,6 +48,11 @@ class _PayoutForScreenState extends State<PayoutForScreen> {
   bool _saving = false;
   bool _loaded = false;
 
+  /// What the screen opened on, for somebody with a payout already on the
+  /// bill: a Save that changes none of it writes nothing, so the payouts this
+  /// screen does not show stay as they are.
+  (_Way, String?, String)? _opened;
+
   @override
   void dispose() {
     _zec.dispose();
@@ -68,6 +73,7 @@ class _PayoutForScreenState extends State<PayoutForScreen> {
         .participant(widget.id);
     if (who == null) return;
     _zec.text = who.payTo ?? '';
+    // On their first payout, the one that decides how they are paid (§9.1).
     final first = who.payouts.isEmpty ? null : who.payouts.first;
     if (first != null &&
         first.type == 'swap' &&
@@ -75,8 +81,24 @@ class _PayoutForScreenState extends State<PayoutForScreen> {
       _way = _Way.usdc;
       _chain = first.chain;
       _usdcAddress.text = first.address ?? '';
+    } else if (first?.type == 'cash') {
+      _way = _Way.cash;
+    } else if (first?.type == 'zec') {
+      _zec.text = first!.address ?? _zec.text;
     }
+    if (first != null || (who.payTo ?? '').isNotEmpty) _opened = _now();
   }
+
+  /// The way, chain and address the screen holds now.
+  (_Way, String?, String) _now() => (
+    _way,
+    _way == _Way.usdc ? _chain : null,
+    switch (_way) {
+      _Way.zec => _zec.text.trim(),
+      _Way.usdc => _usdcAddress.text.trim(),
+      _Way.cash => '',
+    },
+  );
 
   Future<void> _scanInto(
     TextEditingController field, {
@@ -90,6 +112,10 @@ class _PayoutForScreenState extends State<PayoutForScreen> {
   }
 
   Future<void> _save() async {
+    if (_opened != null && _now() == _opened) {
+      Navigator.of(context).pop(false);
+      return;
+    }
     final chain = _chain;
     final address = (_way == _Way.zec ? _zec : _usdcAddress).text.trim();
     final missing = _way == _Way.cash
@@ -149,6 +175,10 @@ class _PayoutForScreenState extends State<PayoutForScreen> {
       key: Key(key),
       controller: field,
       enabled: !_saving,
+      // A refusal goes once the field it asked about is typed into.
+      onChanged: (_) {
+        if (_unsaved != null) setState(() => _unsaved = null);
+      },
       autocorrect: false,
       decoration: InputDecoration(
         hintText: hint,

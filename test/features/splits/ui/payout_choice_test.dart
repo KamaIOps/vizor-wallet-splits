@@ -127,7 +127,8 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const Key('splits_settle_pay_ben')),
-        matching: find.text('Shielded ZEC'),
+        // Labelled by the kind of [_second], which §8.6 cannot read.
+        matching: find.text('ZEC'),
       ),
       findsOneWidget,
     );
