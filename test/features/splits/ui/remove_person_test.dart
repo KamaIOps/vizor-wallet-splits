@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:splitz_core/host.dart' as entries;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
-import 'package:zcash_wallet/src/features/splits/ui/view/removal_plan.dart';
+import 'package:zcash_wallet/src/features/splits/ui/view/removal_words.dart';
 
 import 'support/fake_wallet.dart';
 
@@ -28,6 +28,16 @@ Future<RemovalPlan> planAs(
     me: me,
   );
 }
+
+/// [plan]'s blockers as the dialog words them, for [c]'s one bill.
+List<String> _said(SplitsController c, RemovalPlan plan) => [
+  for (final b in plan.blockers)
+    removalBlockerSentence(
+      b,
+      bill: c.bills.single.bill,
+      creatorId: c.bills.single.creatorId,
+    ),
+];
 
 void main() {
   group('a split without somebody', () {
@@ -199,7 +209,7 @@ void main() {
     ]);
     final plan = (await c.removalPlan(id, 'ben'))!;
     expect(plan.edits, isEmpty);
-    expect(plan.blockers, ['They paid for Hotel.']);
+    expect(_said(c, plan), ['They paid for Hotel.']);
   });
 
   test('the creator restates an expense somebody else wrote', () async {
@@ -233,7 +243,7 @@ void main() {
 
     // Anybody but the creator is told whose expense it is.
     expect((await planAs(store, wallet, id, 'ben', 'cai')).edits, isNotEmpty);
-    expect((await planAs(store, wallet, id, 'ben', 'dee')).blockers, [
+    expect(_said(c, await planAs(store, wallet, id, 'ben', 'dee')), [
       'Boat was added by Cai, who can take them out of it.',
     ]);
 
