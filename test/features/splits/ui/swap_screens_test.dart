@@ -721,7 +721,9 @@ void main() {
         quote: second,
       );
       expect(wallet.sender.sent, hasLength(1));
-      expect(c.lastError, contains('The bill changed'));
+      // Held on the first deposit, and the payer is told whose confirmation
+      // releases it rather than that the bill changed.
+      expect(c.lastError, contains('Held until ben confirms'));
       expect(c.bills.single.bill.payments, hasLength(1));
     });
 

@@ -194,11 +194,9 @@ void main() {
       final first = controllerFor(wallet, storage);
       await first.load();
       expect((await first.pendingSend(id))?.damaged, isTrue);
-      expect(
-        await storage.keys('payintent/'),
-        ['payintent/$id'],
-        reason: 'the details are kept for a load that can read them',
-      );
+      expect(await storage.keys('payintent/'), [
+        'payintent/$id',
+      ], reason: 'the details are kept for a load that can read them');
       await first.resolveSend(id);
       expect(await first.pendingSend(id), isNull);
 
@@ -320,8 +318,9 @@ void main() {
       // The app stopped before the wallet answered, so the note has nothing
       // to look for; any transaction the wallet may still send could be it.
       Future<(SplitsController, String, FakeWallet)> unanswered(
-        HeldTransactions held,
-      ) async {
+        HeldTransactions held, {
+        OwnTransactions? own,
+      }) async {
         final wallet = FakeWallet(outcome: _pending);
         final c = SplitsController(
           wallet: wallet,
@@ -329,6 +328,7 @@ void main() {
           keys: SplitsKeys(store: InMemorySecretStore(), random: Random(3)),
           relay: const UnconfiguredSplitsRelay(),
           held: held,
+          own: own ?? () async => const [],
         );
         final id = await owingBen(c);
         await c.settle(id, (await c.obligation(id))!);
@@ -354,6 +354,67 @@ void main() {
         await c.resolveSend(id);
         expect(c.lastError, contains('could not be read'));
         expect(await c.pendingSend(id), isNotNull);
+      });
+
+      // Killed after the broadcast and mined before the relaunch: nothing is
+      // waiting any more, and the note has no id to look for.
+      test('a send this wallet built since the note began keeps it', () async {
+        late final (SplitsController, String, FakeWallet) rig;
+        String? at;
+        rig = await unanswered(
+          () async => {_txid: HeldTransaction.mined},
+          own: () async => [OwnTransaction(txid: _txid, created: at!)],
+        );
+        final (c, id, wallet) = rig;
+        at = (await c.pendingSend(id))!.at;
+        await c.resolveSend(id);
+        expect(c.lastError, contains('after this payment started'));
+        expect(c.lastError, contains(_txid.substring(0, 8)));
+        expect(await c.pendingSend(id), isNotNull);
+        // No second send while it stands.
+        await c.settle(id, (await c.obligation(id))!);
+        expect(wallet.sender.sent, hasLength(1));
+      });
+
+      test('a send built before the note does not hold it', () async {
+        final (c, id, _) = await unanswered(
+          () async => {_txid: HeldTransaction.mined},
+          own: () async => [
+            const OwnTransaction(
+              txid: _txid,
+              created: '2000-01-01T00:00:00.000Z',
+            ),
+          ],
+        );
+        await c.resolveSend(id);
+        expect(c.lastError, isNull);
+        expect(await c.pendingSend(id), isNull);
+      });
+
+      test('when what was built cannot be read, it is kept', () async {
+        final (c, id, _) = await unanswered(
+          () async => const {},
+          own: () async => throw StateError('locked'),
+        );
+        await c.resolveSend(id);
+        expect(c.lastError, contains('could not be read'));
+        expect(await c.pendingSend(id), isNotNull);
+      });
+
+      test('saying it landed still records it, with the id', () async {
+        final (c, id, _) = await unanswered(
+          () async => {_txid: HeldTransaction.mined},
+          own: () async => [
+            const OwnTransaction(
+              txid: _txid,
+              created: '9999-01-01T00:00:00.000Z',
+            ),
+          ],
+        );
+        await c.resolveSend(id, landed: true, txid: _txid);
+        expect(c.lastError, isNull);
+        expect(await c.pendingSend(id), isNull);
+        expect(c.bills.single.bill.payments, hasLength(1));
       });
 
       test('once nothing waits, it clears', () async {

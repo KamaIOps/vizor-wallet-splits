@@ -9,7 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:splitz_core/host.dart' as entries;
 import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
-import 'package:zcash_wallet/src/features/splits/ui/view/removal_plan.dart';
+import 'package:zcash_wallet/src/features/splits/ui/view/removal_words.dart';
 
 import 'support/fake_wallet.dart';
 
@@ -137,6 +137,16 @@ List<Map<String, dynamic>> _deeOnBoat(
       },
     },
   ),
+];
+
+/// [plan]'s blockers as the dialog words them, for [c]'s one bill.
+List<String> _said(SplitsController c, RemovalPlan plan) => [
+  for (final b in plan.blockers)
+    removalBlockerSentence(
+      b,
+      bill: c.bills.single.bill,
+      creatorId: c.bills.single.creatorId,
+    ),
 ];
 
 void main() {
@@ -341,7 +351,7 @@ void main() {
       await c.accept(id, _deeOnBoat(c, boat, cai));
       final plan = (await c.removalPlan(id, 'dee'))!;
       expect(plan.namesThem, isTrue);
-      expect(plan.edits.single.description, 'Boat');
+      expect(removalEditName(plan.edits.single), 'Boat');
     });
 
     testWidgets('somebody on nothing is still told so, and comes off', (
@@ -477,7 +487,7 @@ void main() {
       expect(c.lastError, isNull);
       final plan = (await c.removalPlan(id, 'ben'))!;
       expect(plan.edits, isEmpty);
-      expect(plan.blockers, ['Ben’s ticket needs its split changed by hand.']);
+      expect(_said(c, plan), ['Ben’s ticket needs its split changed by hand.']);
     });
 
     test('splitWithout: zero shares left is by hand, some left is not', () {

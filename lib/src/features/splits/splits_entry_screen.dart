@@ -245,6 +245,8 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
       // Whether a transaction a send left unresolved is still waiting in the
       // wallet, so nobody is told to send again while it may yet go through.
       held: () => splitsHeldTransactions(ref: ref, accountUuid: accountUuid),
+      // What this wallet built, for an unanswered send (§14.3).
+      own: () => splitsOwnTransactions(ref: ref, accountUuid: accountUuid),
       // An address this wallet cannot send to is reported unpayable, so it
       // does not stop the payment to everybody else on the request.
       readsAddress: (address) => splitsReadsAddress(ref, address),

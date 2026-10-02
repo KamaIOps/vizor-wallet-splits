@@ -783,43 +783,19 @@ protocol.Payout? _payoutAt(BillView view, String id, int index) {
 
 /// How a ZEC payment to [address] travels, by the kind §8.6 reads it as.
 ///
-/// Shielded for a Sapling address, and for a Unified Address carrying a
-/// Sapling or Orchard receiver; transparent for P2PKH, P2SH, TEX and a
-/// Unified Address whose only receivers are P2PKH or P2SH, whose payments
-/// are public on the chain. Anything else — an address §8.6 cannot read, a
-/// Unified Address of receivers it does not name — is said as plain ZEC:
-/// nothing is claimed about it.
+/// Shielded when §8.6 says a memo can reach the recipient — a Sapling address,
+/// or a Unified Address, which §8.6 admits only with a Sapling or Orchard
+/// receiver; transparent for P2PKH, P2SH and TEX, whose payments are public on
+/// the chain. An address §8.6 refuses is said as plain ZEC: nothing is claimed
+/// about it.
 String zecLane(String? address) =>
-    switch (address == null ? null : _shielded(address)) {
+    switch (address == null ? null : _parsed(address)?.canReceiveMemo) {
       true => 'Shielded ZEC',
       false => 'Transparent ZEC',
       null => 'ZEC',
     };
 
-/// Whether a payment to [address] is shielded, as [zecLane] reads it; null
-/// when that cannot be said.
-bool? _shielded(String address) {
-  final a = _parsed(address);
-  if (a == null) return null;
-  return switch (a.kind) {
-    protocol.AddressKind.sapling => true,
-    protocol.AddressKind.unified =>
-      a.receivers.any(
-            (r) =>
-                r == protocol.typecodeSapling || r == protocol.typecodeOrchard,
-          )
-          ? true
-          : a.receivers.any(
-              (r) => r == protocol.typecodeP2pkh || r == protocol.typecodeP2sh,
-            )
-          ? false
-          : null,
-    protocol.AddressKind.p2pkh ||
-    protocol.AddressKind.p2sh ||
-    protocol.AddressKind.tex => false,
-  };
-}
-
+/// [address] as §8.6 reads it, or null when it refuses it.
 protocol.ParsedAddress? _parsed(String address) {
   try {
     return protocol.parseAddress(address);
@@ -1087,7 +1063,7 @@ class _ReviewSend extends StatelessWidget {
                         fontSize: 11,
                       ),
                     ),
-                    if (_shielded(p.address) == false)
+                    if (_parsed(p.address)?.canReceiveMemo == false)
                       Text(
                         'A transparent address: this payment is public on '
                         'the chain.',

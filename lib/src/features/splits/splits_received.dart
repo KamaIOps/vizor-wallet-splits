@@ -3,6 +3,8 @@ library;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:splitz_core/host.dart' show IncomingTransaction;
+import 'package:splitz_core/splitz_core.dart' show canonicalInstant;
+import 'package:splitz_host/splitz_host.dart' show OwnTransaction;
 
 import '../../core/storage/wallet_paths.dart';
 import '../../providers/rpc_endpoint_provider.dart';
@@ -117,6 +119,37 @@ Future<Map<String, HeldTransaction>> splitsHeldTransactions({
           ? HeldTransaction.expired
           : HeldTransaction.waiting,
   };
+}
+
+/// The transactions this account built itself, each with the §9.3 instant the
+/// wallet stamped on it, in the byte order a send reports: what an unanswered
+/// send is checked against before a person may say nothing went out (§14.3).
+///
+/// `createdTime` is the wallet's own creation stamp in Unix seconds, and zero
+/// for a transaction it only received, which is left out. An expired one can
+/// no longer have paid anybody and is left out too.
+Future<List<OwnTransaction>> splitsOwnTransactions({
+  required WidgetRef ref,
+  required String accountUuid,
+}) async {
+  final history = await rust_sync.getTransactionHistory(
+    dbPath: await getWalletDbPath(),
+    network: ref.read(rpcEndpointProvider).networkName,
+    accountUuid: accountUuid,
+  );
+  return [
+    for (final tx in history)
+      if (tx.createdTime > BigInt.zero && !tx.expiredUnmined)
+        OwnTransaction(
+          txid: txidForDisplay(tx.txidHex),
+          created: canonicalInstant(
+            DateTime.fromMillisecondsSinceEpoch(
+              tx.createdTime.toInt() * 1000,
+              isUtc: true,
+            ).toIso8601String(),
+          ),
+        ),
+  ];
 }
 
 /// Every transaction id this account's history holds, in the byte order a

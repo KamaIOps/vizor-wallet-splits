@@ -1,5 +1,5 @@
 /// The pieces the splits feature takes from the packages, as this wallet
-/// wires them: its prices, its keychain against §15, and the transaction ids
+/// wires them: its keychain against §15, and the transaction ids
 /// it hands the package to match.
 library;
 
@@ -10,17 +10,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:splitz_host/splitz_host.dart';
 import 'package:zcash_wallet/src/core/storage/app_secure_store.dart';
-import 'package:zcash_wallet/src/features/splits/splits_prices.dart';
 import 'package:zcash_wallet/src/features/splits/splits_received.dart';
 import 'package:zcash_wallet/src/features/splits/splits_wallet_adapter.dart';
 import 'package:zcash_wallet/src/rust/frb_generated.dart';
-
-/// A market that cannot be reached.
-class _Unreachable implements ZecPrices {
-  @override
-  Future<int?> minorUnitsPerZec(String currency) async =>
-      throw const ZecPriceException('The price feed answered 429');
-}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -34,43 +26,6 @@ void main() {
       expect(shown.substring(0, 4), '1f1e');
       expect(shown.substring(60), '0100');
       expect(txidForDisplay(shown), stored, reason: 'reversing twice is none');
-    });
-  });
-
-  group('prices', () {
-    test('two markets that agree give the second one\'s figure', () async {
-      const prices = AgreeingZecPrices(
-        FixedZecPrices({'USD': 138819}),
-        FixedZecPrices({'USD': 138905, 'EUR': 122241}),
-      );
-      expect(await prices.minorUnitsPerZec('USD'), 138905);
-      expect(await prices.minorUnitsPerZec('EUR'), 122241);
-      expect(await prices.minorUnitsPerZec('GBP'), isNull);
-    });
-
-    test('two markets that disagree give no price', () async {
-      // (152701 - 138819) x 10000 = 138820000 > 138819 x 200 = 27763800:
-      // 1000 bp apart, past the 200 allowed.
-      const prices = AgreeingZecPrices(
-        FixedZecPrices({'USD': 138819}),
-        FixedZecPrices({'USD': 152701}),
-      );
-      expect(await prices.minorUnitsPerZec('USD'), isNull);
-    });
-
-    test('markets that cannot be reached leave the bill to be priced by '
-        'hand', () async {
-      final prices = AgreeingZecPrices(_Unreachable(), _Unreachable());
-      expect(await prices.minorUnitsPerZec('EUR'), isNull);
-    });
-
-    test('keeps §15.6', () async {
-      const prices = AgreeingZecPrices(
-        FixedZecPrices({'USD': 138819}),
-        FixedZecPrices({'EUR': 122241}),
-      );
-      expect(await checkZecPrices(prices), isEmpty);
-      expect(await checkZecPrices(prices, priced: 'EUR'), isEmpty);
     });
   });
 

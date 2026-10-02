@@ -18,6 +18,7 @@ import 'package:splitz_core/splitz_core.dart' as protocol;
 import '../state/splits_controller.dart';
 import '../view/chrome.dart';
 import '../view/naming.dart';
+import '../view/removal_words.dart';
 import 'payout_screen.dart';
 import 'share_bill_screen.dart';
 import 'text_entry_screen.dart';
@@ -293,7 +294,7 @@ Future<void> confirmAndRemovePerson(
   final taken = [
     for (final e in plan.edits)
       if (e.author != null && e.author != controller.me)
-        '${e.description} becomes yours to correct, not '
+        '${removalEditName(e)} becomes yours to correct, not '
             '${view.bill.displayNameOf(e.author!, creatorId: view.creatorId)}’s.',
   ];
 
@@ -325,7 +326,9 @@ Future<void> confirmAndRemovePerson(
                 for (final b in plan.blockers)
                   Padding(
                     padding: const EdgeInsets.only(top: 6),
-                    child: Text('• $b'),
+                    child: Text(
+                      '• ${removalBlockerSentence(b, bill: view.bill, creatorId: view.creatorId)}',
+                    ),
                   ),
               ],
             ],
