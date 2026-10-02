@@ -10,6 +10,8 @@
 /// can say that (§10.5).
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:splitz_host/splitz_host.dart';
@@ -53,6 +55,34 @@ class _SwapScreenState extends State<SwapScreen> {
   /// null when none can be had.
   int? _live;
 
+  /// Fires at the quote's deadline, so an expired quote is shown as expired
+  /// without waiting for a tap.
+  Timer? _expiry;
+
+  /// Set when [_expiry] fired for the quote on screen.
+  bool _lapsed = false;
+
+  @override
+  void dispose() {
+    _expiry?.cancel();
+    super.dispose();
+  }
+
+  /// Arms [_expiry] for [quote]'s deadline, by the clock the send checks it
+  /// against.
+  void _watchExpiry(SwapQuote? quote, DateTime now) {
+    _expiry?.cancel();
+    _expiry = null;
+    _lapsed = false;
+    final deadline = quote == null ? null : DateTime.tryParse(quote.deadline);
+    if (deadline == null) return;
+    final left = deadline.difference(now);
+    if (left <= Duration.zero) return;
+    _expiry = Timer(left, () {
+      if (mounted) setState(() => _lapsed = true);
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -78,6 +108,7 @@ class _SwapScreenState extends State<SwapScreen> {
     setState(() {
       _working = true;
       _message = null;
+      _outcome = null;
     });
     final controller = SplitsScope.read(context);
     final quote = await controller.quoteSwap(
@@ -98,6 +129,7 @@ class _SwapScreenState extends State<SwapScreen> {
       live = null;
     }
     if (!mounted) return;
+    _watchExpiry(quote, controller.now());
     setState(() {
       _working = false;
       _quote = quote;
@@ -147,9 +179,12 @@ class _SwapScreenState extends State<SwapScreen> {
     final quote = _quote;
     final expired =
         quote != null &&
-        quote.hasExpired(
-          protocol.canonicalInstant(DateTime.now().toUtc().toIso8601String()),
-        );
+        (_lapsed ||
+            quote.hasExpired(
+              protocol.canonicalInstant(
+                controller.now().toUtc().toIso8601String(),
+              ),
+            ));
     // The quote's ZEC is the bill's rate applied to the debt when it was
     // asked. A rate changed since leaves the figure above describing a price
     // the bill no longer holds, so the quote is stale however long it has.
@@ -190,9 +225,20 @@ class _SwapScreenState extends State<SwapScreen> {
                 ),
               ),
           const SizedBox(height: 16),
-          if (_outcome != null)
-            _Outcome(outcome: _outcome!, who: who)
-          else if (quote != null) ...[
+          if (_outcome != null) ...[
+            _Outcome(outcome: _outcome!, who: who),
+            // Nothing left the wallet, so the debt can be quoted and sent
+            // again. A pending send may still land and gets no second one.
+            if (_outcome!.phase == WalletSendPhase.failed ||
+                _outcome!.phase == WalletSendPhase.aborted) ...[
+              const SizedBox(height: 16),
+              FilledButton(
+                key: const Key('splits_swap_requote'),
+                onPressed: _working ? null : _quoteIt,
+                child: const Text('Get a new quote'),
+              ),
+            ],
+          ] else if (quote != null) ...[
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(12),
@@ -472,7 +518,9 @@ class _Outcome extends StatelessWidget {
       ),
       WalletSendPhase.failed => (
         'Not sent',
-        outcome.error ?? 'Couldn’t send. Nothing was spent.',
+        describeSendFailure(
+          outcome.error ?? 'Couldn’t send. Nothing was spent.',
+        ),
       ),
       WalletSendPhase.aborted => (
         'Cancelled',

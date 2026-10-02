@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:splitz_core/splitz_core.dart' as splitz;
 
 import '../view/chrome.dart';
+import 'record_payment_screen.dart' show fieldNoteLines;
 import 'splits_scope.dart';
 import 'usdc_chains.dart';
 
@@ -202,14 +203,24 @@ class _PayoutScreenState extends State<PayoutScreen> {
     if (controller.lastError == null) navigator.pop();
   }
 
+  /// Clears a refusal once the field it asked about is typed into.
+  void _edited(String _) {
+    if (_unsaved != null) setState(() => _unsaved = null);
+  }
+
   /// The asset and chain as free text, for a payout the picker cannot hold.
   List<Widget> _typedFields() => [
     const SizedBox(height: 8),
     TextFormField(
       key: const Key('splits_payout_asset'),
       controller: _asset,
-      decoration: const InputDecoration(labelText: 'Asset', hintText: 'USDC'),
+      decoration: const InputDecoration(
+        labelText: 'Asset',
+        hintText: 'USDC',
+        errorMaxLines: fieldNoteLines,
+      ),
       textCapitalization: TextCapitalization.characters,
+      onChanged: _edited,
       validator: (v) =>
           (_typed && (v == null || v.trim().isEmpty)) ? 'Name the asset' : null,
     ),
@@ -223,7 +234,10 @@ class _PayoutScreenState extends State<PayoutScreen> {
         // One symbol exists on many chains, and the wrong chain delivers the
         // right token somewhere unreachable.
         helperText: 'The network it should arrive on',
+        helperMaxLines: fieldNoteLines,
+        errorMaxLines: fieldNoteLines,
       ),
+      onChanged: _edited,
       validator: (v) =>
           (_typed && (v == null || v.trim().isEmpty)) ? 'Name the chain' : null,
     ),
@@ -271,7 +285,10 @@ class _PayoutScreenState extends State<PayoutScreen> {
                 groupValue: _choice,
                 onChanged: (value) {
                   if (_saving || value == null) return;
-                  setState(() => _choice = value);
+                  setState(() {
+                    _choice = value;
+                    _unsaved = null;
+                  });
                 },
                 child: Column(
                   children: [
@@ -290,7 +307,10 @@ class _PayoutScreenState extends State<PayoutScreen> {
                   UsdcChainPicker(
                     picked: _pickedChain,
                     enabled: !_saving,
-                    onPicked: (chain) => setState(() => _pickedChain = chain),
+                    onPicked: (chain) => setState(() {
+                      _pickedChain = chain;
+                      _unsaved = null;
+                    }),
                     onUnavailable: (why) => setState(() {
                       _typed = true;
                       _chainsUnavailable = why;
@@ -315,7 +335,9 @@ class _PayoutScreenState extends State<PayoutScreen> {
                     labelText: _typed || _pickedChain == null
                         ? 'Your address'
                         : 'Your USDC address on ${usdcChainName(_pickedChain!)}',
+                    errorMaxLines: fieldNoteLines,
                   ),
+                  onChanged: _edited,
                   validator: (v) => (v == null || v.trim().isEmpty)
                       ? 'Nobody can be paid without an address'
                       : !_typed && _pickedChain != null

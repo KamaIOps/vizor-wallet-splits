@@ -2325,7 +2325,8 @@ class SplitsController extends ChangeNotifier {
 
   /// Why this device cannot settle to [payout], or null when it can.
   ///
-  /// `zec` needs an address a payment request can carry (§8.3); `swap` needs
+  /// `zec` needs an address a payment request can carry (§8.3) that this
+  /// wallet's reader reads on the network it sends on (§14.6); `swap` needs
   /// its asset, chain and address, and a provider that delivers that asset on
   /// that chain; `cash` is always payable. Null as well when the provider
   /// cannot be asked: not knowing is no reason to pass over a payee's
@@ -2338,7 +2339,13 @@ class SplitsController extends ChangeNotifier {
           name: '',
           payouts: [payout],
         ).payableAddress;
-        return payable == null ? 'their Zcash address can’t be paid' : null;
+        if (payable == null) return 'their Zcash address can’t be paid';
+        // Read by the reader [obligation] holds every request's addresses
+        // to (§14.6): one it refuses is reported unpayable there, so it is
+        // passed over here by the same answer.
+        return await _readsAddress(payable)
+            ? null
+            : 'their Zcash address isn’t one this wallet can send to';
       case 'swap':
         final (asset, chain) = (payout.asset, payout.chain);
         bool blank(String? s) => s == null || s.trim().isEmpty;

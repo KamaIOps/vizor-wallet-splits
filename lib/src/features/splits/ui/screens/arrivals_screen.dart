@@ -320,7 +320,7 @@ class _Arrival extends StatelessWidget {
                 if (zatoshi != null) formatZec(zatoshi),
                 if (rate != null)
                   'at ${formatAmount(rate.minorUnitsPerZec, rate.currency)}/ZEC',
-                'tx ${arrival.txid.substring(0, 8)}…',
+                'tx ${shortReference(payment.reference ?? arrival.txid)}',
                 // §14.7: a transaction id proves money arrived, not that it
                 // was sent for this bill. When is what tells them apart.
                 if (when != null) 'received ${_day(when)}',
@@ -376,6 +376,15 @@ class _Arrival extends StatelessWidget {
       ),
     );
   }
+}
+
+/// [reference] as a person checks it against their wallet: whole, or its
+/// first 10 characters and an ellipsis, the shortest prefix §14.2 lets
+/// stand for it.
+String shortReference(String reference) {
+  final runes = reference.runes.toList();
+  if (runes.length <= 12) return reference;
+  return '${String.fromCharCodes(runes.take(10))}…';
 }
 
 /// [at] as a calendar day in UTC, which a block time is: 2026-10-01.
