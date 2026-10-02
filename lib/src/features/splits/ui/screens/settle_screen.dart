@@ -10,6 +10,7 @@ import '../state/splits_controller.dart';
 import '../view/chrome.dart';
 import '../view/naming.dart';
 import 'activity_screen.dart';
+import 'arrivals_screen.dart' show shortReference;
 import 'price_bill_screen.dart';
 import 'record_payment_screen.dart';
 import 'swap_screen.dart';
@@ -46,6 +47,12 @@ class _SettleScreenState extends State<SettleScreen> {
   /// paid and a later one can, with why the first cannot. Read again on every
   /// load.
   Map<String, (protocol.Payout, String)> _auto = const {};
+
+  /// True from a tap on Pay until the review it opened is closed and what it
+  /// confirmed is sent: the bill is read again and priced before the review
+  /// opens, and a second tap meanwhile would open a second review for the
+  /// same debt.
+  bool _working = false;
 
   /// Where each payout in effect below the first sat in its payee's list when
   /// [_owed] was read: what the request was rendered with, and what the send
@@ -149,6 +156,16 @@ class _SettleScreenState extends State<SettleScreen> {
   }
 
   Future<void> _send(BillView view) async {
+    if (_working) return;
+    setState(() => _working = true);
+    try {
+      await _review(view);
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _review(BillView view) async {
     final controller = SplitsScope.read(context);
     // Read again before the review: what it shows must be what the bill says
     // now, not what it said when this screen opened.
@@ -286,6 +303,17 @@ class _SettleScreenState extends State<SettleScreen> {
     if (mounted) await _load();
   }
 
+  /// The address the request pays [to] at, or null when it carries nothing
+  /// to them. `request.recipients` and `request.payments` are in one order.
+  String? _requestAddress(String to) {
+    final request = _owed?.request;
+    if (request == null) return null;
+    for (var i = 0; i < request.payments.length; i++) {
+      if (request.recipients[i] == to) return request.payments[i].address;
+    }
+    return null;
+  }
+
   /// Whether a payer may change how anybody is paid right now. Not while a
   /// send from this bill is unresolved: it may still land, and paying the
   /// same debt another way would pay it twice (§14.3).
@@ -333,7 +361,7 @@ class _SettleScreenState extends State<SettleScreen> {
                   // Nothing goes out while an earlier send is unresolved: it
                   // may still land, and this one would pay the same debt
                   // again.
-                  onPressed: controller.busy || _pending != null
+                  onPressed: controller.busy || _pending != null || _working
                       ? null
                       : () => _send(view),
                   child: Text(
@@ -392,7 +420,7 @@ class _SettleScreenState extends State<SettleScreen> {
                     'Your payment of '
                     '${formatAmount(e.amountMinorUnits ?? 0, currency)} to '
                     '${who(e.subject ?? '')}'
-                    '${e.reference == null ? '' : ' (transaction ${e.reference!.length > 8 ? '${e.reference!.substring(0, 8)}…' : e.reference})'} '
+                    '${e.reference == null ? '' : ' (transaction ${shortReference(e.reference!)})'} '
                     'was withdrawn. Check your wallet\'s history before '
                     'paying again: if it went out, ask them to look again '
                     'rather than sending twice.',
@@ -471,7 +499,7 @@ class _SettleScreenState extends State<SettleScreen> {
                         ) ??
                         // A lower choice is said by the `_Passed` line under
                         // the row and on the review (§14.8).
-                        const Text('Shielded ZEC'),
+                        Text(zecLane(_requestAddress(s.to))),
                     trailing: formatAmount(s.amount, currency),
                   ),
                 ),
@@ -701,7 +729,14 @@ class _Unpayable extends StatelessWidget {
         else if (needsAddress)
           Padding(
             padding: const EdgeInsets.only(left: 16, bottom: 4),
-            child: Text('Ask ${who(u.id)} to add one in the app.'),
+            // A bad address is one they already gave: what they are asked
+            // for is a different one, not a first.
+            child: Text(
+              u.reason == 'bad_address'
+                  ? 'Ask ${who(u.id)} for an address this wallet can pay.'
+                  : 'Ask ${who(u.id)} to add one in the app.',
+              key: Key('splits_settle_ask_${u.id}'),
+            ),
           ),
       ],
     );
@@ -730,6 +765,53 @@ class _Passed extends StatelessWidget {
 protocol.Payout? _payoutAt(BillView view, String id, int index) {
   final payouts = view.bill.participant(id)?.payouts ?? const [];
   return index < payouts.length ? payouts[index] : null;
+}
+
+/// How a ZEC payment to [address] travels, by the kind §8.6 reads it as.
+///
+/// Shielded for a Sapling address, and for a Unified Address carrying a
+/// Sapling or Orchard receiver; transparent for P2PKH, P2SH, TEX and a
+/// Unified Address whose only receivers are P2PKH or P2SH, whose payments
+/// are public on the chain. Anything else — an address §8.6 cannot read, a
+/// Unified Address of receivers it does not name — is said as plain ZEC:
+/// nothing is claimed about it.
+String zecLane(String? address) =>
+    switch (address == null ? null : _shielded(address)) {
+      true => 'Shielded ZEC',
+      false => 'Transparent ZEC',
+      null => 'ZEC',
+    };
+
+/// Whether a payment to [address] is shielded, as [zecLane] reads it; null
+/// when that cannot be said.
+bool? _shielded(String address) {
+  final a = _parsed(address);
+  if (a == null) return null;
+  return switch (a.kind) {
+    protocol.AddressKind.sapling => true,
+    protocol.AddressKind.unified =>
+      a.receivers.any(
+            (r) =>
+                r == protocol.typecodeSapling || r == protocol.typecodeOrchard,
+          )
+          ? true
+          : a.receivers.any(
+              (r) => r == protocol.typecodeP2pkh || r == protocol.typecodeP2sh,
+            )
+          ? false
+          : null,
+    protocol.AddressKind.p2pkh ||
+    protocol.AddressKind.p2sh ||
+    protocol.AddressKind.tex => false,
+  };
+}
+
+protocol.ParsedAddress? _parsed(String address) {
+  try {
+    return protocol.parseAddress(address);
+  } on protocol.SplitError {
+    return null;
+  }
 }
 
 /// What a send produced, in the three states it can be in.
@@ -991,6 +1073,13 @@ class _ReviewSend extends StatelessWidget {
                         fontSize: 11,
                       ),
                     ),
+                    if (_shielded(p.address) == false)
+                      Text(
+                        'A transparent address: this payment is public on '
+                        'the chain.',
+                        key: Key('splits_review_transparent_$i'),
+                        style: TextStyle(color: error),
+                      ),
                     // §10.7: an id no key is bound to is a name anyone on
                     // the bill can write for, address included.
                     if (paired &&

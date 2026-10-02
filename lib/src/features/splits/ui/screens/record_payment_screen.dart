@@ -21,6 +21,13 @@ import '../view/naming.dart';
 import 'add_expense_screen.dart' show figureRefusal, parseMinorUnits;
 import 'splits_scope.dart';
 
+/// How many lines a field's helper or refusal may take before it is cut.
+///
+/// A field's note defaults to one line, which on a narrow phone keeps only
+/// its first clause. Enough for the longest note on these screens at 320
+/// points wide and twice the text size.
+const int fieldNoteLines = 6;
+
 /// Which of §9.2's two off-request methods is being recorded.
 enum RecordMethod { cash, swap }
 
@@ -169,6 +176,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
               decoration: InputDecoration(
                 hintText: 'Amount in $currency',
                 suffixText: currency,
+                errorMaxLines: fieldNoteLines,
               ),
               validator: (v) {
                 final parsed = parseMinorUnits(v ?? '', currency: currency);
@@ -199,6 +207,8 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                   helperText:
                       "The provider's id for the swap, or the "
                       'transaction on the other chain — not a Zcash txid',
+                  helperMaxLines: fieldNoteLines,
+                  errorMaxLines: fieldNoteLines,
                 ),
                 validator: (v) => (v == null || v.trim().isEmpty)
                     ? 'A swap nobody can look up is a swap nobody can check'
