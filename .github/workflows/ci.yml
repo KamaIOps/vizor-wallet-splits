@@ -56,11 +56,14 @@ jobs:
           token: ${{ secrets.SPLITS_REPOS_TOKEN }}
           persist-credentials: false
 
-      # Pinned to the version `.fvmrc` names. A newer Flutter reformats and
-      # re-lints, so an unpinned runner disagrees with every machine here.
+      # Read from `.fvmrc`, the one place the version is named. A newer Flutter
+      # reformats and re-lints, so an unpinned runner disagrees with every
+      # machine here.
+      - id: flutter
+        run: echo "version=$(jq -r .flutter Vizor-Wallet/.fvmrc)" >> "$GITHUB_OUTPUT"
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.41.6
+          flutter-version: ${{ steps.flutter.outputs.version }}
           channel: stable
           cache: true
 
