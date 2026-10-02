@@ -26,7 +26,7 @@ class ArrivalsScreen extends StatefulWidget {
   State<ArrivalsScreen> createState() => _ArrivalsScreenState();
 }
 
-class _ArrivalsScreenState extends State<ArrivalsScreen> {
+class _ArrivalsScreenState extends State<ArrivalsScreen> with SplitsActions {
   /// The live price per currency, once asked; null when none could be read.
   final Map<String, int?> _live = {};
 
@@ -91,11 +91,11 @@ class _ArrivalsScreenState extends State<ArrivalsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          if (controller.lastError != null)
+          if (failure case final failed?)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Text(
-                controller.lastError!,
+                failed,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
@@ -146,9 +146,11 @@ class _ArrivalsScreenState extends State<ArrivalsScreen> {
                   onPressed: controller.busy || asking
                       ? null
                       : () async {
-                          await controller.confirmArrivals(plain);
+                          final done = await act(
+                            () => controller.confirmArrivals(plain),
+                          );
                           if (context.mounted &&
-                              controller.lastError == null &&
+                              done &&
                               controller.arrived.isEmpty &&
                               controller.disputed.isEmpty &&
                               controller.underpriced.isEmpty &&
@@ -341,6 +343,7 @@ class _Arrival extends StatelessWidget {
                 onPressed: controller.busy
                     ? null
                     : () async {
+                        final act = actionsOf(context);
                         final sure = await showDialog<bool>(
                           context: context,
                           builder: (dialog) => AlertDialog(
@@ -366,7 +369,9 @@ class _Arrival extends StatelessWidget {
                           ),
                         );
                         if (sure == true) {
-                          await controller.confirmArrivals([arrival]);
+                          await act(
+                            () => controller.confirmArrivals([arrival]),
+                          );
                         }
                       },
                 child: const Text('Confirm anyway'),

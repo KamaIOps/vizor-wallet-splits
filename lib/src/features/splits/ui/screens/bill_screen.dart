@@ -31,7 +31,7 @@ class BillScreen extends StatefulWidget {
   State<BillScreen> createState() => _BillScreenState();
 }
 
-class _BillScreenState extends State<BillScreen> {
+class _BillScreenState extends State<BillScreen> with SplitsActions {
   String get billId => widget.billId;
 
   /// Held rather than looked up in [dispose]: by then the element tree is
@@ -84,8 +84,9 @@ class _BillScreenState extends State<BillScreen> {
       ),
     );
     if (!(confirmed ?? false)) return;
-    await controller.forget(billId);
-    if (controller.lastError == null && navigator.mounted) navigator.pop();
+    if (await act(() => controller.forget(billId)) && navigator.mounted) {
+      navigator.pop();
+    }
   }
 
   @override
@@ -138,7 +139,7 @@ class _BillScreenState extends State<BillScreen> {
                 case 'payout':
                   screen = PayoutScreen(billId: billId);
                 case 'sync':
-                  controller.syncBill(billId);
+                  act(() => controller.syncBill(billId));
                 case 'forget':
                   _forget(context);
               }
@@ -229,6 +230,11 @@ class _BillScreenState extends State<BillScreen> {
             key: const Key('splits_bill_headline'),
             style: Theme.of(context).textTheme.titleLarge,
           ),
+          // §14.4: still owed until confirmed, and already on its way. The
+          // headline is the first figure; this is the second.
+          if (sentNotConfirmed(controller.sentOn(billId), currency)
+              case final sent?)
+            Text(sent, key: const Key('splits_bill_sent')),
           const SizedBox(height: 4),
           Text(
             '$people ${people == 1 ? 'person' : 'people'} · '
@@ -253,8 +259,8 @@ class _BillScreenState extends State<BillScreen> {
                 chevron: true,
               ),
             ),
-          if (controller.lastError != null)
-            NoticeCard(message: controller.lastError!, error: true),
+          if (failure case final failed?)
+            NoticeCard(message: failed, error: true),
           if (!joined) _JoinPrompt(billId: billId),
           for (final replaced in view.redirectedAddresses)
             NoticeCard(
@@ -337,6 +343,7 @@ class _JoinPrompt extends StatelessWidget {
   /// bill, so it is asked for rather than filled in from the wallet.
   Future<void> _join(BuildContext context) async {
     final controller = SplitsScope.read(context);
+    final act = actionsOf(context);
     final name = await askForText(
       context,
       title: 'Your name',
@@ -346,7 +353,7 @@ class _JoinPrompt extends StatelessWidget {
       actionKey: const Key('splits_bill_join_ok'),
     );
     if (name == null || name.trim().isEmpty) return;
-    await controller.join(billId, displayName: name.trim());
+    await act(() => controller.join(billId, displayName: name.trim()));
   }
 
   @override
@@ -435,6 +442,7 @@ class _ExpenseTile extends StatelessWidget {
     final entryId = _entryId;
     if (entryId == null) return;
     final controller = SplitsScope.read(context);
+    final act = actionsOf(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
@@ -456,7 +464,7 @@ class _ExpenseTile extends StatelessWidget {
       ),
     );
     if (confirmed ?? false) {
-      await controller.withdraw(billId: billId, entryId: entryId);
+      await act(() => controller.withdraw(billId: billId, entryId: entryId));
     }
   }
 

@@ -172,12 +172,15 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
       if (mounted) setState(() => _message = _keysUnreadable);
       return false;
     }
+    final String? failed;
     if (other) {
       // The bill this phone holds names its own key, so there is nothing to
       // ask: replaceKey refuses this one and says why.
       if (refused) {
-        await controller.replaceKey(billId, key);
-        if (mounted) setState(() => _message = controller.lastError);
+        final failed = await controller.failureOf(
+          () => controller.replaceKey(billId, key),
+        );
+        if (mounted) setState(() => _message = failed);
         return false;
       }
       if (!mounted) return false;
@@ -202,12 +205,16 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
         ),
       );
       if (replace != true) return false;
-      await controller.replaceKey(billId, key);
+      failed = await controller.failureOf(
+        () => controller.replaceKey(billId, key),
+      );
     } else {
-      await controller.acceptKey(billId, key);
+      failed = await controller.failureOf(
+        () => controller.acceptKey(billId, key),
+      );
     }
-    if (controller.lastError != null) {
-      if (mounted) setState(() => _message = controller.lastError);
+    if (failed != null) {
+      if (mounted) setState(() => _message = failed);
       return false;
     }
     return true;
@@ -230,10 +237,12 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
           return;
         }
         if (!await _takeKey(controller, invite.billId, invite.key)) return;
-        await _fetch(() => controller.accept(invite.billId, entries));
+        final failed = await controller.failureOf(
+          () => _fetch(() => controller.accept(invite.billId, entries)),
+        );
         if (!mounted) return;
-        if (controller.lastError != null) {
-          setState(() => _message = controller.lastError);
+        if (failed != null) {
+          setState(() => _message = failed);
           return;
         }
         navigator.pushReplacement(

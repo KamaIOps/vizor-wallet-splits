@@ -111,12 +111,15 @@ class _SwapScreenState extends State<SwapScreen> {
       _outcome = null;
     });
     final controller = SplitsScope.read(context);
-    final quote = await controller.quoteSwap(
-      billId: widget.billId,
-      to: widget.to,
-      amountMinorUnits: widget.amountMinorUnits,
-      payout: widget.payout,
-    );
+    SwapQuote? quote;
+    final failed = await controller.failureOf(() async {
+      quote = await controller.quoteSwap(
+        billId: widget.billId,
+        to: widget.to,
+        amountMinorUnits: widget.amountMinorUnits,
+        payout: widget.payout,
+      );
+    });
     final currency = controller.bills
         .where((b) => b.id == widget.billId)
         .firstOrNull
@@ -137,9 +140,7 @@ class _SwapScreenState extends State<SwapScreen> {
       // The controller reports rather than throws: an action that quietly
       // did nothing looks exactly like one that worked, so its own sentence
       // is what a person is shown.
-      _message =
-          controller.lastError ??
-          (quote == null ? 'Nothing to swap for them.' : null);
+      _message = failed ?? (quote == null ? 'Nothing to swap for them.' : null);
     });
   }
 
@@ -151,18 +152,21 @@ class _SwapScreenState extends State<SwapScreen> {
       _message = null;
     });
     final controller = SplitsScope.read(context);
-    final outcome = await controller.sendSwap(
-      billId: widget.billId,
-      to: widget.to,
-      amountMinorUnits: widget.amountMinorUnits,
-      quote: quote,
-      payout: widget.payout,
-    );
+    WalletSendOutcome? outcome;
+    final failed = await controller.failureOf(() async {
+      outcome = await controller.sendSwap(
+        billId: widget.billId,
+        to: widget.to,
+        amountMinorUnits: widget.amountMinorUnits,
+        quote: quote,
+        payout: widget.payout,
+      );
+    });
     if (!mounted) return;
     setState(() {
       _working = false;
       _outcome = outcome;
-      _message = controller.lastError;
+      _message = failed;
     });
   }
 

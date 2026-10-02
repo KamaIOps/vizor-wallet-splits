@@ -75,3 +75,41 @@ class SplitsScope extends InheritedNotifier<SplitsController> {
       scan != oldWidget.scan ||
       share != oldWidget.share;
 }
+
+/// What the actions taken on one screen could not do.
+///
+/// A screen shows [failure] and never [SplitsController.lastError], which is
+/// the last failure of any action: shown on open, it puts a refusal from
+/// somewhere else beside buttons that did not fail.
+mixin SplitsActions<T extends StatefulWidget> on State<T> {
+  String? _failure;
+
+  /// What the last action taken here could not do, or null.
+  String? get failure => _failure;
+
+  /// Runs [action] as this screen's, and keeps what it could not do as
+  /// [failure] in place of what the previous one left. True when it did all
+  /// of it.
+  Future<bool> act(Future<void> Function() action) async {
+    final controller = SplitsScope.read(context);
+    if (_failure != null) setState(() => _failure = null);
+    final failed = await controller.failureOf(action);
+    if (mounted) setState(() => _failure = failed);
+    return failed == null;
+  }
+}
+
+/// Runs [action] as the action of the screen [context] is in, so its failure
+/// is shown there. True when it did all of it.
+///
+/// Reads the screen before anything awaits, while [context] is mounted.
+Future<bool> Function(Future<void> Function() action) actionsOf(
+  BuildContext context,
+) {
+  final screen = context.findAncestorStateOfType<SplitsActions>();
+  final controller = SplitsScope.read(context);
+  return (action) async {
+    if (screen != null && screen.mounted) return screen.act(action);
+    return await controller.failureOf(action) == null;
+  };
+}

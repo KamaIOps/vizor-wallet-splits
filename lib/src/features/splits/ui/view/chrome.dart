@@ -6,6 +6,13 @@ library;
 
 import 'package:flutter/material.dart';
 
+/// How many lines a field's helper or refusal may take before it is cut.
+///
+/// A field's note defaults to one line, which on a narrow phone keeps only
+/// its first clause. Enough for the longest note on these screens at 320
+/// points wide and twice the text size.
+const int fieldNoteLines = 6;
+
 /// The actions at the foot of a screen: centred pills, the first above the
 /// rest, clear of the home indicator.
 class BottomActions extends StatelessWidget {
@@ -188,32 +195,67 @@ class CardLine extends StatelessWidget {
       ],
     );
   }
+}
 
-  /// The width of the widest space-separated word of [line], as drawn.
-  static double _widestWord(
-    String line,
-    TextStyle style,
-    TextScaler scaler,
-    TextDirection direction,
-  ) {
-    var widest = 0.0;
-    for (final word in line.split(' ')) {
-      if (word.isEmpty) continue;
-      final painter = TextPainter(
-        text: TextSpan(text: word, style: style),
-        textDirection: direction,
-        textScaler: scaler,
-        maxLines: 1,
-      )..layout();
-      // Rounded up: a box exactly as wide as the word can still wrap it on
-      // a fractional pixel.
-      if (painter.width.ceilToDouble() + 1 > widest) {
-        widest = painter.width.ceilToDouble() + 1;
-      }
-      painter.dispose();
+/// The width of the widest space-separated word of [line], as drawn.
+double _widestWord(
+  String line,
+  TextStyle style,
+  TextScaler scaler,
+  TextDirection direction,
+) {
+  var widest = 0.0;
+  for (final word in line.split(' ')) {
+    if (word.isEmpty) continue;
+    final painter = TextPainter(
+      text: TextSpan(text: word, style: style),
+      textDirection: direction,
+      textScaler: scaler,
+      maxLines: 1,
+    )..layout();
+    // Rounded up: a box exactly as wide as the word can still wrap it on
+    // a fractional pixel.
+    if (painter.width.ceilToDouble() + 1 > widest) {
+      widest = painter.width.ceilToDouble() + 1;
     }
-    return widest;
+    painter.dispose();
   }
+  return widest;
+}
+
+/// [text] on as many lines as it needs, broken between words and never
+/// inside one.
+///
+/// A word wider than the line, as a long figure is at a large text size on a
+/// narrow phone, would otherwise be broken inside its digits. The whole text
+/// is drawn smaller until its widest word fits instead.
+class WholeWords extends StatelessWidget {
+  const WholeWords(this.text, {super.key, this.style});
+
+  final String text;
+  final TextStyle? style;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, box) {
+      final drawn = DefaultTextStyle.of(context).style.merge(style);
+      final direction = Directionality.of(context);
+      var scaler = MediaQuery.textScalerOf(context);
+      var widest = _widestWord(text, drawn, scaler, direction);
+      final room = box.maxWidth;
+      if (room.isFinite && room > 0 && widest > room) {
+        // Re-measured after each step: letter spacing does not scale with
+        // the text, so one proportional step can leave the word too wide.
+        final size = drawn.fontSize ?? 14;
+        for (var i = 0; i < 4 && widest > room; i++) {
+          final shown = scaler.scale(size) * room / widest;
+          scaler = TextScaler.linear(shown / size);
+          widest = _widestWord(text, drawn, scaler, direction);
+        }
+      }
+      return Text(text, style: style, textScaler: scaler);
+    },
+  );
 }
 
 /// A heading over a group, in the secondary text colour, with an optional

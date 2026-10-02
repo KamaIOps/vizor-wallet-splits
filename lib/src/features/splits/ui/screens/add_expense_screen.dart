@@ -37,7 +37,8 @@ class AddExpenseScreen extends StatefulWidget {
   State<AddExpenseScreen> createState() => _AddExpenseScreenState();
 }
 
-class _AddExpenseScreenState extends State<AddExpenseScreen> {
+class _AddExpenseScreenState extends State<AddExpenseScreen>
+    with SplitsActions {
   final _amount = TextEditingController();
   final _description = TextEditingController();
   final _form = GlobalKey<FormState>();
@@ -167,37 +168,55 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     }
   }
 
+  /// Whether an expense is being written. Set before the first await, so a
+  /// second tap in the same frame writes nothing.
+  bool _adding = false;
+
   Future<void> _add() async {
+    if (_adding) return;
     if (!_form.currentState!.validate()) return;
     if (_splitRefusal != null) return;
+    _adding = true;
+    try {
+      await _write();
+    } finally {
+      _adding = false;
+    }
+  }
+
+  Future<void> _write() async {
     final controller = SplitsScope.read(context);
     final navigator = Navigator.of(context);
 
     if (widget.isEditing) {
-      await controller.editExpense(
-        billId: widget.billId,
-        entryId: widget.editingEntryId!,
-        paidBy: _paidBy,
-        amountMinorUnits: _total!,
-        split: _draft.toSplit(),
-        description: _description.text.trim(),
+      final edited = await act(
+        () => controller.editExpense(
+          billId: widget.billId,
+          entryId: widget.editingEntryId!,
+          paidBy: _paidBy,
+          amountMinorUnits: _total!,
+          split: _draft.toSplit(),
+          description: _description.text.trim(),
+        ),
       );
       if (!mounted) return;
-      if (controller.lastError == null) navigator.pop();
+      if (edited) navigator.pop();
       return;
     }
 
-    await controller.addExpense(
-      billId: widget.billId,
-      paidBy: _paidBy!,
-      amountMinorUnits: _total!,
-      split: _draft.toSplit(),
-      description: _description.text.trim().isEmpty
-          ? null
-          : _description.text.trim(),
+    final added = await act(
+      () => controller.addExpense(
+        billId: widget.billId,
+        paidBy: _paidBy!,
+        amountMinorUnits: _total!,
+        split: _draft.toSplit(),
+        description: _description.text.trim().isEmpty
+            ? null
+            : _description.text.trim(),
+      ),
     );
     if (!mounted) return;
-    if (controller.lastError == null) navigator.pop();
+    if (added) navigator.pop();
   }
 
   @override
@@ -257,6 +276,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               controller: _amount,
               decoration: InputDecoration(
                 hintText: 'Amount in ${view.bill.currency}',
+                errorMaxLines: fieldNoteLines,
               ),
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
@@ -377,11 +397,11 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
-            if (controller.lastError != null)
+            if (failure case final failed?)
               Padding(
                 padding: const EdgeInsets.only(top: 16),
                 child: Text(
-                  controller.lastError!,
+                  failed,
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
@@ -603,7 +623,11 @@ class _Sharer extends StatelessWidget {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
-              decoration: InputDecoration(suffixText: _suffix, isDense: true),
+              decoration: InputDecoration(
+                suffixText: _suffix,
+                isDense: true,
+                errorMaxLines: fieldNoteLines,
+              ),
               autovalidateMode: AutovalidateMode.onUserInteraction,
               validator: _validate,
               onChanged: _set,
@@ -734,6 +758,7 @@ class _Items extends StatelessWidget {
                       labelText: 'Cost',
                       suffixText: currency,
                       isDense: true,
+                      errorMaxLines: fieldNoteLines,
                     ),
                     // What is saved is what the field shows: cleared is
                     // nothing, and text that is not a figure is refused
@@ -804,6 +829,8 @@ class _Items extends StatelessWidget {
               // §4.5 spreads it by what each person ate, so somebody who had
               // the cheap thing pays less of it.
               helperText: 'Split in proportion to what each person had',
+              helperMaxLines: fieldNoteLines,
+              errorMaxLines: fieldNoteLines,
             ),
             validator: _figure,
             onChanged: (v) {

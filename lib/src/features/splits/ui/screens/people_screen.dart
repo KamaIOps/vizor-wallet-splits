@@ -23,10 +23,17 @@ import 'share_bill_screen.dart';
 import 'text_entry_screen.dart';
 import 'splits_scope.dart';
 
-class PeopleScreen extends StatelessWidget {
+class PeopleScreen extends StatefulWidget {
   const PeopleScreen({super.key, required this.billId});
 
   final String billId;
+
+  @override
+  State<PeopleScreen> createState() => _PeopleScreenState();
+}
+
+class _PeopleScreenState extends State<PeopleScreen> with SplitsActions {
+  String get billId => widget.billId;
 
   @override
   Widget build(BuildContext context) {
@@ -62,11 +69,11 @@ class PeopleScreen extends StatelessWidget {
           // Above the list, not after it: a list long enough to scroll
           // builds its end only when reached, and a refusal nobody sees makes
           // the tap look as if it did nothing.
-          if (controller.lastError != null)
+          if (failure case final failed?)
             Padding(
               padding: const EdgeInsets.all(16),
               child: Text(
-                controller.lastError!,
+                failed,
                 key: const Key('splits_people_error'),
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
@@ -242,6 +249,7 @@ Future<void> askAndAddPerson(
   required BillView view,
 }) async {
   final controller = SplitsScope.read(context);
+  final act = actionsOf(context);
   final name = await askForText(
     context,
     title: 'Add a person',
@@ -251,10 +259,12 @@ Future<void> askAndAddPerson(
     actionKey: const Key('splits_people_name_ok'),
   );
   if (name == null || name.trim().isEmpty) return;
-  await controller.addPerson(
-    billId: billId,
-    id: _idFor(name.trim(), view),
-    name: name.trim(),
+  await act(
+    () => controller.addPerson(
+      billId: billId,
+      id: _idFor(name.trim(), view),
+      name: name.trim(),
+    ),
   );
 }
 
@@ -270,6 +280,7 @@ Future<void> confirmAndRemovePerson(
   required protocol.Participant participant,
 }) async {
   final controller = SplitsScope.read(context);
+  final act = actionsOf(context);
   final view = controller.bills.where((b) => b.id == billId).firstOrNull;
   if (view == null) return;
   final plan = await controller.removalPlan(billId, participant.id);
@@ -347,16 +358,18 @@ Future<void> confirmAndRemovePerson(
   );
   if (choice == null) return;
   if (choice == 'edit') {
-    await controller.restateExpenses(
-      billId: billId,
-      without: participant.id,
-      confirmed: plan,
+    final restated = await act(
+      () => controller.restateExpenses(
+        billId: billId,
+        without: participant.id,
+        confirmed: plan,
+      ),
     );
-    if (controller.lastError != null) return;
+    if (!restated) return;
     // Off the bill only once nothing else names them.
     if (blocked) return;
   }
-  await controller.removePerson(billId: billId, id: participant.id);
+  await act(() => controller.removePerson(billId: billId, id: participant.id));
 }
 
 /// An id for somebody being added by hand.

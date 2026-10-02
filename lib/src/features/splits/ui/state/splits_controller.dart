@@ -355,6 +355,24 @@ class SplitsController extends ChangeNotifier {
       if (f.bill.id == billId) f,
   ], me);
 
+  /// What this device has recorded sending on [billId] that its payees have
+  /// not confirmed, in the bill's minor units; null when the sum passes what
+  /// an amount can hold.
+  ///
+  /// Still owed (§10.5) and already on its way: §14.4 reports the two as
+  /// separate quantities.
+  int? sentOn(String billId) {
+    var sent = 0;
+    try {
+      for (final s in totalsOn(billId).standings) {
+        sent = protocol.checkedAdd(sent, s.sentAwaiting);
+      }
+    } on protocol.SplitError {
+      return null;
+    }
+    return sent;
+  }
+
   /// The bills as the host layer folds them, from what each view holds.
   List<splitz.FoldedBill> get _folded => [
     for (final v in _bills)
@@ -370,7 +388,36 @@ class SplitsController extends ChangeNotifier {
   ];
 
   /// What the last action could not do, or null. Cleared by the next one.
+  ///
+  /// The last action of any screen, or of none: a screen shows what
+  /// [failureOf] returns for its own actions, and [loadError] is what the
+  /// bills list shows.
   String? get lastError => _lastError;
+
+  /// What the last [load] could not do, or null.
+  String? get loadError => _loadError;
+  String? _loadError;
+
+  /// Runs [action] and returns what the actions it started could not do, or
+  /// null when they did all of it.
+  ///
+  /// As [lastError] would read after [action], counting only the actions
+  /// [action] itself starts: one running alongside it, from another screen
+  /// or in the background, neither sets nor clears the answer.
+  Future<String?> failureOf(Future<void> Function() action) async {
+    final outcome = _Outcome();
+    await runZoned(action, zoneValues: {_Outcome: outcome});
+    return outcome.failure;
+  }
+
+  /// Records [failure] as the outcome of the action now running: on
+  /// [lastError], and on the [failureOf] that started it.
+  void _report(String? failure) {
+    _lastError = failure;
+    if (Zone.current[_Outcome] case final _Outcome outcome) {
+      outcome.failure = failure;
+    }
+  }
 
   /// Whether an action is in flight. A screen shows it rather than letting a
   /// second tap start the same work twice.
@@ -396,18 +443,23 @@ class SplitsController extends ChangeNotifier {
 
   /// Loads this account's identity and every bill on the device.
   Future<void> load() async {
-    await _guard(() async {
-      _identitySeed = await _keys.ensureIdentitySeed(_wallet.account);
-      _identityKey = await _signer.publicKeyFromSeed(_identitySeed!);
-      _participant = protocol.participantId(_identityKey!);
-      // Once, at the start: a write interrupted by the app being killed leaves
-      // a temporary beside its target, already invisible to a listing, and
-      // this is what stops them accumulating.
-      await _store.sweepUnfinishedWrites();
-      await _moveLegacySendNotes();
-      await _finishForgets();
-      await _refresh();
-    });
+    _loadError = await failureOf(
+      () => _guard(() async {
+        _identitySeed = await _keys.ensureIdentitySeed(_wallet.account);
+        _identityKey = await _signer.publicKeyFromSeed(_identitySeed!);
+        _participant = protocol.participantId(_identityKey!);
+        // Once, at the start: a write interrupted by the app being killed leaves
+        // a temporary beside its target, already invisible to a listing, and
+        // this is what stops them accumulating.
+        await _store.sweepUnfinishedWrites();
+        await _moveLegacySendNotes();
+        await _finishForgets();
+        await _refresh();
+      }),
+    );
+    // Also the outcome of whatever action this load is part of.
+    _report(_loadError);
+    notifyListeners();
     // Not awaited: a slow feed must not hold the bills back.
     unawaited(_priceAsCreator(_bills.map((b) => b.id)));
   }
@@ -890,6 +942,9 @@ class SplitsController extends ChangeNotifier {
   /// is one anyone on the bill can write until §10.7 binds a key to it, and a
   /// payer is told so before sending. Once they have joined themselves, the
   /// address is theirs to set and this refuses.
+  ///
+  /// The address becomes their first payout, in place of any Zcash one they
+  /// had; every other way they are paid stays after it, in their order.
   Future<void> setAddressFor({
     required String billId,
     required String id,
@@ -910,10 +965,21 @@ class SplitsController extends ChangeNotifier {
       }
       final seed = await _requireIdentity();
       final host = _host(seed);
+      final rest = _ranked(
+        who,
+        splitz.Payout(type: 'zec', address: trimmed),
+      ).skip(1).toList();
       final entry = splitz.joinBill(
         host: _HostAs(host, id),
         name: who.name,
         payTo: trimmed,
+        // An address alone is written as one, as it always was.
+        payouts: rest.isEmpty
+            ? null
+            : [
+                _payoutJson(splitz.Payout(type: 'zec', address: trimmed)),
+                for (final p in rest) _payoutJson(p),
+              ],
       );
       await _mergeChecked(billId, entry);
     });
@@ -923,9 +989,10 @@ class SplitsController extends ChangeNotifier {
   /// cash (§9.1) — for somebody added by name.
   ///
   /// Written as [setAddressFor] writes an address: their record, rewritten
-  /// with [payout] as the first way to pay them. A Zcash address already on
-  /// it stays after it, so a payer who cannot reach that way may still pay by
-  /// Zcash (§14.8). Refused for somebody bound to a key, who says this
+  /// with [payout] as the first way to pay them, in place of one of its kind.
+  /// Every other way they are paid, a Zcash address among them, stays after
+  /// it in their order, so a payer who cannot reach that way may still pay
+  /// another (§14.8). Refused for somebody bound to a key, who says this
   /// themselves.
   Future<void> setPayoutFor({
     required String billId,
@@ -946,16 +1013,11 @@ class SplitsController extends ChangeNotifier {
       }
       final seed = await _requireIdentity();
       final host = _host(seed);
-      final payTo = who.payTo;
       final entry = splitz.joinBill(
         host: _HostAs(host, id),
         name: who.name,
-        payTo: payTo,
-        payouts: [
-          _payoutJson(payout),
-          if (payTo != null && payTo.isNotEmpty)
-            _payoutJson(splitz.Payout(type: 'zec', address: payTo)),
-        ],
+        payTo: who.payTo,
+        payouts: [for (final p in _ranked(who, payout)) _payoutJson(p)],
       );
       await _mergeChecked(billId, entry);
     });
@@ -1091,6 +1153,30 @@ class SplitsController extends ChangeNotifier {
     final view = _bills.where((b) => b.id == billId).firstOrNull;
     final name = view?.bill.participant(me)?.name;
     return name == null || name.isEmpty ? null : name;
+  }
+
+  /// [first], then every payout [who] declares that it does not take the
+  /// place of, in their order.
+  ///
+  /// A record with no payouts declares its `payTo` as its one Zcash payout
+  /// (§9.1). [first] takes the place of one of its own type, and for a swap
+  /// of the same asset: one way per kind, as the payout screens edit them.
+  static List<splitz.Payout> _ranked(
+    protocol.Participant who,
+    splitz.Payout first,
+  ) {
+    final payTo = who.payTo;
+    final declared = who.payouts.isNotEmpty
+        ? who.payouts
+        : [
+            if (payTo != null && payTo.isNotEmpty)
+              splitz.Payout(type: 'zec', address: payTo),
+          ];
+    bool replaced(splitz.Payout p) =>
+        p.type == first.type &&
+        (p.type != 'swap' ||
+            (p.asset ?? '').toUpperCase() == (first.asset ?? '').toUpperCase());
+    return [first, ...declared.where((p) => !replaced(p))];
   }
 
   static Map<String, dynamic> _payoutJson(splitz.Payout p) => <String, dynamic>{
@@ -1363,7 +1449,7 @@ class SplitsController extends ChangeNotifier {
       _syncStates[billId] = const SplitsSyncState(
         phase: SplitsSyncPhase.noRelay,
       );
-      _lastError = 'This build has no bill relay. Share by code.';
+      _report('This build has no bill relay. Share by code.');
       notifyListeners();
       return null;
     }
@@ -2642,14 +2728,14 @@ class SplitsController extends ChangeNotifier {
 
   Future<void> _guard(Future<void> Function() body) async {
     _running++;
-    _lastError = null;
+    _report(null);
     notifyListeners();
     try {
       await body();
     } on Object catch (e) {
       // Reported, never swallowed: an action that quietly did nothing looks
       // exactly like one that worked.
-      _lastError = _describe(e);
+      _report(_describe(e));
     } finally {
       _running--;
       notifyListeners();
@@ -2748,4 +2834,9 @@ class _HostAs implements splitz.BillHost {
 
   @override
   splitz.ReadsAddress? get readsAddress => _inner.readsAddress;
+}
+
+/// What the actions one [SplitsController.failureOf] started could not do.
+class _Outcome {
+  String? failure;
 }

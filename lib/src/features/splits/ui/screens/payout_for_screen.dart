@@ -33,7 +33,7 @@ class PayoutForScreen extends StatefulWidget {
   State<PayoutForScreen> createState() => _PayoutForScreenState();
 }
 
-class _PayoutForScreenState extends State<PayoutForScreen> {
+class _PayoutForScreenState extends State<PayoutForScreen> with SplitsActions {
   final _zec = TextEditingController();
   final _usdcAddress = TextEditingController();
   final _scroll = ScrollController();
@@ -112,6 +112,9 @@ class _PayoutForScreenState extends State<PayoutForScreen> {
   }
 
   Future<void> _save() async {
+    // Set before the first await below: a second tap in the same frame
+    // reaches this before any rebuild has disabled the button.
+    if (_saving) return;
     if (_opened != null && _now() == _opened) {
       Navigator.of(context).pop(false);
       return;
@@ -137,29 +140,31 @@ class _PayoutForScreenState extends State<PayoutForScreen> {
     });
     final controller = SplitsScope.read(context);
     final navigator = Navigator.of(context);
-    if (_way == _Way.zec) {
-      await controller.setAddressFor(
-        billId: widget.billId,
-        id: widget.id,
-        address: zcashAddressIn(address),
-      );
-    } else {
-      await controller.setPayoutFor(
-        billId: widget.billId,
-        id: widget.id,
-        payout: _way == _Way.cash
-            ? const splitz.Payout(type: 'cash')
-            : splitz.Payout(
-                type: 'swap',
-                asset: usdc,
-                chain: chain!,
-                address: address,
-              ),
-      );
-    }
+    final saved = await act(() async {
+      if (_way == _Way.zec) {
+        await controller.setAddressFor(
+          billId: widget.billId,
+          id: widget.id,
+          address: zcashAddressIn(address),
+        );
+      } else {
+        await controller.setPayoutFor(
+          billId: widget.billId,
+          id: widget.id,
+          payout: _way == _Way.cash
+              ? const splitz.Payout(type: 'cash')
+              : splitz.Payout(
+                  type: 'swap',
+                  asset: usdc,
+                  chain: chain!,
+                  address: address,
+                ),
+        );
+      }
+    });
     if (!mounted) return;
     setState(() => _saving = false);
-    if (controller.lastError == null) navigator.pop(true);
+    if (saved) navigator.pop(true);
   }
 
   /// An address field, with Scan QR inside it where the wallet has a camera
@@ -205,7 +210,7 @@ class _PayoutForScreenState extends State<PayoutForScreen> {
       appBar: AppBar(title: Text('How $name gets paid')),
       bottomNavigationBar: BottomActions(
         children: [
-          if (_unsaved ?? controller.lastError case final said?)
+          if (_unsaved ?? failure case final said?)
             Text(
               said,
               key: const Key('splits_payout_for_unsaved'),

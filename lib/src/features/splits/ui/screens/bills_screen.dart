@@ -35,8 +35,9 @@ class BillsScreen extends StatelessWidget {
       ),
       body: Column(
         children: [
-          if (controller.lastError != null)
-            _Banner(message: controller.lastError!),
+          // What reading the bills could not do: the list below is short
+          // by it. A refusal elsewhere is shown where it was met.
+          if (controller.loadError case final failed?) _Banner(message: failed),
           if (!controller.identityIsRecoverable) const _UnrecoverableIdentity(),
           Expanded(
             child: controller.bills.isEmpty
@@ -103,16 +104,7 @@ class _BillTile extends StatelessWidget {
     final expenses = bill.expenses.length;
     // §14.4: what this device recorded and the payee has not confirmed is
     // still owed, and is also already on its way. Both are said.
-    // Null when the sum passes what an amount can hold: still said, without
-    // a figure.
-    int? sent = 0;
-    try {
-      for (final s in controller.totalsOn(view.id).standings) {
-        sent = protocol.checkedAdd(sent!, s.sentAwaiting);
-      }
-    } on protocol.SplitError {
-      sent = null;
-    }
+    final sent = sentNotConfirmed(controller.sentOn(view.id), bill.currency);
 
     return RowCard(
       key: Key('splits_bill_row_${view.id}'),
@@ -129,14 +121,10 @@ class _BillTile extends StatelessWidget {
               '$people ${people == 1 ? 'person' : 'people'} · '
               '$expenses ${expenses == 1 ? 'expense' : 'expenses'}',
             ),
-            if (sent == null || sent > 0)
-              Text(
-                sent == null
-                    ? 'Payments sent, not yet confirmed'
-                    : '${formatAmount(sent, bill.currency)} sent, '
-                          'not yet confirmed',
-                key: Key('splits_bill_row_sent_${view.id}'),
-              ),
+            if (sent != null)
+              // Beside a figure that takes the room it needs, so a long one
+              // here is drawn smaller rather than broken inside its digits.
+              WholeWords(sent, key: Key('splits_bill_row_sent_${view.id}')),
           ],
         ),
         // What this device is owed, or owes. Both directions read the same

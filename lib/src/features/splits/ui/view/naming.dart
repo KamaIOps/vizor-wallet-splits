@@ -9,6 +9,22 @@ import 'package:splitz_core/splitz_core.dart' as protocol;
 
 import 'package:splitz_host/splitz_host.dart' show currencyExponent;
 
+/// What [SplitsController.sentOn] reports for a bill in [currency], as a
+/// line; null when nothing is on its way.
+String? sentNotConfirmed(int? sent, String currency) => sent == null
+    ? 'Payments sent, not yet confirmed'
+    : sent > 0
+    ? '${formatAmount(sent, currency)} sent, not yet confirmed'
+    : null;
+
+/// That where [who] is paid changed.
+///
+/// Said to be their doing only when [bound]: §10.7 binds a participant's
+/// record to their key once they join with one, and until then anybody
+/// holding the invite can write it.
+String payoutChangedLine(String who, {required bool bound}) =>
+    bound ? '$who changed where they are paid' : 'Where $who is paid changed';
+
 extension BillNaming on protocol.Bill {
   /// A participant's name, made unambiguous when more than one answers to it.
   ///

@@ -159,6 +159,118 @@ void main() {
     });
   });
 
+  group('the settle screen on an address change', () {
+    /// Ben paid 20.00 USD for this device and himself; this device owes him
+    /// 10.00, and the bill is priced. [rewrite] then changes his address.
+    Future<String> owesBen(
+      SplitsController c,
+      FakeWallet wallet,
+      Future<void> Function(String id) rewrite,
+    ) async {
+      await c.load();
+      final id = (await c.createBill(name: 'Trip', currency: 'USD'))!;
+      await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+      await rewrite(id);
+      final ben = c.bills.single.bill.participants
+          .firstWhere((p) => p.name == 'Ben')
+          .id;
+      wallet.tick();
+      await c.addExpense(
+        billId: id,
+        paidBy: ben,
+        amountMinorUnits: 2000,
+        among: [ben, c.me],
+      );
+      return id;
+    }
+
+    testWidgets('a record nobody has bound is not said to be theirs', (
+      t,
+    ) async {
+      final wallet = FakeWallet();
+      final c = _controller(wallet);
+      late String id;
+      await t.runAsync(() async {
+        id = await owesBen(c, wallet, (id) async {
+          await c.addPerson(billId: id, id: 'ben', name: 'Ben');
+          await c.setAddressFor(billId: id, id: 'ben', address: 'u1benreal');
+          await c.accept(id, [
+            entries.joinBill(
+              host: otherHost('ben', payTo: 'u1dee'),
+              name: 'Ben',
+              payTo: 'u1dee',
+            ),
+          ]);
+        });
+      });
+      expect(c.lastError, isNull);
+      expect(c.bills.single.redirectedAddresses.single.id, 'ben');
+
+      await t.pumpWidget(_app(c, SettleScreen(billId: id)));
+      await t.runAsync(() => Future<void>.delayed(Duration.zero));
+      await t.pumpAndSettle();
+      final card = find.byKey(const Key('splits_settle_replaced_ben'));
+      expect(card, findsOneWidget);
+      expect(
+        find.descendant(of: card, matching: find.textContaining('Ben changed')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: card,
+          matching: find.text('Where Ben is paid changed'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: card,
+          matching: find.textContaining('anyone with the invite could'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a participant bound to their key is said to have done it', (
+      t,
+    ) async {
+      final wallet = FakeWallet();
+      final c = _controller(wallet);
+      late String id;
+      late SignedPeer ben;
+      await t.runAsync(() async {
+        ben = await SignedPeer.named('ben');
+        id = await owesBen(c, wallet, (id) async {
+          await c.accept(id, [
+            await ben.join(id, name: 'Ben', payTo: 'u1benfirst'),
+            await ben.join(id, name: 'Ben', payTo: 'u1bensecond'),
+          ]);
+        });
+      });
+      expect(c.lastError, isNull);
+      expect(c.bills.single.identities.bound.containsKey(ben.id), isTrue);
+
+      await t.pumpWidget(_app(c, SettleScreen(billId: id)));
+      await t.runAsync(() => Future<void>.delayed(Duration.zero));
+      await t.pumpAndSettle();
+      final card = find.byKey(Key('splits_settle_replaced_${ben.id}'));
+      expect(
+        find.descendant(
+          of: card,
+          matching: find.text('Ben changed where they are paid'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: card,
+          matching: find.textContaining('anyone with the invite could'),
+        ),
+        findsNothing,
+      );
+    });
+  });
+
   group('a withdrawal in the history', () {
     testWidgets('names what it withdrew, and who came off by name', (t) async {
       final wallet = FakeWallet();

@@ -31,7 +31,7 @@ class ActivityScreen extends StatefulWidget {
   State<ActivityScreen> createState() => _ActivityScreenState();
 }
 
-class _ActivityScreenState extends State<ActivityScreen> {
+class _ActivityScreenState extends State<ActivityScreen> with SplitsActions {
   List<SwapWatch> _inFlight = const [];
   final Map<String, SwapState> _states = {};
 
@@ -85,7 +85,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
     );
     if (!(confirmed ?? false)) return;
     // Forgotten whether or not the screen is still open: the person asked.
-    await controller.forgetSwap(watch.reference);
+    await act(() => controller.forgetSwap(watch.reference));
     if (!mounted) return;
     await _loadInFlight();
   }
@@ -114,6 +114,15 @@ class _ActivityScreenState extends State<ActivityScreen> {
       appBar: AppBar(title: const Text('Activity')),
       body: ListView(
         children: [
+          if (failure case final failed?)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: Text(
+                failed,
+                key: const Key('splits_activity_error'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
           if (_inFlight.isNotEmpty) ...[
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
@@ -201,6 +210,7 @@ class _AwaitingTile extends StatelessWidget {
     List<String> concerns,
   ) async {
     final controller = SplitsScope.read(context);
+    final act = actionsOf(context);
     final settles = formatAmount(payment.amount, payment.currency);
     final sure = await showDialog<bool>(
       context: context,
@@ -230,10 +240,12 @@ class _AwaitingTile extends StatelessWidget {
       ),
     );
     if (sure != true) return;
-    await controller.confirmPayment(
-      billId: billId,
-      paymentId: payment.id,
-      method: _recipientConfirmed,
+    await act(
+      () => controller.confirmPayment(
+        billId: billId,
+        paymentId: payment.id,
+        method: _recipientConfirmed,
+      ),
     );
   }
 
@@ -241,6 +253,7 @@ class _AwaitingTile extends StatelessWidget {
   /// so the debt is owed again.
   Future<void> _didNotArrive(BuildContext context, String who) async {
     final controller = SplitsScope.read(context);
+    final act = actionsOf(context);
     final entry = view.paymentEntries[payment.id];
     if (entry == null) return;
     // A record withdrawn while its transaction is on its way asks the payer
@@ -308,7 +321,7 @@ class _AwaitingTile extends StatelessWidget {
       ),
     );
     if (sure != true) return;
-    await controller.withdraw(billId: billId, entryId: entry);
+    await act(() => controller.withdraw(billId: billId, entryId: entry));
   }
 
   @override
@@ -442,6 +455,7 @@ class _ConfirmedTile extends StatelessWidget {
 
   Future<void> _takeBack(BuildContext context) async {
     final controller = SplitsScope.read(context);
+    final act = actionsOf(context);
     final sure = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
@@ -463,7 +477,9 @@ class _ConfirmedTile extends StatelessWidget {
       ),
     );
     if (sure != true) return;
-    await controller.withdraw(billId: billId, entryId: event.entryId);
+    await act(
+      () => controller.withdraw(billId: billId, entryId: event.entryId),
+    );
   }
 
   @override
@@ -562,9 +578,10 @@ class _EventTile extends StatelessWidget {
   /// write it, so it is not said to be theirs.
   String get _addressChange {
     final id = event.subject ?? event.author;
-    return view.identities.bound.containsKey(id)
-        ? '${_who(id)} changed where they are paid'
-        : 'Where ${_who(id)} is paid changed';
+    return payoutChangedLine(
+      _who(id),
+      bound: view.identities.bound.containsKey(id),
+    );
   }
 
   String _amount(int? minorUnits) =>

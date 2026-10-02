@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:splitz_core/host.dart' as splitz;
+import 'package:splitz_core/host.dart' as entries;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'auto_price_and_usdc_test.dart' show app, unpricedBill;
@@ -129,5 +130,143 @@ void main() {
     await _save(t);
     final ben = c.bills.single.bill.participant('ben')!;
     expect(ben.payouts.map((p) => p.type), ['cash', 'zec']);
+  });
+
+  group('a Zcash address edited keeps their other payouts', () {
+    /// Ben, unbound, paid by [payouts] in that order.
+    Future<SplitsController> rankedBen(
+      WidgetTester t,
+      List<Map<String, dynamic>> payouts,
+    ) async {
+      final (c, id) = await _open(t);
+      await t.runAsync(
+        () => c.accept(id, [
+          entries.joinBill(
+            // Written after the join the bill opened with.
+            host: WalletBillHost(
+              FakeWallet(id: 'ben')..tick(const Duration(seconds: 30)),
+            ),
+            name: 'Ben',
+            payTo: 'u1ben',
+            payouts: payouts,
+          ),
+        ]),
+      );
+      expect(c.lastError, isNull);
+      expect(
+        c.bills.single.bill.participant('ben')!.payouts.map((p) => p.type),
+        [for (final p in payouts) p['type']],
+      );
+      // Opened afresh, on what the bill says now.
+      await t.pumpWidget(const SizedBox());
+      await t.pumpWidget(
+        app(c, PayoutForScreen(billId: id, id: 'ben', name: 'Ben')),
+      );
+      await t.pumpAndSettle();
+      return c;
+    }
+
+    List<(String, String?)> payoutsOf(SplitsController c) => [
+      for (final p in c.bills.single.bill.participant('ben')!.payouts)
+        (p.type, p.address ?? p.chain),
+    ];
+
+    testWidgets('zec first, cash after: the address changes, cash stays', (
+      t,
+    ) async {
+      final c = await rankedBen(t, [
+        {'type': 'zec', 'address': 'u1ben'},
+        {'type': 'cash'},
+      ]);
+      await t.enterText(
+        find.byKey(const Key('splits_address_field')),
+        'u1bennew',
+      );
+      await _save(t);
+      expect(c.lastError, isNull);
+      expect(payoutsOf(c), [('zec', 'u1bennew'), ('cash', null)]);
+      expect(c.bills.single.bill.participant('ben')!.payTo, 'u1bennew');
+    });
+
+    testWidgets('cash first: Zcash chosen goes first, cash after it', (
+      t,
+    ) async {
+      final c = await rankedBen(t, [
+        {'type': 'cash'},
+        {'type': 'zec', 'address': 'u1ben'},
+      ]);
+      await t.tap(find.byKey(const Key('splits_payout_for_zec')));
+      await t.pumpAndSettle();
+      await t.enterText(
+        find.byKey(const Key('splits_address_field')),
+        'u1bennew',
+      );
+      await _save(t);
+      expect(payoutsOf(c), [('zec', 'u1bennew'), ('cash', null)]);
+    });
+
+    testWidgets('USDC first: Zcash chosen goes first, USDC after it', (
+      t,
+    ) async {
+      final c = await rankedBen(t, [
+        {'type': 'swap', 'asset': 'USDC', 'chain': 'base', 'address': _evm},
+        {'type': 'zec', 'address': 'u1ben'},
+      ]);
+      await t.tap(find.byKey(const Key('splits_payout_for_zec')));
+      await t.pumpAndSettle();
+      await t.enterText(
+        find.byKey(const Key('splits_address_field')),
+        'u1bennew',
+      );
+      await _save(t);
+      expect(payoutsOf(c), [('zec', 'u1bennew'), ('swap', _evm)]);
+    });
+
+    testWidgets('cash chosen over zec and USDC keeps both after it', (t) async {
+      final c = await rankedBen(t, [
+        {'type': 'zec', 'address': 'u1ben'},
+        {'type': 'swap', 'asset': 'USDC', 'chain': 'base', 'address': _evm},
+      ]);
+      await t.tap(find.byKey(const Key('splits_payout_for_cash')));
+      await t.pumpAndSettle();
+      await _save(t);
+      expect(payoutsOf(c), [('cash', null), ('zec', 'u1ben'), ('swap', _evm)]);
+    });
+
+    testWidgets('USDC on another chain takes the place of the USDC they had', (
+      t,
+    ) async {
+      final c = await rankedBen(t, [
+        {'type': 'swap', 'asset': 'USDC', 'chain': 'eth', 'address': _evm},
+        {'type': 'cash'},
+        {'type': 'zec', 'address': 'u1ben'},
+      ]);
+      await t.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await t.pumpAndSettle();
+      final base = find.byKey(const Key('splits_payout_chain_base'));
+      await t.ensureVisible(base);
+      await t.tap(base);
+      await t.pumpAndSettle();
+      await _save(t);
+      expect(payoutsOf(c), [('swap', _evm), ('cash', null), ('zec', 'u1ben')]);
+      expect(
+        c.bills.single.bill.participant('ben')!.payouts.first.chain,
+        'base',
+      );
+    });
+
+    testWidgets('an address alone stays an address alone', (t) async {
+      final (c, _) = await _open(t);
+      await t.enterText(
+        find.byKey(const Key('splits_address_field')),
+        'u1bennew',
+      );
+      await _save(t);
+      final ben = c.bills.single.bill.participant('ben')!;
+      expect(ben.payTo, 'u1bennew');
+      expect(ben.payouts, isEmpty);
+    });
   });
 }
