@@ -68,7 +68,10 @@ class BillsScreen extends StatelessWidget {
           SecondaryButton(
             key: const Key('splits_join_bill'),
             onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const ScanBillScreen()),
+              MaterialPageRoute<void>(
+                settings: const RouteSettings(name: ScanBillScreen.routeName),
+                builder: (_) => const ScanBillScreen(),
+              ),
             ),
             child: const Text('Join a bill'),
           ),
@@ -93,10 +96,23 @@ class _BillTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = SplitsScope.of(context);
-    final balances = protocol.netBalances(view.bill);
+    final bill = view.bill;
+    final balances = protocol.netBalances(bill);
     final mine = balances[controller.me] ?? 0;
-    final people = view.bill.participants.length;
-    final expenses = view.bill.expenses.length;
+    final people = bill.participants.length;
+    final expenses = bill.expenses.length;
+    // §14.4: what this device recorded and the payee has not confirmed is
+    // still owed, and is also already on its way. Both are said.
+    // Null when the sum passes what an amount can hold: still said, without
+    // a figure.
+    int? sent = 0;
+    try {
+      for (final s in controller.totalsOn(view.id).standings) {
+        sent = protocol.checkedAdd(sent!, s.sentAwaiting);
+      }
+    } on protocol.SplitError {
+      sent = null;
+    }
 
     return RowCard(
       key: Key('splits_bill_row_${view.id}'),
@@ -105,20 +121,58 @@ class _BillTile extends StatelessWidget {
       ),
       child: CardLine(
         leading: const Icon(Icons.receipt_long_outlined),
-        title: view.bill.name.isEmpty ? 'Bill' : view.bill.name,
-        subtitle: Text(
-          '$people ${people == 1 ? 'person' : 'people'} · '
-          '$expenses ${expenses == 1 ? 'expense' : 'expenses'}',
+        title: bill.name.isEmpty ? 'Bill' : bill.name,
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '$people ${people == 1 ? 'person' : 'people'} · '
+              '$expenses ${expenses == 1 ? 'expense' : 'expenses'}',
+            ),
+            if (sent == null || sent > 0)
+              Text(
+                sent == null
+                    ? 'Payments sent, not yet confirmed'
+                    : '${formatAmount(sent, bill.currency)} sent, '
+                          'not yet confirmed',
+                key: Key('splits_bill_row_sent_${view.id}'),
+              ),
+          ],
         ),
         // What this device is owed, or owes. Both directions read the same
         // way, so the sign is the whole message and is never dropped.
-        trailing: mine == 0
-            ? 'settled'
-            : mine > 0
-            ? 'owed ${formatAmount(mine, view.bill.currency)}'
-            : 'owes ${formatAmount(-mine, view.bill.currency)}',
+        trailing: mine > 0
+            ? 'owed ${formatAmount(mine, bill.currency)}'
+            : mine < 0
+            ? 'owes ${formatAmount(-mine, bill.currency)}'
+            : _nothingOnMe(controller.me),
       ),
     );
+  }
+
+  /// What the row says when nothing stands on this device's own id.
+  ///
+  /// "settled" only when that is the whole story: a device not on the bill
+  /// is not settled with anybody, and a participant going by this device's
+  /// name who still owes or is owed may be this person entered by somebody
+  /// else, whose debt is theirs in all but id.
+  String _nothingOnMe(String me) {
+    final bill = view.bill;
+    final self = bill.participant(me);
+    if (self == null) return 'not joined';
+    if (self.name.trim().isEmpty) return 'settled';
+    final balances = protocol.netBalances(bill);
+    final skeleton = nameSkeleton(self.name);
+    for (final p in bill.participants) {
+      if (p.id == me || nameSkeleton(p.name) != skeleton) continue;
+      final net = balances[p.id] ?? 0;
+      if (net == 0) continue;
+      final who = bill.displayNameOf(p.id, creatorId: view.creatorId);
+      return net < 0
+          ? '$who owes ${formatAmount(-net, bill.currency)}'
+          : '$who is owed ${formatAmount(net, bill.currency)}';
+    }
+    return 'settled';
   }
 }
 
@@ -160,12 +214,13 @@ class _Totals extends StatelessWidget {
         if (totals.uncounted.containsKey(view.id)) view.bill.name,
     ];
     if (standings.isEmpty && left.isEmpty) return const SizedBox.shrink();
+    final names = _namesOf(controller, standings);
     return RowCard(
       key: const Key('splits_totals'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (final s in standings)
+          for (final (i, s) in standings.indexed)
             CardLine(
               // One person may stand on two rows in one currency, when a
               // bill's figures could not be added to the rest: the bills
@@ -173,7 +228,13 @@ class _Totals extends StatelessWidget {
               key: Key(
                 'splits_total_${s.withId}_${s.currency}_${s.billIds.join(',')}',
               ),
-              title: _nameOf(controller, s),
+              title: names[i],
+              subtitle: s.sentAwaiting > 0
+                  ? Text(
+                      '${formatAmount(s.sentAwaiting, s.currency)} sent, '
+                      'not yet confirmed',
+                    )
+                  : null,
               trailing: s.net > 0
                   ? 'owes you ${formatAmount(s.net, s.currency)}'
                   : 'you owe ${formatAmount(-s.net, s.currency)}',
@@ -199,6 +260,53 @@ class _Totals extends StatelessWidget {
       return view.bill.displayNameOf(s.withId, creatorId: view.creatorId);
     }
     return s.withId;
+  }
+
+  /// A title for each of [standings], in order, no two alike.
+  ///
+  /// A name is qualified on one bill only against that bill's people, so two
+  /// people called Ben on two bills are both plain "Ben". Rows that read
+  /// alike are told apart by the bills they sum, then by the id's tail. One
+  /// person's rows in two currencies are left plain: the currency already
+  /// tells them apart, and they are the same person.
+  static List<String> _namesOf(
+    SplitsController controller,
+    List<splitz.Standing> standings,
+  ) {
+    final names = [for (final s in standings) _nameOf(controller, s)];
+    List<List<int>> alike() {
+      final groups = <String, List<int>>{};
+      for (final (i, name) in names.indexed) {
+        groups.putIfAbsent(nameSkeleton(name), () => []).add(i);
+      }
+      return [
+        for (final g in groups.values)
+          if (g.length > 1 &&
+              !(g.every((i) => standings[i].withId == standings[g[0]].withId) &&
+                  {for (final i in g) standings[i].currency}.length ==
+                      g.length))
+            g,
+      ];
+    }
+
+    String billNames(splitz.Standing s) => [
+      for (final view in controller.bills)
+        if (s.billIds.contains(view.id))
+          view.bill.name.isEmpty ? 'Bill' : view.bill.name,
+    ].join(', ');
+
+    for (final g in alike()) {
+      for (final i in g) {
+        names[i] = '${names[i]} · ${billNames(standings[i])}';
+      }
+    }
+    for (final g in alike()) {
+      for (final i in g) {
+        names[i] =
+            '${names[i]} (${BillNaming.shortId(standings[i].withId, length: 8)})';
+      }
+    }
+    return names;
   }
 }
 
