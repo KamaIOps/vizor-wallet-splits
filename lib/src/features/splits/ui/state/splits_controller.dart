@@ -10,6 +10,7 @@ import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:splitz_host/splitz_host.dart';
 
 import '../view/naming.dart' show formatBaseUnits;
+import '../view/removal_plan.dart';
 
 /// The transactions this account received, each with the zatoshi it brought.
 ///
@@ -662,33 +663,72 @@ class SplitsController extends ChangeNotifier {
     });
   }
 
-  /// Writes each expense in [splits] — keyed by the entry that added it —
-  /// again under the split given, withdrawing the one it replaces (§10.8).
+  /// What taking [id] off [billId] needs, read from the store as it stands
+  /// (see [planRemoval]); null when this device holds no such bill.
+  Future<RemovalPlan?> removalPlan(String billId, String id) async {
+    final log = await _store.read(billId);
+    if (log.isEmpty) return null;
+    return _removalPlanOver(billId, log, id);
+  }
+
+  Future<RemovalPlan> _removalPlanOver(
+    String billId,
+    List<Map<String, dynamic>> log,
+    String id,
+  ) async {
+    final seed = _identitySeed;
+    final folded = seed == null
+        ? foldUnverified(_wallet, log, billId: billId)
+        : await foldVerified(
+            _wallet,
+            log,
+            billId: billId,
+            signer: _signer,
+            seed: seed,
+          );
+    return planRemoval(
+      folded: folded,
+      creatorId: _creatorOf(log),
+      log: log,
+      id: id,
+      me: me,
+    );
+  }
+
+  /// Writes each expense in [confirmed] again without [without], withdrawing
+  /// the one it replaces (§10.8).
   ///
   /// A withdrawal and a new expense rather than an amendment: §10.8 counts a
   /// person as named while either an amendment or the entry it corrects names
-  /// them, so only this lets somebody come off the bill afterwards. Every
-  /// pair goes in one write, so the bill never holds an expense twice or
-  /// loses one between them.
+  /// them, so only this lets somebody come off the bill afterwards. The new
+  /// expense is this device's, so its author can no longer correct it
+  /// (§10.4); an amendment cannot be written for them, and an expense written
+  /// under their id is one they never signed.
+  ///
+  /// [confirmed] is the plan the person agreed to. It is planned again from
+  /// the store before anything is signed, and once more inside the store's
+  /// turn for this bill, where nothing else writes it; when either reading
+  /// differs — an amendment synced in, the same removal already written —
+  /// nothing is written and they are told. Every pair goes in one write, so
+  /// the bill never holds an expense twice or loses one between them.
   Future<void> restateExpenses({
     required String billId,
-    required Map<String, Map<String, dynamic>> splits,
+    required String without,
+    required RemovalPlan confirmed,
   }) async {
     await _guard(() async {
-      final folded = await _storedFold(billId);
+      const changed = SplitsRefusal(
+        'The bill changed since you looked. Check who is on what, then try '
+        'again.',
+      );
+      final held = await _store.read(billId);
+      final plan = await _removalPlanOver(billId, held, without);
+      if (!plan.sameAs(confirmed)) throw changed;
       final seed = await _requireIdentity();
       final host = _host(seed);
       final written = <Map<String, dynamic>>[];
-      for (final MapEntry(key: entryId, value: split) in splits.entries) {
-        final expense = folded.bill.expenses
-            .where((e) => folded.expenseEntries[e.id] == entryId)
-            .firstOrNull;
-        if (expense == null) {
-          throw protocol.SplitError(
-            protocol.SplitCode.unknownEntry,
-            'This device does not hold the expense being corrected',
-          );
-        }
+      for (final edit in plan.edits) {
+        final expense = edit.seen;
         written
           ..add(
             await splitz.signEntry(
@@ -698,7 +738,7 @@ class SplitsController extends ChangeNotifier {
                 expenseId: _expenseId(),
                 paidBy: expense.paidBy,
                 amount: expense.amount,
-                split: split,
+                split: edit.split,
                 description: expense.description.isEmpty
                     ? null
                     : expense.description,
@@ -709,7 +749,7 @@ class SplitsController extends ChangeNotifier {
           ..add(
             await splitz.signEntry(
               host: host,
-              entry: splitz.voidEntry(host: host, targetId: entryId),
+              entry: splitz.voidEntry(host: host, targetId: edit.entryId),
               billId: billId,
             ),
           );
@@ -718,7 +758,7 @@ class SplitsController extends ChangeNotifier {
       // expense whose withdrawal was refused would count it twice.
       final trial = await foldVerified(
         _wallet,
-        [...await _store.read(billId), ...written],
+        [...held, ...written],
         billId: billId,
         signer: _signer,
         seed: seed,
@@ -732,7 +772,22 @@ class SplitsController extends ChangeNotifier {
               'Not applied: ${refused.code}.',
         );
       }
-      if (!await _mergeWhileHeld(billId, written)) throw _removed;
+      var stale = false;
+      final applied = await _mergeWhileHeld(
+        billId,
+        written,
+        andIf: () async {
+          final now = await _removalPlanOver(
+            billId,
+            await _store.read(billId),
+            without,
+          );
+          stale = !now.sameAs(confirmed);
+          return !stale;
+        },
+      );
+      if (stale) throw changed;
+      if (!applied) throw _removed;
       await _refresh();
     });
   }
@@ -1640,20 +1695,26 @@ class SplitsController extends ChangeNotifier {
   /// without its key: it would sit in storage, unlisted and unreadable. A
   /// keychain that refuses to read while the session is locked has not said
   /// the key is gone, and the write goes ahead.
+  ///
+  /// [andIf], when given, is asked inside the same turn, after the key: a
+  /// write that depends on what the bill holds decides it where no other
+  /// write to the bill can come between the reading and the write.
   Future<bool> _mergeWhileHeld(
     String billId,
-    List<Map<String, dynamic>> entries,
-  ) async {
+    List<Map<String, dynamic>> entries, {
+    Future<bool> Function()? andIf,
+  }) async {
     if (entries.isEmpty) return true;
     final merged = await _store.merge(
       billId,
       entries,
       onlyIf: () async {
         try {
-          return await _keys.readBillKey(billId) != null;
+          if (await _keys.readBillKey(billId) == null) return false;
         } on StateError {
-          return true;
+          // A locked keychain has not said the key is gone.
         }
+        return andIf == null || await andIf();
       },
     );
     return merged.applied;

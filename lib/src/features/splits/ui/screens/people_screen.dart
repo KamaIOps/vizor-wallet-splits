@@ -22,7 +22,6 @@ import 'payout_screen.dart';
 import 'share_bill_screen.dart';
 import 'text_entry_screen.dart';
 import 'splits_scope.dart';
-import '../view/removal_plan.dart';
 
 class PeopleScreen extends StatelessWidget {
   const PeopleScreen({super.key, required this.billId});
@@ -221,7 +220,11 @@ class _PersonTile extends StatelessWidget {
               key: Key('splits_person_remove_${participant.id}'),
               tooltip: 'Take off the bill',
               icon: const Icon(Icons.person_remove_outlined),
-              onPressed: () => _remove(context),
+              // Not while a write is on its way: a removal planned before it
+              // lands is planned against a bill about to change.
+              onPressed: SplitsScope.of(context).busy
+                  ? null
+                  : () => _remove(context),
             ),
         ],
       ),
@@ -269,10 +272,19 @@ Future<void> confirmAndRemovePerson(
   final controller = SplitsScope.read(context);
   final view = controller.bills.where((b) => b.id == billId).firstOrNull;
   if (view == null) return;
-  final plan = planRemoval(view, participant.id, controller.me);
+  final plan = await controller.removalPlan(billId, participant.id);
+  if (plan == null || !context.mounted) return;
   final name = participant.name;
   final edits = plan.edits.length;
   final blocked = plan.blockers.isNotEmpty;
+  // §10.4: an expense is corrected only by whoever wrote it, and the one
+  // written in its place is this device's.
+  final taken = [
+    for (final e in plan.edits)
+      if (e.author != null && e.author != controller.me)
+        '${e.description} becomes yours to correct, not '
+            '${view.bill.displayNameOf(e.author!, creatorId: view.creatorId)}’s.',
+  ];
 
   final choice = await showDialog<String>(
     context: context,
@@ -290,6 +302,11 @@ Future<void> confirmAndRemovePerson(
                 Text(
                   'They’ll come off ${edits == 1 ? '1 expense' : '$edits expenses'}, '
                   'and the others on ${edits == 1 ? 'it' : 'each'} share their part.',
+                ),
+              for (final t in taken)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text('• $t'),
                 ),
               if (blocked) ...[
                 if (edits > 0) const SizedBox(height: 12),
@@ -332,7 +349,8 @@ Future<void> confirmAndRemovePerson(
   if (choice == 'edit') {
     await controller.restateExpenses(
       billId: billId,
-      splits: {for (final e in plan.edits) e.entryId: e.split},
+      without: participant.id,
+      confirmed: plan,
     );
     if (controller.lastError != null) return;
     // Off the bill only once nothing else names them.
