@@ -31,7 +31,7 @@ class SettleScreen extends StatefulWidget {
   State<SettleScreen> createState() => _SettleScreenState();
 }
 
-class _SettleScreenState extends State<SettleScreen> {
+class _SettleScreenState extends State<SettleScreen> with SplitsActions {
   splitz.PayerObligation? _owed;
   splitz.Settled? _settled;
   PendingSend? _pending;
@@ -96,11 +96,13 @@ class _SettleScreenState extends State<SettleScreen> {
             : await controller.quoteZec(view.bill.currency);
         if (!mounted) return;
         if (view != null && live != null) {
-          await controller.setRate(
-            billId: widget.billId,
-            currency: view.bill.currency,
-            minorUnitsPerZec: live,
-            source: 'feed',
+          await act(
+            () => controller.setRate(
+              billId: widget.billId,
+              currency: view.bill.currency,
+              minorUnitsPerZec: live,
+              source: 'feed',
+            ),
           );
           if (!mounted) return;
           owed = await controller.obligation(widget.billId, via: via);
@@ -215,7 +217,10 @@ class _SettleScreenState extends State<SettleScreen> {
           _ReviewSend(view: current, owed: owed, live: live, via: via),
     );
     if (confirmed != true || !mounted) return;
-    final settled = await controller.settle(widget.billId, owed, via: via);
+    splitz.Settled? settled;
+    await act(() async {
+      settled = await controller.settle(widget.billId, owed, via: via);
+    });
     if (!mounted) return;
     setState(() => _settled = settled);
     await _load();
@@ -255,9 +260,11 @@ class _SettleScreenState extends State<SettleScreen> {
 
   Future<void> _resolve({bool landed = false, String? txid}) async {
     final controller = SplitsScope.read(context);
-    await controller.resolveSend(widget.billId, landed: landed, txid: txid);
+    final resolved = await act(
+      () => controller.resolveSend(widget.billId, landed: landed, txid: txid),
+    );
     if (!mounted) return;
-    if (controller.lastError == null) setState(() => _settled = null);
+    if (resolved) setState(() => _settled = null);
     await _load();
   }
 
@@ -297,8 +304,11 @@ class _SettleScreenState extends State<SettleScreen> {
     // Stops at the first refusal and leaves it on screen, so it is read
     // before anything else is withdrawn.
     for (final entryId in records) {
-      await controller.withdraw(billId: widget.billId, entryId: entryId);
-      if (controller.lastError != null) break;
+      if (!await act(
+        () => controller.withdraw(billId: widget.billId, entryId: entryId),
+      )) {
+        break;
+      }
     }
     if (mounted) await _load();
   }
@@ -471,9 +481,13 @@ class _SettleScreenState extends State<SettleScreen> {
                 key: Key('splits_settle_replaced_${replaced.id}'),
                 color: Theme.of(context).colorScheme.errorContainer,
                 child: CardLine(
-                  title: '${who(replaced.id)} changed where they are paid',
+                  title: payoutChangedLine(
+                    who(replaced.id),
+                    bound: view.identities.bound.containsKey(replaced.id),
+                  ),
                   subtitle: Text(
-                    'Sends to their new address. Check with them.\nwas ${_short(replaced.from)} · now ${_short(replaced.to)}',
+                    '${view.identities.bound.containsKey(replaced.id) ? 'Sends to their new address. Check with them.' : 'Sends to the new address, and anyone with the invite could have changed it. Check with them.'}'
+                    '\nwas ${_short(replaced.from)} · now ${_short(replaced.to)}',
                   ),
                 ),
               ),
@@ -605,11 +619,11 @@ class _SettleScreenState extends State<SettleScreen> {
                 trailing: formatAmount(s.amount, currency),
               ),
             ),
-          if (controller.lastError != null)
+          if (failure case final failed?)
             Padding(
               padding: const EdgeInsets.only(top: 16),
               child: Text(
-                controller.lastError!,
+                failed,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),

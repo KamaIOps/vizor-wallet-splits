@@ -25,7 +25,7 @@ class PriceBillScreen extends StatefulWidget {
   State<PriceBillScreen> createState() => _PriceBillScreenState();
 }
 
-class _PriceBillScreenState extends State<PriceBillScreen> {
+class _PriceBillScreenState extends State<PriceBillScreen> with SplitsActions {
   final _price = TextEditingController();
   final _form = GlobalKey<FormState>();
   bool _asked = false;
@@ -53,21 +53,36 @@ class _PriceBillScreenState extends State<PriceBillScreen> {
   /// Why the last price written is not the one the bill carries, or null.
   String? _notApplied;
 
+  /// Whether a price is being written. Set before the first await, so a
+  /// second tap in the same frame writes nothing and closes nothing.
+  bool _applying = false;
+
   Future<void> _apply(String currency) async {
+    if (_applying) return;
     if (!_form.currentState!.validate()) return;
+    _applying = true;
+    try {
+      await _write(currency);
+    } finally {
+      _applying = false;
+    }
+  }
+
+  Future<void> _write(String currency) async {
     final controller = SplitsScope.read(context);
     final navigator = Navigator.of(context);
     final asked = parseMinorUnits(_price.text, currency: currency)!;
-    await controller.setRate(
-      billId: widget.billId,
-      currency: currency,
-      minorUnitsPerZec: asked,
-      // Where the figure came from, so a reader of the bill is not left to
-      // guess whether somebody typed it.
-      source: asked == _suggested ? 'feed' : 'typed',
+    final set = await act(
+      () => controller.setRate(
+        billId: widget.billId,
+        currency: currency,
+        minorUnitsPerZec: asked,
+        // Where the figure came from, so a reader of the bill is not left to
+        // guess whether somebody typed it.
+        source: asked == _suggested ? 'feed' : 'typed',
+      ),
     );
-    if (!mounted) return;
-    if (controller.lastError != null) return;
+    if (!mounted || !set) return;
     // Written is not applied: §10.1 takes the organiser's latest `setRate`
     // over anybody else's, and otherwise the latest by `at`, so one dated
     // ahead of this device's clock outranks this one. Closing the screen would
@@ -120,7 +135,7 @@ class _PriceBillScreenState extends State<PriceBillScreen> {
       ),
     );
     if (sure != true || !mounted) return;
-    await controller.withdraw(billId: widget.billId, entryId: entry);
+    await act(() => controller.withdraw(billId: widget.billId, entryId: entry));
     if (mounted) setState(() => _notApplied = null);
   }
 
@@ -182,6 +197,8 @@ class _PriceBillScreenState extends State<PriceBillScreen> {
                     ? null
                     : 'The feed says '
                           '${formatAmount(_suggested!, currency)}.',
+                helperMaxLines: fieldNoteLines,
+                errorMaxLines: fieldNoteLines,
               ),
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
@@ -208,11 +225,11 @@ class _PriceBillScreenState extends State<PriceBillScreen> {
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
-            if (controller.lastError != null)
+            if (failure case final failed?)
               Padding(
                 padding: const EdgeInsets.only(bottom: 16),
                 child: Text(
-                  controller.lastError!,
+                  failed,
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),

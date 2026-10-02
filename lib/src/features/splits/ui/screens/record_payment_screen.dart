@@ -21,13 +21,6 @@ import '../view/naming.dart';
 import 'add_expense_screen.dart' show figureRefusal, parseMinorUnits;
 import 'splits_scope.dart';
 
-/// How many lines a field's helper or refusal may take before it is cut.
-///
-/// A field's note defaults to one line, which on a narrow phone keeps only
-/// its first clause. Enough for the longest note on these screens at 320
-/// points wide and twice the text size.
-const int fieldNoteLines = 6;
-
 /// Which of §9.2's two off-request methods is being recorded.
 enum RecordMethod { cash, swap }
 
@@ -67,7 +60,8 @@ class RecordPaymentScreen extends StatefulWidget {
   State<RecordPaymentScreen> createState() => _RecordPaymentScreenState();
 }
 
-class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
+class _RecordPaymentScreenState extends State<RecordPaymentScreen>
+    with SplitsActions {
   final _form = GlobalKey<FormState>();
   final _amount = TextEditingController();
   final _reference = TextEditingController();
@@ -95,6 +89,9 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
   }
 
   Future<void> _save(String currency) async {
+    // Set before the first await below: a second tap in the same frame
+    // reaches this before any rebuild has disabled the button.
+    if (_saving) return;
     if (!(_form.currentState?.validate() ?? false)) return;
     final amount = parseMinorUnits(_amount.text, currency: currency);
     if (amount == null || amount <= 0) return;
@@ -104,26 +101,28 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
     final navigator = Navigator.of(context);
     final note = _note.text.trim().isEmpty ? null : _note.text.trim();
 
-    if (_method == RecordMethod.cash) {
-      await controller.recordCash(
-        billId: widget.billId,
-        to: widget.to,
-        amountMinorUnits: amount,
-        note: note,
-      );
-    } else {
-      await controller.recordSwap(
-        billId: widget.billId,
-        reference: _reference.text.trim(),
-        to: widget.to,
-        amountMinorUnits: amount,
-        note: note,
-      );
-    }
+    final saved = await act(() async {
+      if (_method == RecordMethod.cash) {
+        await controller.recordCash(
+          billId: widget.billId,
+          to: widget.to,
+          amountMinorUnits: amount,
+          note: note,
+        );
+      } else {
+        await controller.recordSwap(
+          billId: widget.billId,
+          reference: _reference.text.trim(),
+          to: widget.to,
+          amountMinorUnits: amount,
+          note: note,
+        );
+      }
+    });
 
     if (!mounted) return;
     setState(() => _saving = false);
-    if (controller.lastError == null) navigator.pop();
+    if (saved) navigator.pop();
   }
 
   @override
@@ -223,11 +222,11 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
             ),
             const SizedBox(height: 16),
             NoticeCard(message: _method.caveat),
-            if (controller.lastError != null)
+            if (failure case final failed?)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 child: Text(
-                  controller.lastError!,
+                  failed,
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
