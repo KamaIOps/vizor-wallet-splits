@@ -16,7 +16,7 @@ class NewBillScreen extends StatefulWidget {
   State<NewBillScreen> createState() => _NewBillScreenState();
 }
 
-class _NewBillScreenState extends State<NewBillScreen> {
+class _NewBillScreenState extends State<NewBillScreen> with SplitsActions {
   final _name = TextEditingController();
   // USD by default: it is the currency the wallet's own price feed quotes, so
   // a bill in it is priced automatically when somebody settles.
@@ -43,20 +43,22 @@ class _NewBillScreenState extends State<NewBillScreen> {
     final navigator = Navigator.of(context);
 
     setState(() => _opening = true);
-    final String? id;
+    String? id;
     try {
-      id = await controller.createBill(
-        name: _name.text.trim(),
-        currency: _currency.text.trim().toUpperCase(),
-        displayName: _displayName.text.trim().isEmpty
-            ? null
-            : _displayName.text.trim(),
-      );
+      await act(() async {
+        id = await controller.createBill(
+          name: _name.text.trim(),
+          currency: _currency.text.trim().toUpperCase(),
+          displayName: _displayName.text.trim().isEmpty
+              ? null
+              : _displayName.text.trim(),
+        );
+      });
     } finally {
       if (mounted) setState(() => _opening = false);
     }
     if (!mounted) return;
-    // Null leaves the error on the controller, where it is shown.
+    // Null leaves the error in [failure], where it is shown.
     if (id case final billId?) {
       navigator.pushReplacement(
         MaterialPageRoute<void>(builder: (_) => BillScreen(billId: billId)),
@@ -90,6 +92,7 @@ class _NewBillScreenState extends State<NewBillScreen> {
               decoration: const InputDecoration(
                 labelText: 'What is it for',
                 hintText: 'Dinner',
+                errorMaxLines: fieldNoteLines,
               ),
               validator: (v) =>
                   (v ?? '').trim().isEmpty ? 'Give the bill a name' : null,
@@ -100,6 +103,8 @@ class _NewBillScreenState extends State<NewBillScreen> {
               decoration: const InputDecoration(
                 labelText: 'Currency',
                 helperText: 'Can’t be changed later.',
+                helperMaxLines: fieldNoteLines,
+                errorMaxLines: fieldNoteLines,
               ),
               textCapitalization: TextCapitalization.characters,
               validator: (v) {
@@ -125,11 +130,11 @@ class _NewBillScreenState extends State<NewBillScreen> {
                 hintText: 'optional',
               ),
             ),
-            if (controller.lastError != null)
+            if (failure case final failed?)
               Padding(
                 padding: const EdgeInsets.only(top: 16),
                 child: Text(
-                  controller.lastError!,
+                  failed,
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
