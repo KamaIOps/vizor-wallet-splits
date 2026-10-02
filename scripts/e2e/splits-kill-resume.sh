@@ -11,6 +11,13 @@
 # says the payee received exactly 0.01 ZEC — once, whichever instant the kill
 # landed at — and the lane itself exits 0.
 #
+# HOLD_BROADCAST=1 makes the instant exact: the app reaches lightwalletd
+# through scripts/e2e/lwd-hold-proxy.py, which holds back the transaction's
+# upload, and the app is killed once the proxy reports it held. The wallet has
+# built and stored the transaction and the node has never seen it — the
+# outcome a guessed delay lands on only by luck. The lane then also requires
+# the node's mempool to be empty at the kill.
+#
 # Needs Docker with scripts/regtest/up.sh already run.
 set -euo pipefail
 
@@ -20,6 +27,8 @@ root="${VIZOR_ROOT:-$(cd "$here/../.." && pwd)}"
 APP_BUNDLE_ID="${APP_BUNDLE_ID:-com.keplr.vizor}"
 UDID="${SPLITS_UDID_A:?a simulator udid}"
 delay="${KILL_DELAY:-0}"
+hold="${HOLD_BROADCAST:-0}"
+proxy_port="${HOLD_PROXY_PORT:-19077}"
 work="${SPLITS_WORK:-$(mktemp -d)}"
 mkdir -p "$work"
 find "$work" -maxdepth 1 -type f \( -name 'phase-*.log' -o -name '*.status' \) -delete
@@ -36,13 +45,23 @@ xcrun simctl keychain "$UDID" reset >/dev/null 2>&1 || true
 
 pid=""
 miner=""
+proxy=""
 cleanup() {
   [ -n "$miner" ] && kill "$miner" 2>/dev/null || true
+  [ -n "$proxy" ] && kill "$proxy" 2>/dev/null || true
   [ -n "$pid" ] && { kill -- "-$pid" 2>/dev/null || true; }
   # The script's own status, not this trap's last test, is the exit code.
   return 0
 }
 trap cleanup EXIT
+
+lwd_define=()
+if [ "$hold" = 1 ]; then
+  echo relay >"$work/proxy.mode"
+  python3 "$here/lwd-hold-proxy.py" "$proxy_port" 9067 "$work/proxy.mode" >"$work/proxy.log" 2>&1 &
+  proxy=$!
+  lwd_define=(--dart-define=ZCASH_E2E_LIGHTWALLETD_URL="http://127.0.0.1:$proxy_port")
+fi
 
 phase() {
   local name="$1"
@@ -55,7 +74,7 @@ phase() {
       --dart-define=ZCASH_DEFAULT_NETWORK=regtest \
       --dart-define=ZCASH_E2E_NETWORK=regtest \
       --dart-define=SPLITS_PHASE="$name" \
-      --dart-define=SPLITS_PAYEE_ADDRESS="$payee") >"$work/phase-$name.log" 2>&1
+      --dart-define=SPLITS_PAYEE_ADDRESS="$payee" ${lwd_define[@]+"${lwd_define[@]}"}) >"$work/phase-$name.log" 2>&1
     echo $? >"$work/$name.status"
   ) &
   pid=$!
@@ -86,12 +105,30 @@ for _ in $(seq 900); do
   sleep 0.2
 done
 grep -q KILLPOINT "$work/phase-send.log" || { echo "no KILLPOINT" >&2; exit 1; }
-sleep "$delay"
+if [ "$hold" = 1 ]; then
+  # Armed only now: funding and the sync before it relay untouched.
+  echo hold >"$work/proxy.mode"
+  for _ in $(seq 600); do
+    grep -q HELD "$work/proxy.log" && break
+    [ -f "$work/send.status" ] && { tail -40 "$work/phase-send.log"; exit 1; }
+    sleep 0.2
+  done
+  grep HELD "$work/proxy.log" || { echo "the proxy held nothing" >&2; exit 1; }
+else
+  sleep "$delay"
+fi
 victim="$(app_pid)"
 [ -n "$victim" ] || { echo "no app process found to kill" >&2; exit 1; }
 kill -9 "$victim"
 echo "killed the app (pid $victim) $(date +%T)"
 grep -q "SETTLED" "$work/phase-send.log" && echo "note: the send had already finished"
+if [ "$hold" = 1 ]; then
+  mempool="$(zcash_cli getrawmempool | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"
+  echo "node mempool at the kill: $mempool"
+  [ "$mempool" = 0 ] || { echo "── the transaction reached the node before the kill ──" >&2; exit 1; }
+  grep -q SETTLED "$work/phase-send.log" && { echo "── the send finished before the kill ──" >&2; exit 1; }
+  echo relay >"$work/proxy.mode"
+fi
 sleep 3
 kill -- "-$pid" 2>/dev/null || true
 wait "$pid" 2>/dev/null || true
