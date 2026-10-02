@@ -63,49 +63,10 @@ class WalletZecPrices implements ZecPrices {
   }
 }
 
-/// Two sources asked for one currency, held to each other.
-///
-/// Binance prices ZEC in USDC and its figure is read as USD, so a stablecoin
-/// that slips off its peg moves the price with nothing on screen to say so.
-/// Coinbase quotes USD itself. When both answer and differ by more than
-/// [toleranceBp] basis points of the lower, there is no price: a rate a bill
-/// is fixed at, or a payment is checked against, is not one two markets
-/// disagree on. When one answers, its figure stands, so one market being down
-/// does not stop a bill being priced.
-class AgreeingZecPrices implements ZecPrices {
-  const AgreeingZecPrices(this.first, this.second, {this.toleranceBp = 200});
-
-  final ZecPrices first;
-  final ZecPrices second;
-  final int toleranceBp;
-
-  @override
-  Future<int?> minorUnitsPerZec(String currency) async {
-    Future<int?> ask(ZecPrices source) async {
-      try {
-        return await source.minorUnitsPerZec(currency);
-      } on Object {
-        return null;
-      }
-    }
-
-    final a = await ask(first);
-    final b = await ask(second);
-    if (a == null || b == null) return a ?? b;
-    final low = a < b ? a : b;
-    final high = a < b ? b : a;
-    // In integers: (high - low) * 10000 <= low * toleranceBp. Both figures
-    // are at most 2^53 - 1 cents, well inside 64 bits once scaled.
-    final apart = BigInt.from(high - low) * BigInt.from(10000);
-    if (apart > BigInt.from(low) * BigInt.from(toleranceBp)) return null;
-    return b;
-  }
-}
-
 /// The prices the splits screens use, fetched through the wallet's own HTTP
 /// client so a build routing through Tor sends these the same way.
 ///
-/// Binance and Coinbase held to each other for USD ([AgreeingZecPrices],
+/// Binance and Coinbase held to each other for USD ([AgreeingZecPrices] from the splitz host,
 /// Coinbase's figure when they agree), and Coinbase for every other currency.
 /// Neither asks for a key. The wallet's home-screen feed is not asked: it is
 /// Binance's USDC figure read as USD, and a rate fixed onto a bill, or a

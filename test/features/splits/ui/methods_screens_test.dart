@@ -415,7 +415,10 @@ void main() {
       final bill = c.bills.firstWhere((b) => b.id == id).bill;
       expect(bill.confirmedPayments, contains('ana:p1'));
       // The offer is gone, because the debt is.
-      expect(find.byKey(const Key('splits_confirm_arrived_ana:p1')), findsNothing);
+      expect(
+        find.byKey(const Key('splits_confirm_arrived_ana:p1')),
+        findsNothing,
+      );
 
       // And it can be taken back by the one who said it.
       final undo = find.byKey(
