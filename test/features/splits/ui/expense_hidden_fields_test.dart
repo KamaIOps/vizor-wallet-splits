@@ -33,6 +33,11 @@ String? _textOf(WidgetTester t, String key) => t
     .text;
 
 Future<(SplitsController, String)> _open(WidgetTester t) async {
+  // Tall enough that the refusal under the last figure is built, so that
+  // finding none of it means there is none.
+  t.view.physicalSize = const Size(800, 1600);
+  t.view.devicePixelRatio = 1;
+  addTearDown(t.view.reset);
   final c = controllerFor(FakeWallet());
   late String id;
   await t.runAsync(() async => id = await billWithTwo(c));

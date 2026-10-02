@@ -44,6 +44,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
   }
 
   Future<void> _loadInFlight() async {
+    if (!mounted) return;
     final held = await SplitsScope.read(context).swapsInFlight(billId);
     if (!mounted) return;
     setState(() => _inFlight = held);
@@ -83,7 +84,9 @@ class _ActivityScreenState extends State<ActivityScreen> {
       ),
     );
     if (!(confirmed ?? false)) return;
+    // Forgotten whether or not the screen is still open: the person asked.
     await controller.forgetSwap(watch.reference);
+    if (!mounted) return;
     await _loadInFlight();
   }
 
@@ -491,9 +494,78 @@ class _EventTile extends StatelessWidget {
   final BillEvent event;
   final BillView view;
 
-  String _who(String? id) => id == null
-      ? 'somebody'
-      : view.bill.displayNameOf(id, creatorId: view.creatorId);
+  /// [id]'s name. Somebody no longer on the bill is named as they last
+  /// joined, not by their id.
+  String _who(String? id) {
+    if (id == null) return 'somebody';
+    if (view.bill.participant(id) != null) {
+      return view.bill.displayNameOf(id, creatorId: view.creatorId);
+    }
+    final joined = view.activity
+        .where(
+          (e) =>
+              e.subject == id &&
+              e.description != null &&
+              (e.kind == BillEventKind.joined ||
+                  e.kind == BillEventKind.addressChanged),
+        )
+        .firstOrNull;
+    return joined?.description ??
+        view.bill.displayNameOf(id, creatorId: view.creatorId);
+  }
+
+  /// The line an amendment or a withdrawal names, when this device holds it.
+  BillEvent? get _target {
+    final id = event.subject;
+    if (id == null) return null;
+    return view.activity.where((e) => e.entryId == id).firstOrNull;
+  }
+
+  /// What [target], an expense, was for, as a reader would name it.
+  String _expense(BillEvent target) {
+    final amount = _amount(target.amountMinorUnits);
+    final what = target.description;
+    return [
+      'the${amount.isEmpty ? '' : ' $amount'} expense',
+      if (what != null && what.isNotEmpty) 'for $what',
+    ].join(' ');
+  }
+
+  /// A withdrawal, said as what it undid (§10.8).
+  String get _withdrawal {
+    final who = _who(event.author);
+    final target = _target;
+    if (target == null) return '$who withdrew an entry';
+    return switch (target.kind) {
+      BillEventKind.expenseAdded => '$who withdrew ${_expense(target)}',
+      // Off the bill only once no join of theirs stands: withdrawing one of
+      // several leaves them on it.
+      BillEventKind.joined =>
+        view.bill.participant(target.subject ?? '') == null
+            ? '$who took ${_who(target.subject)} off the bill'
+            : '$who withdrew a join for ${_who(target.subject)}',
+      BillEventKind.addressChanged =>
+        '$who withdrew a change to where ${_who(target.subject)} is paid',
+      BillEventKind.paymentRecorded =>
+        '$who withdrew a payment of ${_amount(target.amountMinorUnits)} '
+            'to ${_who(target.subject)}',
+      BillEventKind.paymentConfirmed => '$who took back a confirmation',
+      BillEventKind.priced => '$who withdrew the rate',
+      BillEventKind.entryWithdrawn => '$who undid a withdrawal',
+      BillEventKind.expenseAmended => '$who withdrew a change to an expense',
+      BillEventKind.opened || BillEventKind.other => '$who withdrew an entry',
+    };
+  }
+
+  /// An address change. §10.7 binds a participant's record to their key
+  /// once they join with one; until then anybody holding the invite can
+  /// write it, so it is not said to be theirs.
+  String get _addressChange {
+    final id = event.subject ?? event.author;
+    return view.identities.bound.containsKey(id)
+        ? '${_who(id)} changed where they are paid'
+        : 'Where ${_who(id)} is paid changed';
+  }
 
   String _amount(int? minorUnits) =>
       minorUnits == null ? '' : formatAmount(minorUnits, view.bill.currency);
@@ -502,13 +574,14 @@ class _EventTile extends StatelessWidget {
     BillEventKind.opened =>
       '${_who(event.author)} started ${event.description ?? 'the bill'}',
     BillEventKind.joined => '${_who(event.author)} joined',
-    BillEventKind.addressChanged =>
-      '${_who(event.author)} changed where they are paid',
+    BillEventKind.addressChanged => _addressChange,
     BillEventKind.expenseAdded =>
       '${_who(event.subject)} paid ${_amount(event.amountMinorUnits)}'
           '${event.description == null ? '' : ' for ${event.description}'}',
-    BillEventKind.expenseAmended => '${_who(event.author)} changed an expense',
-    BillEventKind.entryWithdrawn => '${_who(event.author)} withdrew an entry',
+    BillEventKind.expenseAmended =>
+      '${_who(event.author)} changed '
+          '${_target == null ? 'an expense' : _expense(_target!)}',
+    BillEventKind.entryWithdrawn => _withdrawal,
     BillEventKind.paymentRecorded =>
       '${_who(event.author)} paid ${_who(event.subject)} '
           '${_amount(event.amountMinorUnits)}',
@@ -542,7 +615,10 @@ class _EventTile extends StatelessWidget {
         'not confirmed yet — still owed',
       // §13 requires a payer meet this before settling to the new address.
       if (event.kind == BillEventKind.addressChanged)
-        'check this with them before paying',
+        view.identities.bound.containsKey(event.subject ?? event.author)
+            ? 'check this with them before paying'
+            : 'anyone with the invite can change it — check with them '
+                  'before paying',
       // Naming what it is not, because a hex string that looks like a txid is
       // exactly what a reader assumes of a swap's reference.
       if (event.reference != null)
