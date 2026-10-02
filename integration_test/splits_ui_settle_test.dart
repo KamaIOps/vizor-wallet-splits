@@ -262,6 +262,8 @@ Future<void> _payee(WidgetTester tester) async {
   await _settle(tester);
   await _typeIntoField(tester, 'Code', invite);
   await _tapText(tester, 'Read it');
+  // Read first, then taken only when asked.
+  await _tapText(tester, 'Join');
   await _settle(tester);
   await pumpUntil(
     tester,

@@ -18,6 +18,10 @@ import 'splits_scope.dart';
 class ScanBillScreen extends StatefulWidget {
   const ScanBillScreen({super.key, this.initialCode});
 
+  /// The name its routes carry, so a second code replaces this screen
+  /// rather than stacking another over it.
+  static const String routeName = 'splits/join';
+
   /// A code that arrived before the screen did — an opened invite link — read
   /// as though it had been pasted.
   final String? initialCode;
@@ -30,28 +34,68 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
   final _text = TextEditingController();
   String? _message;
 
+  /// The code whose preview is on screen. The next activation acts on it;
+  /// any other code is previewed first.
+  String? _previewed;
+
+  /// Whether an activation is being acted on. Set before the first await,
+  /// so a second tap in the same frame starts nothing.
+  bool _joining = false;
+
+  /// Whether the bill is being fetched or merged: shown, since a relay can
+  /// take seconds to answer. Not set while a dialog waits on the person.
+  bool _fetching = false;
+
+  /// A bill whose key this device took and whose log the relay did not yet
+  /// hold, polled while this screen stays open.
+  String? _awaiting;
+  SplitsController? _poller;
+
+  /// Said when this phone's key store cannot be read.
+  static const String _keysUnreadable =
+      'This phone’s keys couldn’t be read. Unlock the wallet and try again.';
+
   @override
   void initState() {
     super.initState();
-    // A code that arrived with a link is shown, not acted on. Opening a link
-    // is not agreeing to join the bill it names, and reading an invite keeps
-    // its key on this device for good.
+    // A code is shown, not acted on, until the person asks. Opening a link
+    // or pointing a camera is not agreeing to join the bill it names, and
+    // reading an invite keeps its key on this device for good.
     final code = widget.initialCode?.trim();
     if (code != null && code.isNotEmpty) {
       _text.text = code;
       _message = _preview(code);
+      if (_message != null) _previewed = code;
     }
+    _text.addListener(_edited);
+  }
+
+  void _edited() {
+    if (mounted) setState(() {});
   }
 
   /// What [code] is, before anything is done with it.
+  ///
+  /// The name is the one its sender wrote, and is said to be: an invite's
+  /// name is free text, and not the bill's own until the bill arrives.
   String? _preview(String code) {
     final scanned = splitz.readScan(code);
-    final invite = switch (scanned) {
-      splitz.ScannedInvite(:final invite) => invite,
-      splitz.ScannedBill(:final invite) => invite,
-      _ => null,
+    final (invite, what) = switch (scanned) {
+      splitz.ScannedInvite(:final invite) => (invite, 'An invite to'),
+      splitz.ScannedBill(:final invite?) => (invite, 'A bill code for'),
+      _ => (null, ''),
     };
     if (invite == null) return null;
+    var name = invite.name.trim();
+    // A bill code's invite carries no name; the bill's create does.
+    if (name.isEmpty && scanned is splitz.ScannedBill) {
+      for (final e in scanned.entries) {
+        if (e['kind'] == 'createBill' && e['name'] is String) {
+          name = (e['name'] as String).trim();
+          break;
+        }
+      }
+    }
     // §11.1: `x` is a hint the sender wrote, compared against this device's
     // clock and shown rather than enforced.
     final expired = isInviteExpired(
@@ -59,7 +103,9 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
       SplitsScope.read(context).now().millisecondsSinceEpoch ~/ 1000,
     );
     return [
-      'An invite to “${invite.name}”.',
+      name.isEmpty
+          ? '$what a bill with no name.'
+          : '$what “$name”, as its sender named it.',
       if (expired) 'Its sender marked it as expired.',
       'Anyone with this link can read the bill.',
     ].join(' ');
@@ -67,11 +113,13 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
 
   @override
   void dispose() {
+    _text.removeListener(_edited);
     _text.dispose();
+    if (_awaiting case final billId?) _poller?.stopPolling(billId);
     super.dispose();
   }
 
-  /// Opens the wallet's camera and reads whatever it produced.
+  /// Opens the wallet's camera and previews whatever it produced.
   ///
   /// A cancelled scan returns null and changes nothing: somebody who backed
   /// out of the camera has not asked for anything.
@@ -79,7 +127,33 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
     final code = await scan(context);
     if (!mounted || code == null || code.trim().isEmpty) return;
     _text.text = code.trim();
-    await _read();
+    await _activate();
+  }
+
+  /// Previews the code in the field, or acts on the one already previewed.
+  Future<void> _activate() async {
+    if (_joining) return;
+    final code = _text.text.trim();
+    if (code != _previewed) {
+      final preview = _preview(code);
+      if (preview != null) {
+        setState(() {
+          _previewed = code;
+          _message = preview;
+        });
+        return;
+      }
+    }
+    setState(() => _joining = true);
+    try {
+      await _read();
+    } finally {
+      if (mounted) {
+        setState(() => _joining = false);
+      } else {
+        _joining = false;
+      }
+    }
   }
 
   /// Takes [key] for [billId], asking first when this device holds another.
@@ -89,10 +163,19 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
     String billId,
     String key,
   ) async {
-    if (await controller.holdsOtherKey(billId, key)) {
+    final bool other;
+    final bool refused;
+    try {
+      other = await controller.holdsOtherKey(billId, key);
+      refused = other && await controller.heldBillRefusesKey(billId, key);
+    } on Object {
+      if (mounted) setState(() => _message = _keysUnreadable);
+      return false;
+    }
+    if (other) {
       // The bill this phone holds names its own key, so there is nothing to
       // ask: replaceKey refuses this one and says why.
-      if (await controller.heldBillRefusesKey(billId, key)) {
+      if (refused) {
         await controller.replaceKey(billId, key);
         if (mounted) setState(() => _message = controller.lastError);
         return false;
@@ -147,7 +230,7 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
           return;
         }
         if (!await _takeKey(controller, invite.billId, invite.key)) return;
-        await controller.accept(invite.billId, entries);
+        await _fetch(() => controller.accept(invite.billId, entries));
         if (!mounted) return;
         if (controller.lastError != null) {
           setState(() => _message = controller.lastError);
@@ -196,10 +279,12 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
         // since a bill this device does not hold has no screen of its own to
         // sync from.
         if (controller.hasRelay) {
-          await controller.syncBill(invite.billId);
-          if (!controller.bills.any((b) => b.id == invite.billId)) {
-            await controller.load();
-          }
+          await _fetch(() async {
+            await controller.syncBill(invite.billId);
+            if (!controller.bills.any((b) => b.id == invite.billId)) {
+              await controller.load();
+            }
+          });
           if (!mounted) return;
           if (controller.bills.any((b) => b.id == invite.billId)) {
             navigator.pushReplacement(
@@ -210,16 +295,31 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
             return;
           }
         }
-        // A sync the bill refused names why: a key that is not the bill's
-        // is not "not synced yet".
         final state = controller.syncStateOf(invite.billId);
-        setState(
-          () => _message = state.phase == SplitsSyncPhase.failed
-              ? state.detail
-              : controller.hasRelay
-              ? 'Joined. It hasn’t synced yet, so ask for its code.'
-              : 'Joined. Now scan the bill’s code.',
-        );
+        // A sync the bill refused names why. A channel that held blobs and
+        // opened none under this key is a key that is not this bill's: not
+        // "not synced yet". An empty channel is a bill not pushed yet, and
+        // is polled for while this screen is open.
+        final String message;
+        if (state.phase == SplitsSyncPhase.failed) {
+          message = state.detail ?? 'Couldn’t fetch this bill.';
+        } else if (!controller.hasRelay) {
+          message =
+              'Joined. This build has no bill relay, so the bill itself '
+              'comes as a bill code: ask whoever sent the invite to show '
+              'theirs.';
+        } else if (state.unopenable > 0) {
+          message =
+              'This invite’s key doesn’t open what the relay holds for this '
+              'bill. Ask whoever sent it for a new invite.';
+        } else {
+          message =
+              'Joined, but the bill hasn’t reached the relay yet. This '
+              'screen keeps checking while it is open. Later, open the '
+              'invite again once whoever sent it has opened the bill.';
+          _await(controller, invite.billId);
+        }
+        setState(() => _message = message);
 
       case splitz.ScanRefused(:final code):
         // A §12 code. The message a person reads is derived from it, never
@@ -228,10 +328,47 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
     }
   }
 
+  /// Runs [work] with the progress bar shown.
+  Future<void> _fetch(Future<void> Function() work) async {
+    if (mounted) setState(() => _fetching = true);
+    try {
+      await work();
+    } finally {
+      if (mounted) setState(() => _fetching = false);
+    }
+  }
+
+  /// Polls [billId] until it arrives or this screen closes.
+  void _await(SplitsController controller, String billId) {
+    if (_awaiting == billId) return;
+    if (_awaiting case final earlier?) _poller?.stopPolling(earlier);
+    _awaiting = billId;
+    _poller = controller..pollBill(billId);
+  }
+
+  /// Opens [_awaiting] once a poll has brought it in.
+  void _openArrived(SplitsController controller) {
+    final billId = _awaiting;
+    if (billId == null || !controller.bills.any((b) => b.id == billId)) {
+      return;
+    }
+    _awaiting = null;
+    controller.stopPolling(billId);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(builder: (_) => BillScreen(billId: billId)),
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = SplitsScope.of(context);
     final scan = SplitsScope.scannerOf(context);
+    _openArrived(controller);
+    final idle = !controller.busy && !_joining;
+    final previewed = _previewed != null && _text.text.trim() == _previewed;
     return Scaffold(
       appBar: AppBar(title: const Text('Join a bill')),
       bottomNavigationBar: BottomActions(
@@ -239,13 +376,13 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
           if (scan != null)
             SecondaryButton(
               key: const Key('splits_scan_camera'),
-              onPressed: controller.busy ? null : () => _scan(scan),
+              onPressed: idle ? () => _scan(scan) : null,
               child: const Text('Scan a code'),
             ),
           FilledButton(
             key: const Key('splits_scan_read'),
-            onPressed: controller.busy ? null : _read,
-            child: Text(widget.initialCode == null ? 'Read it' : 'Join'),
+            onPressed: idle ? _activate : null,
+            child: Text(previewed ? 'Join' : 'Read it'),
           ),
         ],
       ),
@@ -273,6 +410,12 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
             style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
           ),
           const SizedBox(height: 16),
+          if (_fetching)
+            const Padding(
+              key: Key('splits_scan_joining'),
+              padding: EdgeInsets.only(bottom: 16),
+              child: LinearProgressIndicator(),
+            ),
           if (_message != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 16),
