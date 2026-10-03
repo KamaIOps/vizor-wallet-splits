@@ -58,13 +58,16 @@ void main() {
       expect(splitsTotalZatoshi('zcash:u1a?amount=1'), BigInt.from(100000000));
     });
 
-    test('a figure a double cannot hold exactly is still exact', () {
-      // 21,000,000 ZEC is 2.1e15 zatoshi, past the 2^53-1 a double is exact
-      // to, so reading this through a double loses zatoshi.
+    test('the whole supply reads exactly, and more than it is refused', () {
+      expect(
+        splitsTotalZatoshi('zcash:u1a?amount=21000000'),
+        BigInt.parse('2100000000000000'),
+      );
       expect(
         splitsTotalZatoshi('zcash:u1a?amount=21000000.00000001'),
-        BigInt.parse('2100000000000001'),
+        BigInt.zero,
       );
+      expect(splitsRecipientCount('not a request'), 0);
     });
   });
 

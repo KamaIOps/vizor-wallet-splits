@@ -57,7 +57,10 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
 
   /// What the total is worth as the form stands, or null while it is not a
   /// figure yet.
-  int? get _total => parseMinorUnits(_amount.text, currency: _currency);
+  int? get _total => switch (_currency) {
+    final currency? => parseAmountIn(_amount.text, currency),
+    null => parseMinorUnits(_amount.text, exponent: 2),
+  };
 
   /// The bill's currency, read once the bill is known. Its exponent is what
   /// a typed figure is scaled by (§2.1).
@@ -69,6 +72,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
   /// of valid either refuses something §4 allows or admits something the fold
   /// would set aside.
   String? get _splitRefusal {
+    // §10.4 replaces the expense wholesale: a split this form could not
+    // read whole would be rewritten by saving, so nothing is saved.
+    if (_splitUnread) return 'This split can’t be corrected here.';
     final total = _total;
     if (total == null) return null;
     // A field showing text that is not a figure has left the draft holding
@@ -126,46 +132,24 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
     _loadSplit(current.split);
   }
 
-  /// Reads a §4 payload back into the form.
-  void _loadSplit(Map<String, dynamic> split) {
-    Map<String, int> ints(Object? raw) => <String, int>{
-      if (raw is Map)
-        for (final entry in raw.entries)
-          if (entry.value is int) '${entry.key}': entry.value as int,
-    };
+  /// True when the expense being corrected carries a split this form cannot
+  /// hold whole (the host's [SplitDraft.fromSplit] refused it).
+  bool _splitUnread = false;
 
-    switch (split['type']) {
-      case 'exact':
-        _draft.kind = SplitKind.exact;
-        _draft.amounts.addAll(ints(split['amounts']));
-      case 'percentage':
-        _draft.kind = SplitKind.percentage;
-        _draft.basisPoints.addAll(ints(split['basisPoints']));
-      case 'shares':
-        _draft.kind = SplitKind.shares;
-        _draft.shareCounts.addAll(ints(split['shareCounts']));
-      case 'itemized':
-        _draft.kind = SplitKind.itemized;
-        _draft.extraMinorUnits = split['extraMinorUnits'] as int? ?? 0;
-        for (final raw in (split['items'] as List? ?? const [])) {
-          if (raw is! Map) continue;
-          _draft.items.add(
-            DraftItem(
-              description: '${raw['description'] ?? ''}',
-              minorUnits: raw['minorUnits'] as int? ?? 0,
-              sharedBy: <String>{
-                for (final who in (raw['sharedBy'] as List? ?? const []))
-                  '$who',
-              },
-            ),
-          );
-        }
-      default:
-        _draft.kind = SplitKind.equal;
-        for (final who in (split['among'] as List? ?? const [])) {
-          _draft.among.add('$who');
-        }
+  /// Reads a §4 payload back into the form, as the host reads it.
+  void _loadSplit(Map<String, dynamic> split) {
+    final read = SplitDraft.fromSplit(split);
+    if (read == null) {
+      _splitUnread = true;
+      return;
     }
+    _draft.kind = read.kind;
+    _draft.among.addAll(read.among);
+    _draft.amounts.addAll(read.amounts);
+    _draft.basisPoints.addAll(read.basisPoints);
+    _draft.shareCounts.addAll(read.shareCounts);
+    _draft.items.addAll(read.items);
+    _draft.extraMinorUnits = read.extraMinorUnits;
   }
 
   /// Whether an expense is being written. Set before the first await, so a
@@ -288,10 +272,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
                 FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
               ],
               validator: (v) {
-                final units = parseMinorUnits(
-                  v ?? '',
-                  currency: view.bill.currency,
-                );
+                final units = parseAmountIn(v ?? '', view.bill.currency);
                 if (units == null) return figureRefusal(view.bill.currency);
                 // §2.2: the fold sets aside an expense past the cap, so it is
                 // refused here where the person can still change it.
@@ -418,51 +399,7 @@ String shareField(SplitKind kind, String id) => 'share ${kind.name}/$id';
 /// The cost field for [item], whatever its place in the list.
 String itemField(DraftItem item) => 'item ${identityHashCode(item)}';
 
-/// Reads a typed figure as minor units, or null when it is not one.
-///
-/// Integer arithmetic: the string is split on its separator and the two halves
-/// are read as whole numbers. Parsing to a double first and multiplying would
-/// round — `0.29 * 100` is not 29 in binary floating point — and the rounding
-/// would be money.
-///
-/// [currency], when given, supplies the exponent from its ISO 4217 register
-/// (§2.1), and a code the register gives none is refused: there is no scale at
-/// which a typed figure means anything. A figure too large for a 64-bit amount
-/// is refused rather than wrapped (§2.2).
-int? parseMinorUnits(String text, {int exponent = 2, String? currency}) {
-  if (currency != null) {
-    final registered = currencyExponent(currency);
-    if (registered == null) return null;
-    exponent = registered;
-  }
-  final typed = text.trim();
-  // "1,000" is a thousand to one reader and one to another, and a currency
-  // with three decimals makes both readings well-formed. A comma followed by
-  // exactly three digits is refused rather than guessed.
-  if (RegExp(r',\d{3}$').hasMatch(typed)) return null;
-  final trimmed = typed.replaceAll(',', '.');
-  if (trimmed.isEmpty) return null;
-  final parts = trimmed.split('.');
-  if (parts.length > 2) return null;
-
-  final whole = parts[0].isEmpty ? '0' : parts[0];
-  if (!RegExp(r'^\d+$').hasMatch(whole)) return null;
-
-  var fraction = parts.length == 2 ? parts[1] : '';
-  if (fraction.length > exponent) return null;
-  if (fraction.isNotEmpty && !RegExp(r'^\d+$').hasMatch(fraction)) return null;
-  fraction = fraction.padRight(exponent, '0');
-
-  // In BigInt, then bounded: a long enough figure wraps a 64-bit product to a
-  // small positive number that every later check accepts.
-  final value =
-      BigInt.parse(whole) * BigInt.from(10).pow(exponent) +
-      (exponent == 0 ? BigInt.zero : BigInt.parse(fraction));
-  if (value > BigInt.parse('9223372036854775807')) return null;
-  return value.toInt();
-}
-
-/// What to tell somebody whose figure [parseMinorUnits] refused, in
+/// What to tell somebody whose figure [parseAmountIn] refused, in
 /// [currency].
 ///
 /// Names an accepted figure, and for a currency with no minor unit says why
@@ -522,8 +459,8 @@ class _Sharer extends StatelessWidget {
 
   /// [raw] as the figure [draft.kind] stores, or null when it is not one.
   int? _parse(String raw) => switch (draft.kind) {
-    SplitKind.exact => parseMinorUnits(raw, currency: currency),
-    SplitKind.percentage => parseMinorUnits(raw),
+    SplitKind.exact => parseAmountIn(raw, currency),
+    SplitKind.percentage => parseMinorUnits(raw, exponent: 2),
     SplitKind.shares => int.tryParse(raw.trim()),
     _ => null,
   };
@@ -564,10 +501,10 @@ class _Sharer extends StatelessWidget {
     final value = switch (draft.kind) {
       // Typed in the currency and stored in minor units, so no double ever
       // touches an amount.
-      SplitKind.exact => parseMinorUnits(raw, currency: currency),
+      SplitKind.exact => parseAmountIn(raw, currency),
       // Typed as a percentage and stored in basis points, for the same
       // reason: 33.33 is 3333.
-      SplitKind.percentage => parseMinorUnits(raw),
+      SplitKind.percentage => parseMinorUnits(raw, exponent: 2),
       SplitKind.shares => int.tryParse(raw.trim()),
       _ => null,
     };
@@ -691,9 +628,7 @@ class _Items extends StatelessWidget {
   /// Null for an empty field or a figure in [currency]; the refusal
   /// otherwise.
   String? _figure(String? raw) =>
-      raw == null ||
-          raw.trim().isEmpty ||
-          parseMinorUnits(raw, currency: currency) != null
+      raw == null || raw.trim().isEmpty || parseAmountIn(raw, currency) != null
       ? null
       : figureRefusal(currency);
 
@@ -767,7 +702,7 @@ class _Items extends StatelessWidget {
                     onChanged: (v) {
                       final parsed = v.trim().isEmpty
                           ? 0
-                          : parseMinorUnits(v, currency: currency);
+                          : parseAmountIn(v, currency);
                       onReadable(itemField(draft.items[i]), parsed != null);
                       if (parsed == null) return;
                       draft.items[i].minorUnits = parsed;
@@ -834,9 +769,7 @@ class _Items extends StatelessWidget {
             ),
             validator: _figure,
             onChanged: (v) {
-              final parsed = v.trim().isEmpty
-                  ? 0
-                  : parseMinorUnits(v, currency: currency);
+              final parsed = v.trim().isEmpty ? 0 : parseAmountIn(v, currency);
               onReadable('extra', parsed != null);
               if (parsed == null) return;
               draft.extraMinorUnits = parsed;

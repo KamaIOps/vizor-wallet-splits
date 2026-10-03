@@ -4,7 +4,14 @@ library;
 import 'package:flutter/material.dart';
 import 'package:splitz_core/host.dart' as splitz;
 import 'package:splitz_core/splitz_core.dart' as protocol;
-import 'package:splitz_host/splitz_host.dart' show BillEventKind, PendingSend;
+import 'package:splitz_host/splitz_host.dart'
+    show
+        BillEventKind,
+        BillNaming,
+        PendingSend,
+        payoutFallback,
+        ratePercentOff,
+        rateWarningPercent;
 
 import '../state/splits_controller.dart';
 import '../view/chrome.dart';
@@ -118,14 +125,12 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
           if (u.reason == 'unpriceable') continue;
           final payouts = held.bill.participant(u.id)?.payouts ?? const [];
           if (payouts.length < 2) continue;
-          final why = await controller.cannotPayBy(payouts.first);
-          if (why == null) continue;
-          for (final next in payouts.skip(1)) {
-            if (await controller.cannotPayBy(next) == null) {
-              auto[u.id] = (next, why);
-              break;
-            }
-          }
+          // What this wallet can pay is its own to say; which payout that
+          // makes it is §14.8's, the host's.
+          final pick = payoutFallback([
+            for (final p in payouts) await controller.cannotPayBy(p),
+          ]);
+          if (pick != null) auto[u.id] = (payouts[pick.index], pick.passedOver);
         }
         if (!mounted) return;
         if (auto.isNotEmpty) {
@@ -276,7 +281,11 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
     final controller = SplitsScope.read(context);
     final records = [
       for (final p in view.bill.payments)
-        if (p.from == controller.me &&
+        // The ones this device wrote: only those are its payments in flight
+        // (§14.4), and only those it may withdraw. A record the payee wrote
+        // in its name is theirs.
+        if (view.paymentAuthors[p.id] == controller.me &&
+            p.from == controller.me &&
             p.to == to &&
             !view.bill.confirmedPayments.contains(p.id))
           view.paymentEntries[p.id],
@@ -472,25 +481,31 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
           // redirected address is the one change on a bill that moves money
           // to somebody else's wallet.
           //
-          // Only the recipients this request actually pays: an address change
-          // for somebody not in it — not in the plan, or settled another way —
-          // is history, not a decision about where this money goes.
-          for (final replaced in view.redirectedAddresses)
-            if (_owed?.carriedTo.containsKey(replaced.id) ?? false)
-              RowCard(
-                key: Key('splits_settle_replaced_${replaced.id}'),
-                color: Theme.of(context).colorScheme.errorContainer,
-                child: CardLine(
-                  title: payoutChangedLine(
-                    who(replaced.id),
-                    bound: view.identities.bound.containsKey(replaced.id),
-                  ),
-                  subtitle: Text(
-                    '${view.identities.bound.containsKey(replaced.id) ? 'Sends to their new address. Check with them.' : 'Sends to the new address, and anyone with the invite could have changed it. Check with them.'}'
-                    '\nwas ${_short(replaced.from)} · now ${_short(replaced.to)}',
-                  ),
+          // Every one the fold recorded, as §14.2 asks: whether this request
+          // pays them or not, the payer is told before deciding anything. One
+          // card a person, every change of theirs on it in order.
+          for (final id in {for (final r in view.replacedAddresses) r.id})
+            RowCard(
+              key: Key('splits_settle_replaced_$id'),
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: CardLine(
+                title: payoutChangedLine(
+                  who(id),
+                  bound: view.identities.bound.containsKey(id),
+                ),
+                subtitle: Text(
+                  [
+                    view.identities.bound.containsKey(id)
+                        ? 'Sends to their new address. Check with them.'
+                        : 'Sends to the new address, and anyone with the '
+                              'invite could have changed it. Check with them.',
+                    for (final r in view.replacedAddresses)
+                      if (r.id == id)
+                        'was ${_short(r.from)} · now ${_short(r.to)}',
+                  ].join('\n'),
                 ),
               ),
+            ),
           if (_owed != null) ...[
             if (_owed!.settlements.isEmpty && _owed!.awaiting.isEmpty)
               const Padding(
@@ -711,8 +726,9 @@ class _Unpayable extends StatelessWidget {
           key: Key('splits_settle_unpayable_${u.id}'),
           // A swap payout goes to the swap flow, which quotes it and sends
           // the ZEC leg. Cash has nothing to send, so it goes straight to the
-          // record.
-          onTap: deadEnd ? null : onOpen,
+          // record. Not while a send from this bill is unresolved: paying the
+          // same debt another way could pay it twice (§14.8).
+          onTap: deadEnd || !canSwitch ? null : onOpen,
           child: deadEnd
               ? line
               : KeyedSubtree(
@@ -1016,20 +1032,28 @@ class _ReviewSend extends StatelessWidget {
     String who(String id) =>
         view.bill.displayNameOf(id, creatorId: view.creatorId);
     final unpayable = {for (final u in owed.unpayable) u.id};
-    // `renderObligation` emits one payment per carried settlement, in order.
     final carried = [
       for (final s in owed.settlements)
         if (!unpayable.contains(s.to)) s,
     ];
     final payments = owed.request.payments;
-    final paired = carried.length == payments.length;
+    // Who each output pays, as the request itself says: `recipients` and
+    // `payments` are one order, so no row is matched by its position in a
+    // second list.
+    final recipients = owed.request.recipients;
+    String? toOf(int i) => i < recipients.length ? recipients[i] : null;
+    protocol.Settlement? settlementOf(String? to) =>
+        owed.settlements.where((s) => s.to == to).firstOrNull;
     final total = payments.fold<int>(0, (sum, p) => sum + p.zatoshi);
     final setter = view.rateSetBy;
     final setterIsPaid = setter != null && carried.any((s) => s.to == setter);
     final error = Theme.of(context).colorScheme.error;
     final rate = view.bill.rate?.minorUnitsPerZec;
-    final off = _percentOff(rate, live);
-    final replaced = {for (final r in view.redirectedAddresses) r.id};
+    final current = live;
+    final off = rate == null || current == null
+        ? null
+        : ratePercentOff(rate, current);
+    final replaced = {for (final r in view.replacedAddresses) r.id};
 
     return AlertDialog(
       title: const Text('Send this?'),
@@ -1044,12 +1068,12 @@ class _ReviewSend extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      paired
-                          ? '${who(carried[i].to)} · '
-                                '${formatAmount(carried[i].amount, currency)}'
-                          : p.label ?? 'Payment ${i + 1}',
-                    ),
+                    Text(switch ((toOf(i), settlementOf(toOf(i)))) {
+                      (final to?, final settled?) =>
+                        '${who(to)} · '
+                            '${formatAmount(settled.amount, currency)}',
+                      _ => p.label ?? 'Payment ${i + 1}',
+                    }),
                     Text(
                       _zec(p.zatoshi),
                       key: Key('splits_review_zec_$i'),
@@ -1072,25 +1096,25 @@ class _ReviewSend extends StatelessWidget {
                       ),
                     // §10.7: an id no key is bound to is a name anyone on
                     // the bill can write for, address included.
-                    if (paired &&
-                        !view.identities.bound.containsKey(carried[i].to))
+                    if (toOf(i) case final to?
+                        when !view.identities.bound.containsKey(to))
                       Text(
-                        '${who(carried[i].to)} hasn’t joined on their phone. Check this address with them.',
-                        key: Key('splits_review_unbound_${carried[i].to}'),
+                        '${who(toOf(i)!)} hasn’t joined on their phone. Check this address with them.',
+                        key: Key('splits_review_unbound_${toOf(i)}'),
                         style: TextStyle(color: error),
                       ),
                     // §14.2: paid somewhere they ranked lower than first.
-                    if (paired && (via[carried[i].to] ?? 0) > 0)
+                    if ((via[toOf(i)] ?? 0) > 0)
                       Text(
-                        'Their ${ordinal(via[carried[i].to]! + 1)} choice, '
+                        'Their ${ordinal(via[toOf(i)]! + 1)} choice, '
                         'not their first.',
-                        key: Key('splits_review_lower_${carried[i].to}'),
+                        key: Key('splits_review_lower_${toOf(i)}'),
                         style: TextStyle(color: error),
                       ),
-                    if (paired && replaced.contains(carried[i].to))
+                    if (replaced.contains(toOf(i)))
                       Text(
                         'This address replaced an earlier one.',
-                        key: Key('splits_review_replaced_${carried[i].to}'),
+                        key: Key('splits_review_replaced_${toOf(i)}'),
                         style: TextStyle(color: error),
                       ),
                   ],
@@ -1107,7 +1131,7 @@ class _ReviewSend extends StatelessWidget {
                 style: TextStyle(color: error),
               ),
             ],
-            if (off != null && off.abs() >= 5) ...[
+            if (off != null && off.abs() >= rateWarningPercent) ...[
               const SizedBox(height: 8),
               Text(
                 'This rate is ${off.abs()}% ${off > 0 ? 'above' : 'below'} '
@@ -1280,12 +1304,4 @@ String _short(String? address) {
   if (address.length <= 20) return address;
   return '${address.substring(0, 10)}…'
       '${address.substring(address.length - 8)}';
-}
-
-/// How far [rate] sits from [live], in whole percent of [live], or null when
-/// either is missing. By integer arithmetic: both are minor units per ZEC.
-int? _percentOff(int? rate, int? live) {
-  if (rate == null || live == null || live <= 0) return null;
-  final diff = BigInt.from(rate) - BigInt.from(live);
-  return (diff * BigInt.from(100) ~/ BigInt.from(live)).toInt();
 }

@@ -9,8 +9,6 @@ import 'package:splitz_core/splitz_core.dart' as protocol;
 
 import 'package:splitz_host/splitz_host.dart';
 
-import '../view/naming.dart' show formatBaseUnits;
-
 /// The transactions this account received, each with the zatoshi it brought.
 ///
 /// Only those that are mined: one still in the mempool may never land.
@@ -382,18 +380,20 @@ class SplitsController extends ChangeNotifier {
   }
 
   /// The bills as the host layer folds them, from what each view holds.
-  List<splitz.FoldedBill> get _folded => [
-    for (final v in _bills)
-      splitz.FoldedBill(
-        bill: v.bill,
-        setAside: v.setAside,
-        withdrawn: const [],
-        replacedAddresses: v.replacedAddresses,
-        identities: v.identities,
-        paymentDigests: v.paymentDigests,
-        paymentAuthors: v.paymentAuthors,
-      ),
-  ];
+  List<splitz.FoldedBill> get _folded => [for (final v in _bills) _foldedOf(v)];
+
+  /// [v] as the host layer folds it, from what the view holds.
+  static splitz.FoldedBill _foldedOf(BillView v) => splitz.FoldedBill(
+    bill: v.bill,
+    creatorId: v.creatorId,
+    setAside: v.setAside,
+    withdrawn: const [],
+    replacedAddresses: v.replacedAddresses,
+    identities: v.identities,
+    paymentDigests: v.paymentDigests,
+    paymentAuthors: v.paymentAuthors,
+    rateAuthor: v.rateSetBy,
+  );
 
   /// What the last action could not do, or null. Cleared by the next one.
   ///
@@ -485,8 +485,7 @@ class SplitsController extends ChangeNotifier {
   Future<void> _priceAsCreator(Iterable<String> billIds) async {
     for (final id in billIds.toList()) {
       final view = _bills.where((b) => b.id == id).firstOrNull;
-      if (view == null || view.creatorId != me) continue;
-      if (view.rateSetBy == view.creatorId) continue;
+      if (view == null || !creatorRateMissing(_foldedOf(view), me)) continue;
       if (!_creatorPriceTried.add(id)) continue;
       int? live;
       try {
@@ -499,7 +498,7 @@ class SplitsController extends ChangeNotifier {
       // by hand meanwhile, and a feed answer written now would order after
       // that price (§10.2) and replace it.
       final now = _bills.where((b) => b.id == id).firstOrNull;
-      if (now == null || now.rateSetBy == now.creatorId) continue;
+      if (now == null || !creatorRateMissing(_foldedOf(now), me)) continue;
       await setRate(
         billId: id,
         currency: view.bill.currency,
@@ -691,8 +690,8 @@ class SplitsController extends ChangeNotifier {
   /// Corrects an expense this device wrote (§10.4).
   ///
   /// **An amendment replaces its target wholesale**, so the payload is built
-  /// from the entry as it stands and then changed — anything left out is
-  /// deleted rather than kept. Only the author may amend, and the fold sets
+  /// from the expense as the bill applies it and then changed — anything left
+  /// out is deleted rather than kept. Only the author may amend, and the fold sets
   /// aside anybody else's attempt with `unauthorized_entry`.
   Future<void> editExpense({
     required String billId,
@@ -703,31 +702,31 @@ class SplitsController extends ChangeNotifier {
     String? description,
   }) async {
     await _guard(() async {
-      final held = await _store.read(billId);
-      final target = held.where((e) => e['id'] == entryId).firstOrNull;
-      if (target == null || target['kind'] != 'addExpense') {
+      // The host builds it from the expense as the bill applies it now, so a
+      // correction made since the entry was written is kept (§10.4).
+      final folded = await _storedFold(billId);
+      final expenseId = folded.expenseEntries.entries
+          .where((e) => e.value == entryId)
+          .map((e) => e.key)
+          .firstOrNull;
+      if (expenseId == null) {
         throw protocol.SplitError(
           protocol.SplitCode.unknownEntry,
           'This device does not hold the expense being corrected',
         );
       }
-      final current = Map<String, dynamic>.from(
-        target['expense'] as Map<String, dynamic>,
-      );
-      if (paidBy != null) current['paidBy'] = paidBy;
-      if (amountMinorUnits != null) current['amount'] = amountMinorUnits;
-      if (split != null) current['split'] = split;
-      if (description != null) current['description'] = description;
-
       final seed = await _requireIdentity();
       final host = _host(seed);
       final entry = await splitz.signEntry(
         host: host,
-        entry: splitz.amendEntry(
+        entry: splitz.amendExpense(
           host: host,
-          targetId: entryId,
-          member: protocol.payloadForKind['addExpense']!,
-          payload: current,
+          folded: folded,
+          expenseId: expenseId,
+          paidBy: paidBy,
+          amount: amountMinorUnits,
+          split: split,
+          description: description,
         ),
         billId: billId,
       );
@@ -760,7 +759,7 @@ class SplitsController extends ChangeNotifier {
           );
     return planRemoval(
       folded: folded,
-      creatorId: _creatorOf(log),
+      creatorId: folded.creatorId,
       log: log,
       id: id,
       me: me,
@@ -1061,14 +1060,9 @@ class SplitsController extends ChangeNotifier {
   }) async {
     await _guard(() async {
       final held = await _store.read(billId);
-      final joins = protocol
-          .orderEntries(held)
-          .where(
-            (e) =>
-                e['kind'] == 'joinBill' &&
-                (e['participant'] as Map<String, dynamic>?)?['id'] == id,
-          )
-          .toList();
+      // Every join still stating them, from the plan (§10.8): one left
+      // standing puts them back on the bill.
+      final joins = (await _removalPlanOver(billId, held, id)).joins;
       if (joins.isEmpty) {
         throw protocol.SplitError(
           protocol.SplitCode.unknownParticipant,
@@ -1077,14 +1071,12 @@ class SplitsController extends ChangeNotifier {
       }
       final seed = await _requireIdentity();
       final host = _host(seed);
-      // Every join they wrote, not only the first: one left standing puts
-      // them back on the bill.
       final voids = <Map<String, dynamic>>[];
       for (final join in joins) {
         voids.add(
           await splitz.signEntry(
             host: host,
-            entry: splitz.voidEntry(host: host, targetId: join['id'] as String),
+            entry: splitz.voidEntry(host: host, targetId: join),
             billId: billId,
           ),
         );
@@ -1371,15 +1363,8 @@ class SplitsController extends ChangeNotifier {
     List<splitz.FoldedBill> folded,
   ) async {
     final received = await _received();
-    final named = <String>{
-      for (final f in folded)
-        for (final p in f.bill.payments)
-          if (p.to == me &&
-              p.method == 'shieldedZec' &&
-              p.reference != null &&
-              !f.bill.confirmedPayments.contains(p.id))
-            splitz.txidKey(p.reference!),
-    };
+    // The candidates §14.7 reads memos for, as the host selects them.
+    final named = splitz.memoTxids(folded, me);
     final asked = {
       for (final t in received)
         if (named.contains(splitz.txidKey(t.txid))) t.txid,
@@ -1460,15 +1445,6 @@ class SplitsController extends ChangeNotifier {
     final before =
         _bills.where((b) => b.id == billId).firstOrNull?.entryCount ?? 0;
 
-    // The key this sync opens and seals under. A key replaced while the sync
-    // is in flight is not the one a mismatch below is about.
-    String? used;
-    try {
-      used = await _keys.readBillKey(billId);
-    } on StateError {
-      used = null;
-    }
-
     SyncResult? result;
     try {
       result = await _sync.sync(billId);
@@ -1485,22 +1461,8 @@ class SplitsController extends ChangeNotifier {
       );
       notifyListeners();
     } on Object catch (e) {
-      if (e is SplitsSyncException &&
-          e.code == protocol.SplitCode.inviteKeyMismatch) {
-        // §9.4: the key held for this bill is not the one it was made with,
-        // so it opens only what its maker sealed for this device. Kept, it
-        // would also refuse the bill's real invite as a conflict. Nothing
-        // the bill's own create commits to can be forged under its id, so
-        // this never drops the key of a bill that is genuine. Only the key
-        // the sync used is dropped: one chosen since then stays.
-        String? held;
-        try {
-          held = await _keys.readBillKey(billId);
-        } on StateError {
-          held = null;
-        }
-        if (used != null && held == used) await _keys.forgetBill(billId);
-      }
+      // §9.4: a key refused as not the bill's own is discarded by the sync
+      // itself, so the bill's real invite is not then refused as a conflict.
       // A sync pulls and merges before it pushes, so a push the relay
       // refused still leaves what the others wrote in the store: shown, not
       // held back until the next sync that fully succeeds.
@@ -1828,18 +1790,29 @@ class SplitsController extends ChangeNotifier {
       if (intent == null) return;
       final built = intent.txid;
       if (!landed && built != null) {
-        switch (await _heldState(built)) {
-          case HeldTransaction.waiting:
+        // §14.3: the rule is the host's; this wallet supplies where its own
+        // history shows the transaction the note names.
+        final refusal = namedSendRefusal(
+          intent,
+          state: switch (await _heldState(built)) {
+            HeldTransaction.mined => TransactionState.mined,
+            HeldTransaction.waiting => TransactionState.waiting,
+            HeldTransaction.expired => TransactionState.expired,
+            null => null,
+          },
+        );
+        switch (refusal) {
+          case NamedSendRefusal.waiting:
             throw const SplitsRefusal(
               'Your wallet still holds this transaction and may send it. '
               'Wait until it goes through or expires.',
             );
-          case HeldTransaction.mined:
+          case NamedSendRefusal.mined:
             throw const SplitsRefusal(
               'Your wallet shows this transaction went through. Record it '
               'instead.',
             );
-          case HeldTransaction.expired || null:
+          case null:
             break;
         }
       }
@@ -1959,7 +1932,11 @@ class SplitsController extends ChangeNotifier {
       seed: await _requireIdentity(),
     );
     final refusedFirst = trial.setAside
-        .where((a) => a.id == entry['id'] && !_waitsOnOthers.contains(a.code))
+        .where(
+          (a) =>
+              a.id == entry['id'] &&
+              !splitz.codesAnEntryOutgrows.contains(a.code),
+        )
         .firstOrNull;
     if (refusedFirst != null) {
       throw SplitsRefusal(
@@ -1979,14 +1956,6 @@ class SplitsController extends ChangeNotifier {
       );
     }
   }
-
-  /// Refusals an entry can outgrow: each names something this device may not
-  /// hold yet, and the entry applies once a sync brings it.
-  static const Set<String> _waitsOnOthers = {
-    protocol.SplitCode.unknownParticipant,
-    protocol.SplitCode.unknownEntry,
-    protocol.SplitCode.unknownPayment,
-  };
 
   /// Throws while a send from [billId] is under way or unresolved.
   Future<void> _refuseWhileSending(String billId) async {
@@ -2075,10 +2044,26 @@ class SplitsController extends ChangeNotifier {
       }
 
       final carried = await _swaps.tradableAssets();
-      final match = carried.where((a) => a.answers(asset, chain)).firstOrNull;
-      if (match == null) {
-        throw SwapException('This provider does not deliver $asset on $chain');
+      // §15.7: the deposit is native ZEC, on its own chain.
+      if (zecAssetIn(carried) == null) {
+        throw const SwapException(
+          'This provider does not take ZEC from a Zcash wallet',
+        );
       }
+      // One listing, or none: [deliverableOn] offers only an asset listed
+      // once on its chain, and the quote is held to the same rule.
+      final matches = [
+        for (final a in carried)
+          if (a.answers(asset, chain)) a,
+      ];
+      if (matches.length != 1) {
+        throw SwapException(
+          matches.isEmpty
+              ? 'This provider does not deliver $asset on $chain'
+              : '$asset is listed more than once on $chain. Nothing was quoted.',
+        );
+      }
+      final match = matches.single;
 
       // The bill's own rate, not a live one: §7 snapshots a price so every
       // device converts the same debt to the same ZEC figure.
@@ -2177,39 +2162,21 @@ class SplitsController extends ChangeNotifier {
       // Captured first, deliberately: after the wallet is called this device
       // may be anywhere.
       final zatoshi = quote.amountInZatoshi;
-      // Remembered locally so this device can ask the provider how it went.
-      // The bill carries the reference and nothing else: a deposit address is
-      // one provider's routing detail for one swap, not something every
-      // participant should hold forever.
-      final watch = SwapWatch(
+      // The request and the note §14.3 asks for are the host's: the note
+      // carries the swap, so its record can be written after a restart. The
+      // watch it carries is remembered locally so this device can ask the
+      // provider how it went; the bill holds only the reference.
+      final deposit = swapDeposit(
         billId: billId,
-        reference: quote.paymentReference,
+        quote: quote,
         to: to,
-        depositAddress: quote.depositAddress,
-        depositMemo: quote.depositMemo,
-        assetSymbol: quote.asset.symbol,
-        assetChain: quote.asset.chain,
-      );
-
-      // The rate the quote was priced from, carried onto the record: checked
-      // above to be the one that sized the deposit.
-      final uri = protocol.renderUri([
-        protocol.Zip321Payment(
-          address: quote.depositAddress,
-          zatoshi: zatoshi,
-          label: 'swap to ${quote.asset.symbol}',
-        ),
-      ]);
-
-      final note = PendingSend(
-        billId: billId,
-        uri: uri,
-        carried: {to: amountMinorUnits},
-        at: protocol.canonicalInstant(_wallet.now().toUtc().toIso8601String()),
-        swap: watch,
-        zatoshi: zatoshi,
+        amountMinorUnits: amountMinorUnits,
         rate: rate,
+        at: protocol.canonicalInstant(_wallet.now().toUtc().toIso8601String()),
       );
+      final uri = deposit.uri;
+      final note = deposit.note;
+      final watch = note.swap!;
       try {
         await _sends.begin(note);
       } on SendInFlight {
@@ -2343,9 +2310,11 @@ class SplitsController extends ChangeNotifier {
         // What the recipient is guaranteed, when the quote said: the record
         // claims the whole debt, and the payee confirming it is shown what
         // was due to arrive (§14.2).
-        note: guaranteed == null
-            ? '${watch.assetSymbol} on ${watch.assetChain}'
-            : 'at least $guaranteed ${watch.assetSymbol} on ${watch.assetChain}',
+        note: swapRecordNote(
+          watch.assetSymbol,
+          watch.assetChain,
+          guaranteed: guaranteed,
+        ),
       ),
       billId: watch.billId,
     );
@@ -2468,13 +2437,14 @@ class SplitsController extends ChangeNotifier {
             : 'their Zcash address isn’t one this wallet can send to';
       case 'swap':
         final (asset, chain) = (payout.asset, payout.chain);
-        bool blank(String? s) => s == null || s.trim().isEmpty;
-        if (asset == null ||
-            chain == null ||
-            blank(asset) ||
-            blank(chain) ||
-            blank(payout.address)) {
-          return 'their ${blank(asset) ? 'swap' : asset} payout is incomplete';
+        // Complete or not is the host's [splitz.laneFor] answer, the one the
+        // request itself is rendered by.
+        final lane = splitz.laneFor(
+          protocol.Participant(id: '', name: '', payouts: [payout]),
+        );
+        if (lane != splitz.SettleLane.swap || asset == null || chain == null) {
+          final named = asset == null || asset.trim().isEmpty ? 'swap' : asset;
+          return 'their $named payout is incomplete';
         }
         final List<TradableAsset> carried;
         try {
@@ -2700,7 +2670,7 @@ class SplitsController extends ChangeNotifier {
         views.add(
           BillView(
             bill: folded.bill,
-            creatorId: _creatorOf(entries),
+            creatorId: folded.creatorId,
             setAside: folded.setAside,
             replacedAddresses: folded.replacedAddresses,
             identities: folded.identities,
@@ -2741,16 +2711,6 @@ class SplitsController extends ChangeNotifier {
     }
     _bills = List.unmodifiable(views);
     await _findArrivals();
-  }
-
-  static String _creatorOf(List<Map<String, dynamic>> entries) {
-    for (final entry in entries) {
-      if (entry['kind'] == 'createBill') {
-        final author = entry['author'];
-        return author is String ? author : '';
-      }
-    }
-    return '';
   }
 
   Future<void> _guard(Future<void> Function() body) async {

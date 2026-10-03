@@ -18,7 +18,9 @@ import 'package:flutter/services.dart';
 
 import '../view/chrome.dart';
 import '../view/naming.dart';
-import 'add_expense_screen.dart' show figureRefusal, parseMinorUnits;
+import 'package:splitz_host/splitz_host.dart' show BillNaming, parseAmountIn;
+
+import 'add_expense_screen.dart' show figureRefusal;
 import 'splits_scope.dart';
 
 /// Which of §9.2's two off-request methods is being recorded.
@@ -93,7 +95,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen>
     // reaches this before any rebuild has disabled the button.
     if (_saving) return;
     if (!(_form.currentState?.validate() ?? false)) return;
-    final amount = parseMinorUnits(_amount.text, currency: currency);
+    final amount = parseAmountIn(_amount.text, currency);
     if (amount == null || amount <= 0) return;
 
     setState(() => _saving = true);
@@ -178,7 +180,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen>
                 errorMaxLines: fieldNoteLines,
               ),
               validator: (v) {
-                final parsed = parseMinorUnits(v ?? '', currency: currency);
+                final parsed = parseAmountIn(v ?? '', currency);
                 if (parsed == null) return figureRefusal(currency);
                 // A payment of nothing is not a payment, and §9.2 refuses a
                 // negative one.

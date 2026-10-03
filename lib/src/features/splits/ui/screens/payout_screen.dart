@@ -13,6 +13,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:splitz_core/splitz_core.dart' as splitz;
+import 'package:splitz_host/splitz_host.dart' show rankedPayouts;
 
 import '../view/chrome.dart';
 import 'splits_scope.dart';
@@ -71,9 +72,21 @@ class _PayoutScreenState extends State<PayoutScreen> with SplitsActions {
   bool _alsoZec = false;
   bool _alsoCash = false;
 
-  /// Later payouts this screen does not edit — a swap declared after the
-  /// first — written back as they were so saving never drops them.
-  List<splitz.Payout> _kept = const [];
+  /// Every swap this device declared, the first included, in its order.
+  List<splitz.Payout> _declaredSwaps = const [];
+
+  /// The swaps written back after the first choice: every one declared
+  /// before that the first does not replace (§9.1, the host's
+  /// [rankedPayouts]) — a new swap replaces only those of its own asset, so a
+  /// first swap changed to another asset is kept rather than dropped.
+  List<splitz.Payout> get _kept {
+    final first = _first();
+    if (first.isEmpty || first.single.type != 'swap') return _declaredSwaps;
+    return rankedPayouts(
+      splitz.Participant(id: '', name: '', payouts: _declaredSwaps),
+      first.single,
+    ).skip(1).toList();
+  }
 
   bool _loaded = false;
   bool _saving = false;
@@ -110,9 +123,9 @@ class _PayoutScreenState extends State<PayoutScreen> with SplitsActions {
     final later = me.payouts.skip(1);
     _alsoZec = later.any((p) => p.type == 'zec');
     _alsoCash = later.any((p) => p.type == 'cash');
-    _kept = [
-      for (final p in later)
-        if (p.type != 'zec' && p.type != 'cash') p,
+    _declaredSwaps = [
+      for (final p in me.payouts)
+        if (p.type == 'swap') p,
     ];
     switch (first.type) {
       case 'swap':

@@ -251,7 +251,7 @@ class _SwapScreenState extends State<SwapScreen> {
                   children: [
                     _Line(
                       label: 'You send',
-                      value: '${_zec(quote.amountInZatoshi)} ZEC',
+                      value: formatZec(quote.amountInZatoshi),
                     ),
                     _Line(
                       label: '$who receives',
@@ -260,13 +260,13 @@ class _SwapScreenState extends State<SwapScreen> {
                       // before slippage, and only the floor is what the
                       // recipient is guaranteed.
                       value: quote.minAmountOut == null
-                          ? '${formatBaseUnits(quote.amountOut, quote.asset.decimals)} '
+                          ? '${tokenAmount(quote.amountOut, quote.asset.decimals)} '
                                 '${quote.asset.symbol} on ${quote.asset.chain}'
                           : 'at least '
-                                '${formatBaseUnits(quote.minAmountOut!, quote.asset.decimals)} '
+                                '${tokenAmount(quote.minAmountOut!, quote.asset.decimals)} '
                                 '${quote.asset.symbol} on ${quote.asset.chain} '
                                 '(quoted '
-                                '${formatBaseUnits(quote.amountOut, quote.asset.decimals)})',
+                                '${tokenAmount(quote.amountOut, quote.asset.decimals)})',
                     ),
                     // What the recipient is guaranteed, against the debt,
                     // where one asset is the bill's currency by another name:
@@ -398,16 +398,6 @@ class _SwapScreenState extends State<SwapScreen> {
     final short = BigInt.from(debt) - cents;
     return short > BigInt.zero ? short.toInt() : null;
   }
-
-  /// Zatoshi as ZEC, by integer arithmetic. One ZEC is 100_000_000 zatoshi.
-  static String _zec(int zatoshi) {
-    final whole = zatoshi ~/ 100000000;
-    final fraction = (zatoshi % 100000000)
-        .toString()
-        .padLeft(8, '0')
-        .replaceAll(RegExp(r'0+$'), '');
-    return fraction.isEmpty ? '$whole' : '$whole.$fraction';
-  }
 }
 
 /// The rate the swap's ZEC was priced at, who set it, and how it compares
@@ -429,12 +419,9 @@ class _SwapRate extends StatelessWidget {
         view.bill.displayNameOf(id, creatorId: view.creatorId);
     final setter = view.rateSetBy;
     final live = this.live;
-    final off = live == null || live <= 0
+    final off = live == null
         ? null
-        : ((BigInt.from(rate.minorUnitsPerZec) - BigInt.from(live)) *
-                  BigInt.from(100) ~/
-                  BigInt.from(live))
-              .toInt();
+        : ratePercentOff(rate.minorUnitsPerZec, live);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -450,7 +437,7 @@ class _SwapRate extends StatelessWidget {
             key: const Key('splits_swap_rate_unchecked'),
             style: error,
           )
-        else if (off != null && off.abs() >= 5)
+        else if (off != null && off.abs() >= rateWarningPercent)
           Text(
             'This rate is ${off.abs()}% ${off > 0 ? 'above' : 'below'} the '
             'current price of ${formatAmount(live, currency)} a ZEC, so this '

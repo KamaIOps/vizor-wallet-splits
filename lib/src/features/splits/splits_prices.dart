@@ -44,22 +44,26 @@ class WalletZecPrices implements ZecPrices {
     if (usd == null || !usd.isFinite || usd <= 0) return null;
 
     // §7 snapshots an integer, so the rounding happens once — here, where the
-    // feed's own precision is known — rather than at every place that reads
-    // it. Rounded to nearest rather than truncated: truncating would make
-    // every price a shade low, and the same shade every time.
-    //
-    // The product is checked, not just the price: a finite price can scale to
-    // infinity, and `round()` throws on infinity rather than returning a
-    // figure the bound below could refuse.
-    final scaled = usd * _minorUnits;
-    if (!scaled.isFinite) return null;
-    final cents = scaled.round();
-
+    // feed's own precision is known — and the way the host's price readers
+    // round: halves up, in integers. Multiplying the double instead rounds
+    // the wrong way on figures like 1.005, whose binary value is a shade
+    // under 1.005, so 1.005 * 100 is 100.49999999999999. The double's
+    // shortest decimal text is the figure the feed sent, and that is what is
+    // scaled. A figure written with an exponent is past any real price.
+    final written = RegExp(r'^([0-9]+)\.([0-9]+)$').firstMatch(usd.toString());
+    if (written == null) return null;
+    final fraction = written[2]!.padRight(3, '0');
+    final scaled =
+        BigInt.parse(written[1]!) * BigInt.from(_minorUnits) +
+        BigInt.parse(fraction.substring(0, 2)) +
+        (fraction.codeUnitAt(2) >= 0x35 ? BigInt.one : BigInt.zero);
     // A figure that cannot be held exactly is not a price. An IEEE-754 double
     // is exact only to 2^53-1, and a bill's arithmetic is integers all the
     // way down.
-    if (cents <= 0 || cents > 9007199254740991) return null;
-    return cents;
+    if (scaled <= BigInt.zero || scaled > BigInt.from(9007199254740991)) {
+      return null;
+    }
+    return scaled.toInt();
   }
 }
 
