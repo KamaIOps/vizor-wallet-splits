@@ -136,7 +136,7 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
             await _zip32IndexFromWallet(accountUuid);
         indexUnknown = index == null;
         if (secret != null && index != null) {
-          identitySecret = splitsIdentitySecret(
+          identitySecret = identitySecretFromMnemonic(
             mnemonic: secret.mnemonic,
             passphrase: secret.bip39Passphrase,
             accountIndex: index,

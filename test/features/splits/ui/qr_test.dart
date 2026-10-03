@@ -31,9 +31,11 @@ Widget app(SplitsController c, Widget home) => SplitsScope(
 
 void main() {
   testWidgets('a payload at the protocol cap draws', (t) async {
-    // The exact figure §11.2 fixes, not an approximation of it.
-    final atTheCap = 'splitz1:${'A' * (splitz.payloadCap - 'splitz1:'.length)}';
-    expect(atTheCap.length, splitz.payloadCap);
+    // §11.2 caps the body behind the prefix, and leaves room for the longer
+    // prefix: the longest string the protocol produces is `splitzd1:` and a
+    // body at the cap, which is what a version-40 code holds at level M.
+    final atTheCap = 'splitzd1:${'A' * splitz.payloadCap}';
+    expect(atTheCap.length, 2331);
 
     await t.pumpWidget(
       MaterialApp(
@@ -65,7 +67,7 @@ void main() {
       MaterialApp(
         home: Center(
           child: QrImageView(
-            data: 'A' * (splitz.payloadCap + 1),
+            data: 'A' * (2331 + 1),
             version: QrVersions.auto,
             errorCorrectionLevel: QrErrorCorrectLevel.M,
             size: 240,

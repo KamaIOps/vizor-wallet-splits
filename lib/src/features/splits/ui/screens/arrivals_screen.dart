@@ -4,6 +4,13 @@ library;
 import 'package:flutter/material.dart';
 import 'package:splitz_core/host.dart' as splitz;
 import 'package:splitz_core/splitz_core.dart' as protocol;
+import 'package:splitz_host/splitz_host.dart'
+    show
+        BillNaming,
+        PaymentConcern,
+        concernsBeforeConfirming,
+        ratePercentOff,
+        shortForm;
 
 import '../state/splits_controller.dart';
 import '../view/chrome.dart';
@@ -240,11 +247,10 @@ List<String> paymentConcerns({
         'more than this app can count. Check it by hand.',
       );
     }
-    // Short by more than 5%: the whole-percent line the payer's review draws
-    // for a rate, drawn here for what the ZEC is worth.
-    if (worth != null &&
-        BigInt.from(worth) * BigInt.from(100) <
-            BigInt.from(p.amount) * BigInt.from(95)) {
+    // Short by more than 5%: decided by §14.7's own exact test, the one
+    // that holds a record back from one-tap confirm, never by [worth], which
+    // is rounded for display and answers differently near the line.
+    if (worth != null && !splitz.zatoshiCoversPayment(zatoshi, p, rate)) {
       out.add(
         '${formatZec(zatoshi)} is worth '
         '${formatAmount(worth, p.currency)} at the bill\'s price of '
@@ -253,32 +259,46 @@ List<String> paymentConcerns({
       );
     }
   }
-  if (view?.rateSetBy != null && view!.rateSetBy == p.from) {
+  // Which of these hold is §14.7's, the host's; the words are this wallet's.
+  final raised = view == null
+      ? const <PaymentConcern>[]
+      : concernsBeforeConfirming(
+          p,
+          splitz.FoldedBill(
+            bill: view.bill,
+            creatorId: view.creatorId,
+            setAside: view.setAside,
+            withdrawn: const [],
+            replacedAddresses: view.replacedAddresses,
+            identities: view.identities,
+            rateAuthor: view.rateSetBy,
+          ),
+          live: live,
+        );
+  if (raised.contains(PaymentConcern.rateSetByPayer)) {
     out.add('${who(p.from)} set this bill\'s price and is the one paying.');
   }
   final paidAt = p.paidAtRate;
-  if (paidAt != null &&
-      rate != null &&
-      paidAt.minorUnitsPerZec != rate.minorUnitsPerZec) {
+  if (raised.contains(PaymentConcern.pricedAtAnotherRate) && paidAt != null) {
     out.add(
-      'Priced at ${formatAmount(paidAt.minorUnitsPerZec, p.currency)} a ZEC, '
-      'where the bill says ${formatAmount(rate.minorUnitsPerZec, p.currency)}.',
+      rate == null
+          ? 'Priced at ${formatAmount(paidAt.minorUnitsPerZec, p.currency)} a '
+                'ZEC, where the bill has no price.'
+          : 'Priced at ${formatAmount(paidAt.minorUnitsPerZec, p.currency)} a '
+                'ZEC, where the bill says '
+                '${formatAmount(rate.minorUnitsPerZec, p.currency)}.',
     );
   }
   final priced = paidAt?.minorUnitsPerZec ?? rate?.minorUnitsPerZec;
-  if (priced != null && live != null && live > 0) {
-    final off =
-        ((BigInt.from(priced) - BigInt.from(live)) *
-                BigInt.from(100) ~/
-                BigInt.from(live))
-            .toInt();
-    if (off.abs() >= 5) {
-      out.add(
-        'That price is ${off.abs()}% ${off > 0 ? 'above' : 'below'} today\'s '
-        '${formatAmount(live, p.currency)} a ZEC, so it '
-        '${off > 0 ? 'settles more of the debt than the ZEC is worth' : 'asks for more ZEC than the debt'}.',
-      );
-    }
+  if (raised.contains(PaymentConcern.rateFarFromLive) &&
+      priced != null &&
+      live != null) {
+    final off = ratePercentOff(priced, live)!;
+    out.add(
+      'That price is ${off.abs()}% ${off > 0 ? 'above' : 'below'} today\'s '
+      '${formatAmount(live, p.currency)} a ZEC, so it '
+      '${off > 0 ? 'settles more of the debt than the ZEC is worth' : 'asks for more ZEC than the debt'}.',
+    );
   }
   return out;
 }
@@ -383,14 +403,9 @@ class _Arrival extends StatelessWidget {
   }
 }
 
-/// [reference] as a person checks it against their wallet: whole, or its
-/// first 10 characters and an ellipsis, the shortest prefix §14.2 lets
-/// stand for it.
-String shortReference(String reference) {
-  final runes = reference.runes.toList();
-  if (runes.length <= 12) return reference;
-  return '${String.fromCharCodes(runes.take(10))}…';
-}
+/// [reference] as a narrow screen shows it: the host's [shortForm], which
+/// the payee's review check counts as shown (§14.2).
+String shortReference(String reference) => shortForm(reference);
 
 /// [at] as a calendar day in UTC, which a block time is: 2026-10-01.
 String _day(DateTime at) =>

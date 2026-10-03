@@ -4,6 +4,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:splitz_core/host.dart' as splitz;
 import 'package:splitz_core/splitz_core.dart' as protocol;
+import 'package:splitz_host/splitz_host.dart' show BillNaming, nameSkeleton;
 
 import '../state/splits_controller.dart';
 import '../view/chrome.dart';

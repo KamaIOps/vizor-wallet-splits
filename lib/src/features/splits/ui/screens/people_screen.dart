@@ -14,10 +14,10 @@ library;
 import 'package:flutter/material.dart';
 import 'package:splitz_core/host.dart' as hostapi;
 import 'package:splitz_core/splitz_core.dart' as protocol;
+import 'package:splitz_host/splitz_host.dart' show BillNaming;
 
 import '../state/splits_controller.dart';
 import '../view/chrome.dart';
-import '../view/naming.dart';
 import '../view/removal_words.dart';
 import 'payout_screen.dart';
 import 'share_bill_screen.dart';

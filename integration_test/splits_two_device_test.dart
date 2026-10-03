@@ -105,7 +105,7 @@ void main() {
           .read(accountProvider.notifier)
           .getSoftwareWalletSecretForAccount(accountUuid);
       if (secret != null) {
-        identitySecret = splitsIdentitySecret(
+        identitySecret = identitySecretFromMnemonic(
           mnemonic: secret.mnemonic,
           passphrase: secret.bip39Passphrase,
         );

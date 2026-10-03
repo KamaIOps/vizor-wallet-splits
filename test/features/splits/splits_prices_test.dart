@@ -36,6 +36,20 @@ void main() {
   });
 
   group('rounding', () {
+    test(
+      'halves up, from the figure the feed sent, never from its binary',
+      () async {
+        // 1.005 * 100 is 100.49999999999999 in binary floating point, and
+        // 0.285 * 100 is 28.499999999999996: multiplying rounds both down.
+        expect(await _cents(1.005), 101);
+        expect(await _cents(0.285), 29);
+        expect(await _cents(36.865), 3687);
+        expect(await _cents(1.0049), 100);
+        // Written with an exponent, a figure is past any real price.
+        expect(await _cents(1e-7), isNull);
+      },
+    );
+
     test('to nearest, not toward zero', () async {
       // Truncating would make every price a shade low, and the same shade
       // every time, which is a bias rather than a rounding error. 0.125 and
@@ -44,16 +58,6 @@ void main() {
       expect(await _cents(0.125), 13);
       expect(await _cents(0.135), 14);
     });
-
-    test(
-      'a decimal the feed cannot represent lands where the double does',
-      () async {
-        // 1.005 is not representable: the nearest double times 100 is
-        // 100.49999999999999, so the cent below is the honest answer and not a
-        // rounding bug to chase.
-        expect(await _cents(1.005), 100);
-      },
-    );
   });
 
   group('a figure that is not a price is refused, never thrown', () {

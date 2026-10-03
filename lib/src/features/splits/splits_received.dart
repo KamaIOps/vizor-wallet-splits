@@ -2,7 +2,8 @@
 library;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:splitz_core/host.dart' show IncomingTransaction;
+import 'package:splitz_core/host.dart'
+    show IncomingTransaction, txidInSendOrder;
 import 'package:splitz_core/splitz_core.dart' show canonicalInstant;
 import 'package:splitz_host/splitz_host.dart' show OwnTransaction;
 
@@ -16,8 +17,11 @@ import 'ui/state/splits_controller.dart' show HeldTransaction;
 ///
 /// A transaction still in the mempool, or one that expired unmined, is left
 /// out: it may never land, and a confirmation written on it would settle a
-/// debt nothing settled. What it brought is the account's balance change, so
-/// a transaction that also spent from this account counts only its net.
+/// debt nothing settled (§14.7). What it brought is the account's balance
+/// change: §14.7 asks for the transaction's outputs to this account, and a
+/// payment from somebody else spends none of this account's notes, so the
+/// two are one figure. A transaction that also spent from this account is
+/// one of its own, never a payer's.
 Future<List<IncomingTransaction>> splitsReceived({
   required WidgetRef ref,
   required String accountUuid,
@@ -166,17 +170,11 @@ Future<Set<String>> splitsKnownTxids({
   return {for (final tx in history) txidForDisplay(tx.txidHex)};
 }
 
-/// [storedHex], a transaction id as the history encodes its stored bytes, in
-/// the byte-reversed form a send reports and a payment record carries.
-///
-/// The history hex-encodes the id as stored (`transactions.rs`,
-/// `hex::encode(&base.txid)`); a send reports it as `TxId` displays it, which
-/// reverses the bytes (zcash_protocol `TxId::as_hex`). Without this no record
-/// would ever match what arrived.
-String txidForDisplay(String storedHex) {
-  final bytes = <String>[
-    for (var i = 0; i + 2 <= storedHex.length; i += 2)
-      storedHex.substring(i, i + 2),
-  ];
-  return bytes.reversed.join().toLowerCase();
-}
+/// [storedHex] — a transaction id as the wallet's history keeps it, in the
+/// order its digest is computed in — in the order a send reports it and a
+/// payment record carries it (§14.7, the host's [txidInSendOrder]). The
+/// history hex-encodes the id as stored (`transactions.rs`,
+/// `hex::encode(&base.txid)`), so without this no record would ever match
+/// what arrived. An id that is not 64 hex digits is returned lower-cased.
+String txidForDisplay(String storedHex) =>
+    txidInSendOrder(storedHex) ?? storedHex.toLowerCase();

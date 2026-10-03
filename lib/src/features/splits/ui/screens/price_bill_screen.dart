@@ -6,7 +6,9 @@ import 'package:flutter/services.dart';
 
 import '../state/splits_controller.dart';
 import '../view/naming.dart';
-import 'add_expense_screen.dart' show figureRefusal, parseMinorUnits;
+import 'package:splitz_host/splitz_host.dart' show BillNaming, parseAmountIn;
+
+import 'add_expense_screen.dart' show figureRefusal;
 import '../view/chrome.dart';
 import 'splits_scope.dart';
 
@@ -71,7 +73,7 @@ class _PriceBillScreenState extends State<PriceBillScreen> with SplitsActions {
   Future<void> _write(String currency) async {
     final controller = SplitsScope.read(context);
     final navigator = Navigator.of(context);
-    final asked = parseMinorUnits(_price.text, currency: currency)!;
+    final asked = parseAmountIn(_price.text, currency)!;
     final set = await act(
       () => controller.setRate(
         billId: widget.billId,
@@ -207,7 +209,7 @@ class _PriceBillScreenState extends State<PriceBillScreen> with SplitsActions {
                 FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
               ],
               validator: (v) {
-                final units = parseMinorUnits(v ?? '', currency: currency);
+                final units = parseAmountIn(v ?? '', currency);
                 // §7 refuses a rate that is not positive, and a bill priced at
                 // zero would make every debt cost nothing.
                 if (units == null) return figureRefusal(currency);

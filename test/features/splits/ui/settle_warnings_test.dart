@@ -50,7 +50,7 @@ Future<String> owingBen(SplitsController c) async {
 
 void main() {
   group('a replaced pay-to address', () {
-    testWidgets('is not said to receive this request once they take cash', (
+    testWidgets('is shown even once they take cash and no request pays them', (
       t,
     ) async {
       final c = controllerFor(FakeWallet());
@@ -73,7 +73,12 @@ void main() {
       await t.pumpWidget(app(c, SettleScreen(billId: id)));
       await t.pumpAndSettle();
 
-      expect(find.byKey(const Key('splits_settle_replaced_ben')), findsNothing);
+      // §14.2: every replaced address the fold recorded is put in front of
+      // the payer, whether or not this request pays them.
+      expect(
+        find.byKey(const Key('splits_settle_replaced_ben')),
+        findsOneWidget,
+      );
       expect(
         find.byKey(const Key('splits_settle_unpayable_ben')),
         findsOneWidget,
@@ -139,10 +144,10 @@ void main() {
       expect(find.textContaining('Check with them'), findsNothing);
     });
 
-    testWidgets('a change for somebody this request does not pay is not '
-        'raised here', (t) async {
-      // History, not a decision: the payer is settling with Ben, and a third
-      // party's old address has no bearing on that.
+    testWidgets('a change for somebody this request does not pay is shown '
+        'too', (t) async {
+      // §14.2 asks for every replaced address, not only those this request
+      // pays: the payer is told before deciding anything.
       final c = controllerFor(FakeWallet());
       final id = await owingBen(c);
       final cara = otherHost('cara');
@@ -166,7 +171,7 @@ void main() {
 
       expect(
         find.byKey(const Key('splits_settle_replaced_cara')),
-        findsNothing,
+        findsOneWidget,
       );
     });
   });
