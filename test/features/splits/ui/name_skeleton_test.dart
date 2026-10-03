@@ -1,7 +1,7 @@
 // Names a reader cannot tell apart are one name.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:splitz_host/splitz_host.dart' show BillNaming, nameSkeleton;
 import 'package:splitz_core/splitz_core.dart' as protocol;
-import 'package:zcash_wallet/src/features/splits/ui/view/naming.dart';
 
 void main() {
   test(

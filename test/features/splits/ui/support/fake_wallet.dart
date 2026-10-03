@@ -123,3 +123,13 @@ class SignedPeer {
     billId,
   );
 }
+
+/// Native ZEC on its own chain, as 1Click's token listing carries it
+/// (`tools/contracts/fixtures/tokens.json` in the protocol tree). A swap's
+/// deposit is this asset (§15.7), so every provider fake lists it.
+const nativeZec = TradableAsset(
+  assetId: 'nep141:zec.omft.near',
+  symbol: 'ZEC',
+  chain: 'zec',
+  decimals: 8,
+);

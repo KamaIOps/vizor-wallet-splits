@@ -70,9 +70,11 @@ public testnet faucet does not.
 
 ## Syncing bills between phones
 
-A build syncs through the relay named by `SPLITS_RELAY_URL`, and through none
-when it is unset — bills then move only as scanned codes, which fit two people
-and one expense once payout addresses are on them. A simulator reaches a relay
+A build syncs through the hosted relay, `https://splitz-relay.splitz.workers.dev`,
+unless `SPLITS_RELAY_URL` names another. Given an empty value
+(`--dart-define=SPLITS_RELAY_URL=`) it syncs through none, and bills then move
+only as scanned codes, which fit two people and one expense once payout
+addresses are on them. A simulator reaches a relay
 on the host's loopback; a phone needs one it can reach over HTTPS, because this
 wallet declares no cleartext exception — no `NSAppTransportSecurity` in
 `ios/Runner/Info.plist`, no `usesCleartextTraffic` or `networkSecurityConfig`

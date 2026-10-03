@@ -7,8 +7,6 @@ library;
 import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:splitz_host/splitz_host.dart';
 
-import 'naming.dart';
-
 /// What [edit] restates, as a sentence names it.
 String removalEditName(RemovalEdit edit) =>
     edit.seen.description.isEmpty ? 'an expense' : edit.seen.description;

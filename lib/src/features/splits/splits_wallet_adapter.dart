@@ -6,7 +6,6 @@
 /// wallet unchanged.
 library;
 
-import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -174,38 +173,4 @@ class VizorSplitsWallet implements SplitsWallet {
   static final _random = _secure();
 
   static math.Random _secure() => math.Random.secure();
-}
-
-/// The bytes a software account's splits identity is derived from: the
-/// mnemonic and the BIP39 passphrase, UTF-8, joined by a zero byte, and for
-/// any ZIP 32 account but the first, a zero byte and [accountIndex] as four
-/// big-endian bytes.
-///
-/// The passphrase, because it selects a different wallet from one mnemonic;
-/// the account index, because two accounts of one mnemonic are two people to
-/// a bill, and one key would link them on every bill either joins. The zero
-/// bytes because neither text may contain one, so no two inputs join to the
-/// same bytes; account 0 keeps the form without an index, so its identity is
-/// the one it already had. `splitz_host` hashes this under its own domain, so
-/// the identity seed reveals nothing about the mnemonic.
-List<int> splitsIdentitySecret({
-  required String mnemonic,
-  required String passphrase,
-  int accountIndex = 0,
-}) {
-  if (accountIndex < 0 || accountIndex > 0x7fffffff) {
-    throw RangeError.range(accountIndex, 0, 0x7fffffff, 'accountIndex');
-  }
-  return [
-    ...utf8.encode(mnemonic),
-    0,
-    ...utf8.encode(passphrase),
-    if (accountIndex != 0) ...[
-      0,
-      (accountIndex >> 24) & 0xff,
-      (accountIndex >> 16) & 0xff,
-      (accountIndex >> 8) & 0xff,
-      accountIndex & 0xff,
-    ],
-  ];
 }

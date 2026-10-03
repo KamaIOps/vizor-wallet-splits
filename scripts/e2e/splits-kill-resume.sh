@@ -34,6 +34,7 @@ APP_BUNDLE_ID="${APP_BUNDLE_ID:-com.keplr.vizor}"
 UDID="${SPLITS_UDID_A:?a simulator udid}"
 delay="${KILL_DELAY:-0}"
 hold="${HOLD_BROADCAST:-0}"
+case "$hold" in 0 | 1 | expire) ;; *) echo "HOLD_BROADCAST is 0, 1 or expire" >&2; exit 1 ;; esac
 proxy_port="${HOLD_PROXY_PORT:-19077}"
 work="${SPLITS_WORK:-$(mktemp -d)}"
 mkdir -p "$work"
@@ -62,7 +63,6 @@ cleanup() {
 trap cleanup EXIT
 
 lwd_define=()
-case "$hold" in 0 | 1 | expire) ;; *) echo "HOLD_BROADCAST is 0, 1 or expire" >&2; exit 1 ;; esac
 resume_define=()
 if [ "$hold" != 0 ]; then
   echo relay >"$work/proxy.mode"

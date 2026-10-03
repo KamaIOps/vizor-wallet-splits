@@ -61,7 +61,7 @@ void main() {
     test(
       'the secret is the mnemonic and passphrase, joined by a zero byte',
       () {
-        expect(splitsIdentitySecret(mnemonic: 'ab', passphrase: 'c'), [
+        expect(identitySecretFromMnemonic(mnemonic: 'ab', passphrase: 'c'), [
           0x61,
           0x62,
           0,
@@ -70,25 +70,37 @@ void main() {
         // A passphrase selects a different wallet, so it selects a different
         // identity.
         expect(
-          splitsIdentitySecret(mnemonic: 'ab', passphrase: ''),
-          isNot(splitsIdentitySecret(mnemonic: 'ab', passphrase: 'c')),
+          identitySecretFromMnemonic(mnemonic: 'ab', passphrase: ''),
+          isNot(identitySecretFromMnemonic(mnemonic: 'ab', passphrase: 'c')),
         );
       },
     );
 
     test('two accounts of one mnemonic are two identities, and the first '
         'keeps the one it had', () {
-      final first = splitsIdentitySecret(mnemonic: 'ab', passphrase: 'c');
+      final first = identitySecretFromMnemonic(mnemonic: 'ab', passphrase: 'c');
       expect(
-        splitsIdentitySecret(mnemonic: 'ab', passphrase: 'c', accountIndex: 0),
+        identitySecretFromMnemonic(
+          mnemonic: 'ab',
+          passphrase: 'c',
+          accountIndex: 0,
+        ),
         first,
       );
       expect(
-        splitsIdentitySecret(mnemonic: 'ab', passphrase: 'c', accountIndex: 1),
+        identitySecretFromMnemonic(
+          mnemonic: 'ab',
+          passphrase: 'c',
+          accountIndex: 1,
+        ),
         [0x61, 0x62, 0, 0x63, 0, 0, 0, 0, 1],
       );
       expect(
-        splitsIdentitySecret(mnemonic: 'ab', passphrase: 'c', accountIndex: 1),
+        identitySecretFromMnemonic(
+          mnemonic: 'ab',
+          passphrase: 'c',
+          accountIndex: 1,
+        ),
         isNot(first),
       );
     });

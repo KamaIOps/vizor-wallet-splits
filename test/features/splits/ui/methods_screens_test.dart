@@ -157,6 +157,126 @@ void main() {
     });
   });
 
+  testWidgets('a first swap changed to another asset is kept after the new '
+      'one (§9.1)', (t) async {
+    final wallet = FakeWallet();
+    final c = controllerFor(wallet);
+    await c.load();
+    final id = (await c.createBill(name: 'Dinner', currency: 'USD'))!;
+    wallet.tick();
+    await c.setPayouts(
+      billId: id,
+      payouts: const [
+        splitz.Payout(
+          type: 'swap',
+          asset: 'DAI',
+          chain: 'arb',
+          address: '0xold',
+        ),
+      ],
+    );
+    wallet.tick();
+
+    await t.pumpWidget(app(c, PayoutScreen(billId: id)));
+    await t.pumpAndSettle();
+    for (final (key, text) in [
+      ('splits_payout_asset', 'USDT'),
+      ('splits_payout_chain', 'base'),
+      ('splits_payout_address', '0xnew'),
+    ]) {
+      await t.dragUntilVisible(
+        find.byKey(Key(key)),
+        find.byType(ListView),
+        const Offset(0, -100),
+      );
+      await t.enterText(find.byKey(Key(key)), text);
+    }
+    await t.ensureVisible(find.byKey(const Key('splits_payout_save')));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const Key('splits_payout_save')));
+    await t.pumpAndSettle();
+
+    final me = c.bills.firstWhere((b) => b.id == id).bill.participant(c.me)!;
+    // A new swap replaces only those of its own asset: DAI stays, after it.
+    expect(
+      [for (final p in me.payouts) '${p.asset} ${p.chain} ${p.address}'],
+      ['USDT base 0xnew', 'DAI arb 0xold'],
+    );
+  });
+
+  testWidgets('a debt is not paid another way while a send is unresolved '
+      '(§14.8)', (t) async {
+    const pending = WalletSendOutcome(
+      phase: WalletSendPhase.pendingBroadcast,
+      statusMessage: 'created, not broadcast',
+    );
+    Future<(SplitsController, String)> owingBenAndCashCai(
+      WalletSendOutcome outcome,
+    ) async {
+      final c = controllerFor(FakeWallet(outcome: outcome));
+      final id = await billOwing(c, other: 'ben');
+      final cai = otherHost('cai');
+      await c.accept(id, [
+        entries.joinBill(
+          host: cai,
+          name: 'cai',
+          payouts: [
+            <String, dynamic>{'type': 'cash'},
+          ],
+        ),
+        entries.addExpense(
+          host: cai,
+          expenseId: 'y1',
+          paidBy: 'cai',
+          amount: 2000,
+          split: <String, dynamic>{
+            'type': 'equal',
+            'among': [c.me, 'cai']..sort(),
+          },
+        ),
+      ]);
+      return (c, id);
+    }
+
+    // The control: nothing in flight, so Cai's cash row opens the record.
+    final (free, freeId) =
+        await t.runAsync(() => owingBenAndCashCai(pending))
+            as (SplitsController, String);
+    await t.pumpWidget(app(free, SettleScreen(billId: freeId)));
+    await t.pumpAndSettle();
+    await t.scrollUntilVisible(
+      find.byKey(const Key('splits_settle_unpayable_cai')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await t.tap(find.byKey(const Key('splits_settle_unpayable_cai')));
+    await t.pumpAndSettle();
+    expect(find.byType(RecordPaymentScreen), findsOneWidget);
+
+    // Ben's ZEC send left unresolved: Cai's row opens nothing.
+    final (held, heldId) =
+        await t.runAsync(() async {
+              final (c, id) = await owingBenAndCashCai(pending);
+              final sent = await c.settle(id, (await c.obligation(id))!);
+              expect(sent!.result.name, 'pending');
+              return (c, id);
+            })
+            as (SplitsController, String);
+    expect(await t.runAsync(() => held.pendingSend(heldId)), isNotNull);
+    // A fresh tree: the control's navigator still holds the record screen.
+    await t.pumpWidget(const SizedBox());
+    await t.pumpWidget(app(held, SettleScreen(billId: heldId)));
+    await t.pumpAndSettle();
+    await t.scrollUntilVisible(
+      find.byKey(const Key('splits_settle_unpayable_cai')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await t.tap(find.byKey(const Key('splits_settle_unpayable_cai')));
+    await t.pumpAndSettle();
+    expect(find.byType(RecordPaymentScreen), findsNothing);
+  });
+
   group('the lanes a request cannot carry', () {
     testWidgets('a cash recipient is offered a way to settle, not a dead end', (
       t,
