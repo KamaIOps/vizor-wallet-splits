@@ -196,37 +196,37 @@ void main() {
 
   group('a typed figure becomes minor units by integer arithmetic', () {
     test('ordinary figures', () {
-      expect(parseMinorUnits('90'), 9000);
-      expect(parseMinorUnits('90.00'), 9000);
-      expect(parseMinorUnits('90,5'), 9050);
+      expect(parseMinorUnits('90', exponent: 2), 9000);
+      expect(parseMinorUnits('90.00', exponent: 2), 9000);
+      expect(parseMinorUnits('90,5', exponent: 2), 9050);
       expect(
-        parseMinorUnits('0.29'),
+        parseMinorUnits('0.29', exponent: 2),
         29,
         reason: '0.29 * 100 is not 29 in binary floating point',
       );
-      expect(parseMinorUnits('.5'), 50);
+      expect(parseMinorUnits('.5', exponent: 2), 50);
     });
 
     test('what it refuses', () {
-      expect(parseMinorUnits(''), isNull);
+      expect(parseMinorUnits('', exponent: 2), isNull);
       expect(
-        parseMinorUnits('90.001'),
+        parseMinorUnits('90.001', exponent: 2),
         isNull,
         reason: 'a third decimal is not a cent',
       );
-      expect(parseMinorUnits('-90'), isNull);
-      expect(parseMinorUnits('9 0'), isNull);
-      expect(parseMinorUnits('90.0.0'), isNull);
+      expect(parseMinorUnits('-90', exponent: 2), isNull);
+      expect(parseMinorUnits('9 0', exponent: 2), isNull);
+      expect(parseMinorUnits('90.0.0', exponent: 2), isNull);
     });
 
     test('each currency at its own ISO 4217 exponent', () {
       // Yen have no minor unit, dinars have three, and gold has none a
       // figure can be typed at.
-      expect(parseMinorUnits('6000', currency: 'JPY'), 6000);
-      expect(parseMinorUnits('60.5', currency: 'JPY'), isNull);
-      expect(parseMinorUnits('1.234', currency: 'KWD'), 1234);
-      expect(parseMinorUnits('90.5', currency: 'USD'), 9050);
-      expect(parseMinorUnits('1', currency: 'XAU'), isNull);
+      expect(parseAmountIn('6000', 'JPY'), 6000);
+      expect(parseAmountIn('60.5', 'JPY'), isNull);
+      expect(parseAmountIn('1.234', 'KWD'), 1234);
+      expect(parseAmountIn('90.5', 'USD'), 9050);
+      expect(parseAmountIn('1', 'XAU'), isNull);
       expect(formatAmount(6000, 'JPY'), contains('6000'));
       expect(formatAmount(6000, 'JPY'), isNot(contains('60.00')));
       expect(formatAmount(1234, 'KWD'), contains('1.234'));
@@ -235,10 +235,10 @@ void main() {
     test('a comma before three digits is refused, not guessed', () {
       // A thousand to one reader, one dinar to another: KWD has three
       // decimals, so both readings are well-formed.
-      expect(parseMinorUnits('1,000', currency: 'KWD'), isNull);
-      expect(parseMinorUnits('1,5', currency: 'KWD'), 1500);
-      expect(parseMinorUnits('1.000', currency: 'KWD'), 1000);
-      expect(parseMinorUnits('90,5', currency: 'USD'), 9050);
+      expect(parseAmountIn('1,000', 'KWD'), isNull);
+      expect(parseAmountIn('1,5', 'KWD'), 1500);
+      expect(parseAmountIn('1.000', 'KWD'), 1000);
+      expect(parseAmountIn('90,5', 'USD'), 9050);
       // A refusal names a figure that would be taken, or why none would.
       expect(figureRefusal('KWD'), contains('12.500'));
       expect(figureRefusal('JPY'), contains('1250'));
@@ -247,9 +247,12 @@ void main() {
 
     test('a figure past 64 bits is refused, not wrapped', () {
       // 2^63 - 1 is the largest amount §2.2 can hold.
-      expect(parseMinorUnits('92233720368547758.07'), 9223372036854775807);
-      expect(parseMinorUnits('92233720368547758.08'), isNull);
-      expect(parseMinorUnits('184467440737095516.16'), isNull);
+      expect(
+        parseMinorUnits('92233720368547758.07', exponent: 2),
+        9223372036854775807,
+      );
+      expect(parseMinorUnits('92233720368547758.08', exponent: 2), isNull);
+      expect(parseMinorUnits('184467440737095516.16', exponent: 2), isNull);
     });
 
     test('a currency with no minor unit', () {

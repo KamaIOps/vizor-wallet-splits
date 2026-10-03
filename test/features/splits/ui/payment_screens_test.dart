@@ -26,6 +26,7 @@ class _Swaps implements SwapProvider {
 
   @override
   Future<List<TradableAsset>> tradableAssets() async => const [
+    nativeZec,
     TradableAsset(
       assetId: 'base-usdc',
       symbol: 'USDC',

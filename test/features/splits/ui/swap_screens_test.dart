@@ -30,7 +30,11 @@ class FakeSwaps implements SwapProvider {
     this.deadline,
     this.reference = 'near-intent-7f3a',
     this.minAmountOut = '9405000',
+    this.carriesZec = true,
   });
+
+  /// Whether the listing holds native ZEC; [assets] is listed either way.
+  final bool carriesZec;
 
   final List<TradableAsset> assets;
   final String? minAmountOut;
@@ -39,8 +43,13 @@ class FakeSwaps implements SwapProvider {
 
   int quotes = 0;
 
+  /// The provider's whole listing: [assets], beside the native ZEC every
+  /// deposit is made in.
   @override
-  Future<List<TradableAsset>> tradableAssets() async => assets;
+  Future<List<TradableAsset>> tradableAssets() async => [
+    if (carriesZec) nativeZec,
+    ...assets,
+  ];
 
   @override
   Future<SwapQuote> quote({
@@ -298,6 +307,43 @@ void main() {
         findsOneWidget,
       );
       expect(find.byKey(const Key('splits_swap_send')), findsNothing);
+    });
+
+    testWidgets('a provider that takes no native ZEC is not quoted', (t) async {
+      // ZEC as a Solana token is listed by 1Click beside native ZEC; a
+      // Zcash wallet cannot deposit it.
+      final swaps = FakeSwaps(
+        carriesZec: false,
+        assets: const [
+          TradableAsset(
+            assetId: 'base-usdc',
+            symbol: 'USDC',
+            chain: 'base',
+            decimals: 6,
+          ),
+          TradableAsset(
+            assetId:
+                '1cs_v1:sol:spl:A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS',
+            symbol: 'ZEC',
+            chain: 'sol',
+            decimals: 8,
+          ),
+        ],
+      );
+      final c = controllerFor(FakeWallet(), swaps: swaps);
+      final id = await billOwingSwap(c);
+
+      await t.pumpWidget(
+        app(c, SwapScreen(billId: id, to: 'ben', amountMinorUnits: 1000)),
+      );
+      await t.pumpAndSettle();
+
+      expect(
+        find.textContaining('does not take ZEC from a Zcash wallet'),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('splits_swap_send')), findsNothing);
+      expect(swaps.quotes, 0);
     });
 
     testWidgets('an expired quote offers a new one, not a send', (t) async {
