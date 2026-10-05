@@ -226,6 +226,14 @@ Future<void> _deviceA(
   );
   logE2e('device B put $_benSpent on the bill');
 
+  // §14.9: nothing is paid until the creator, this device, closes the bill
+  // over the expenses everybody now holds.
+  await controller.closeForSettling(billId);
+  expect(controller.lastError, isNull);
+  expect(_billOn(controller, billId).folded!.closed, isTrue);
+  await controller.syncBill(billId);
+  logE2e('closed for settling');
+
   // 4 · B settles, and the record of it crosses the relay. A record is a
   //     claim (§10.5): nothing has moved on this bill until A says so.
   await _syncUntil(
@@ -343,17 +351,15 @@ Future<void> _deviceB(
   );
   await controller.syncBill(billId);
 
-  // 4 · What this device owes, from the protocol rather than from this lane.
-  // §14.9: nothing is paid until the creator, this device, closes the bill
-  // over the expenses everybody now holds.
-  await controller.syncBill(billId);
-  await controller.closeForSettling(billId);
-  expect(controller.lastError, isNull);
-  expect(
-    controller.bills.firstWhere((b) => b.id == billId).folded!.closed,
-    isTrue,
+  // 4 · What this device owes, from the protocol rather than from this lane,
+  //     once device A, the creator, has closed the bill (§14.9).
+  await _syncUntil(
+    tester,
+    controller,
+    billId,
+    (view) => view.folded?.closed ?? false,
+    description: 'device A closing the bill',
   );
-  await controller.syncBill(billId);
   final owed = (await controller.obligation(billId))!;
   expect(owed.settlements.single.to, them);
   expect(
