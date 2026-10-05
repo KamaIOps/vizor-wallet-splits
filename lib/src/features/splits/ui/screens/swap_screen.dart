@@ -304,8 +304,7 @@ class _SwapScreenState extends State<SwapScreen> {
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Text(
-                          '$who hasn’t joined on their phone. Check this '
-                          'address with them.',
+                          'Check this address with $who.',
                           key: Key('splits_swap_unbound_${widget.to}'),
                           style: TextStyle(color: error),
                         ),
@@ -400,8 +399,8 @@ class _SwapScreenState extends State<SwapScreen> {
   }
 }
 
-/// The rate the swap's ZEC was priced at, who set it, and how it compares
-/// with a live price.
+/// The rate the swap's ZEC was priced at, how it compares with a live price,
+/// and whether the payee set it.
 class _SwapRate extends StatelessWidget {
   const _SwapRate({required this.view, required this.to, required this.live});
 
@@ -426,9 +425,7 @@ class _SwapRate extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          // §14.2: who set the rate, where the payment is confirmed.
-          '1 ZEC = ${formatAmount(rate.minorUnitsPerZec, currency)}, priced by '
-          '${setter == null ? 'nobody on the bill' : who(setter)}',
+          '1 ZEC = ${formatAmount(rate.minorUnitsPerZec, currency)}',
           key: const Key('splits_swap_rate'),
         ),
         if (live == null)

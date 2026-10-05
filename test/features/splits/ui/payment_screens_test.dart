@@ -479,8 +479,8 @@ void main() {
   });
 
   group('the lane a ZEC payment is labelled with', () {
-    testWidgets('a transparent address is labelled transparent, row and '
-        'review', (t) async {
+    testWidgets('a transparent address is labelled transparent on its row, '
+        'and is not a warning on the review', (t) async {
       final c = controllerFor(FakeWallet());
       final id = await owingBen(c, null, payTo: _p2pkh);
       await t.pumpWidget(app(c, SettleScreen(billId: id)));
@@ -495,7 +495,7 @@ void main() {
       await t.pumpAndSettle();
       expect(
         find.byKey(const Key('splits_review_transparent_0')),
-        findsOneWidget,
+        findsNothing,
       );
     });
 

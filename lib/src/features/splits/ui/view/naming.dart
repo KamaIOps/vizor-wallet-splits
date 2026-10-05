@@ -99,15 +99,23 @@ String formatZec(int zatoshi) => zatoshi == 0
 /// names said as ZEC. The wallet states its balance shortfall as
 /// "Insufficient balance (have H, need N including fee)", both in zatoshi.
 String describeSendFailure(String detail) {
+  final (:have, :need) = sendShortfall(detail) ?? (have: null, need: null);
+  if (have == null || need == null) return detail;
+  return 'Not enough ZEC: this payment needs ${formatZec(need)} including '
+      'the fee, and the wallet has ${formatZec(have)}.';
+}
+
+/// What the wallet holds and what a send needs, in zatoshi, read from its
+/// "Insufficient balance (have H, need N including fee)", or null when
+/// [detail] does not say that.
+({int have, int need})? sendShortfall(String detail) {
   final short = RegExp(
     r'insufficient balance \(have (\d+), need (\d+) including fee\)',
     caseSensitive: false,
   ).firstMatch(detail);
   final have = int.tryParse(short?.group(1) ?? '');
   final need = int.tryParse(short?.group(2) ?? '');
-  if (have == null || need == null) return detail;
-  return 'Not enough ZEC: this payment needs ${formatZec(need)} including '
-      'the fee, and the wallet has ${formatZec(have)}.';
+  return have == null || need == null ? null : (have: have, need: need);
 }
 
 /// [base] units of a token with [decimals] places, as whole tokens — the

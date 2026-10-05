@@ -478,7 +478,7 @@ void main() {
       expect(find.text('u1benpayable0000000001'), findsOneWidget);
       expect(
         find.descendant(
-          of: find.byType(AlertDialog),
+          of: find.byKey(const Key('splits_review')),
           matching: find.byKey(const Key('splits_settle_rate')),
         ),
         findsOneWidget,
@@ -497,7 +497,9 @@ void main() {
       expect(wallet.sender.sent, hasLength(1));
     });
 
-    testWidgets('a rate set by the payee is called out', (t) async {
+    testWidgets('a rate set by the payee is not a warning on the review', (
+      t,
+    ) async {
       final c = controllerFor(FakeWallet(), InMemoryBillStorage());
       final (id, ben) = await owingBenWhoPrices(c);
       expect(c.bills.single.rateSetBy, ben.id);
@@ -507,10 +509,7 @@ void main() {
       await t.tap(find.byKey(const Key('splits_settle_send')));
       await t.pumpAndSettle();
 
-      expect(
-        find.byKey(const Key('splits_review_setter_paid')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('splits_review_setter_paid')), findsNothing);
     });
   });
 
@@ -681,29 +680,28 @@ void main() {
       );
     });
 
-    testWidgets('no price to check the rate against is said', (t) async {
-      // No feed prices this currency, so nothing can say the rate is wrong —
-      // which is not the same as it being right.
+    testWidgets('no live price to check the rate against is not said', (
+      t,
+    ) async {
+      // The review warns about what stops the send; a rate far from a live
+      // price is said when there is one.
       final c = controllerFor(FakeWallet(), InMemoryBillStorage());
       final id = await owingBen(c);
       await openReview(t, c, id);
       expect(
         find.byKey(const Key('splits_review_rate_unchecked')),
-        findsOneWidget,
+        findsNothing,
       );
     });
 
-    testWidgets('an address nobody bound is called out; a bound one is not', (
+    testWidgets('an address nobody bound is not a warning on the review', (
       t,
     ) async {
       // Ben's join in owingBen is unsigned, so anyone could have written it.
       final c = controllerFor(FakeWallet(), InMemoryBillStorage());
       final id = await owingBen(c);
       await openReview(t, c, id);
-      expect(
-        find.byKey(const Key('splits_review_unbound_ben')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('splits_review_unbound_ben')), findsNothing);
 
       // Cai joins from his own device, signed with his own key.
       final cai = await SignedPeer.named('cai');

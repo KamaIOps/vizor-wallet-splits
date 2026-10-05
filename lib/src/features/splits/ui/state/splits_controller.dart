@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:splitz_core/host.dart' as splitz;
@@ -66,6 +67,33 @@ Future<List<OwnTransaction>> _noneOwn() async => const [];
 /// Whether this wallet's ZIP 321 reader reads [address] on the network it
 /// sends on (§14.6).
 typedef ReadsAddress = Future<bool> Function(String address);
+
+/// What sending a payment request would take, worked out by the wallet the
+/// way the send itself is and then thrown away: nothing is broadcast.
+class SendPreview {
+  const SendPreview({
+    this.feeZatoshi,
+    this.short = false,
+    this.haveZatoshi,
+    this.needZatoshi,
+  });
+
+  /// The fee the wallet would pay, or null when it could not say.
+  final int? feeZatoshi;
+
+  /// Whether the wallet cannot cover the request and its fee.
+  final bool short;
+
+  /// When [short], what the wallet holds and what the request and its fee
+  /// need, where the wallet said.
+  final int? haveZatoshi;
+  final int? needZatoshi;
+}
+
+/// Works out [SendPreview] for a payment request URI.
+typedef PreviewSend = Future<SendPreview> Function(String paymentRequestUri);
+
+Future<SendPreview> _noPreview(String _) async => const SendPreview();
 
 Future<bool> _readsAll(String _) async => true;
 
@@ -237,7 +265,9 @@ class SplitsController extends ChangeNotifier {
     HeldTransactions held = _noneHeld,
     OwnTransactions own = _noneOwn,
     ReadsAddress readsAddress = _readsAll,
+    PreviewSend previewSend = _noPreview,
   }) : _wallet = wallet,
+       _previewSend = previewSend,
        _own = own,
        _readsAddress = readsAddress,
        _received = received,
@@ -263,6 +293,22 @@ class SplitsController extends ChangeNotifier {
   final HeldTransactions _held;
   final OwnTransactions _own;
   final ReadsAddress _readsAddress;
+  final PreviewSend _previewSend;
+
+  /// What sending [owed] would take: its fee, or that the wallet is short.
+  /// An answer the wallet could not give is an empty preview, never a throw:
+  /// the review still opens, and the send itself reports what went wrong.
+  Future<SendPreview> previewSend(splitz.PayerObligation owed) async {
+    final uri = owed.uri;
+    if (uri == null) return const SendPreview();
+    try {
+      return await _previewSend(uri);
+    } on Object catch (error) {
+      debugPrint('splits: no send preview: $error');
+      return const SendPreview();
+    }
+  }
+
   final BillStore _store;
   final SplitsKeys _keys;
   final SplitsRelay _relay;
@@ -767,7 +813,8 @@ class SplitsController extends ChangeNotifier {
   }
 
   /// Writes each expense in [confirmed] again without [without], withdrawing
-  /// the one it replaces (§10.8).
+  /// the one it replaces (§10.8), and only when that leaves nothing else
+  /// naming them ([RemovalPlan.complete]).
   ///
   /// A withdrawal and a new expense rather than an amendment: §10.8 counts a
   /// person as named while either an amendment or the entry it corrects names
@@ -795,6 +842,15 @@ class SplitsController extends ChangeNotifier {
       final held = await _store.read(billId);
       final plan = await _removalPlanOver(billId, held, without);
       if (!plan.sameAs(confirmed)) throw changed;
+      // Whole or not at all (§10.8): written while something else names
+      // them, these leave them on the bill, owed what they paid and sharing
+      // in nothing else.
+      if (!plan.complete) {
+        throw const SplitsRefusal(
+          'Something else on the bill still names them. Change that first, '
+          'then take them off.',
+        );
+      }
       final seed = await _requireIdentity();
       final host = _host(seed);
       final written = <Map<String, dynamic>>[];
@@ -2589,7 +2645,49 @@ class SplitsController extends ChangeNotifier {
     await _store.storage.write(marker, billId);
     await _keys.forgetBill(billId);
     await _store.forget(billId);
+    await _store.storage.delete(_closedNoticesKey(billId));
     await _store.storage.delete(marker);
+  }
+
+  /// Where this device keeps the changed-address notices closed on [billId].
+  static String _closedNoticesKey(String billId) =>
+      'notice/replaced/${Uri.encodeComponent(billId)}';
+
+  /// One closed notice: who, and the address it was closed for. A later
+  /// change of theirs is a different address, so it is shown again.
+  static String _closedNotice(protocol.ReplacedAddress r) =>
+      '${r.id}\n${r.to ?? ''}';
+
+  /// The changed-address notices closed on this device for [billId].
+  Future<Set<String>> closedNotices(String billId) async {
+    try {
+      final raw = await _store.storage.read(_closedNoticesKey(billId));
+      if (raw == null) return {};
+      return {for (final n in jsonDecode(raw) as List<Object?>) '$n'};
+    } on Object catch (error) {
+      // A notice shown again is the safe way for this to fail.
+      debugPrint('splits: closed notices unreadable: $error');
+      return {};
+    }
+  }
+
+  /// Whether every change to [id]'s address on [view] was closed here.
+  static bool noticeClosed(BillView view, String id, Set<String> closed) => view
+      .replacedAddresses
+      .where((r) => r.id == id)
+      .every((r) => closed.contains(_closedNotice(r)));
+
+  /// Closes the changed-address notice for [id] on [view], as it stands now.
+  Future<void> closeNotice(BillView view, String id) async {
+    final closed = await closedNotices(view.id);
+    closed.addAll([
+      for (final r in view.replacedAddresses)
+        if (r.id == id) _closedNotice(r),
+    ]);
+    await _store.storage.write(
+      _closedNoticesKey(view.id),
+      jsonEncode(closed.toList()..sort()),
+    );
   }
 
   /// Finishes every forget a killed process left part-way.
