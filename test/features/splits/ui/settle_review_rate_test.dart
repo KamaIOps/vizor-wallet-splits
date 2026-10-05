@@ -9,6 +9,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:zcash_wallet/src/core/widgets/review_list_row.dart';
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'support/fake_wallet.dart';
@@ -73,7 +74,11 @@ String? textOf(WidgetTester t, String key) {
   );
   if (f.evaluate().isEmpty) return null;
   final w = t.widget(f);
-  return w is Text ? w.data : w.toString();
+  return w is Text
+      ? w.data
+      : w is ReviewListRow
+      ? w.value
+      : w.toString();
 }
 
 typedef Rig = (
@@ -178,7 +183,13 @@ Future<bool> tapPay(WidgetTester t) async {
 /// What the review shows beside 0.4 ZEC: the rate it was priced at, and that
 /// it is far under the market (§14.2).
 void expectReviewOfHalvedRate(WidgetTester t) {
-  expect(textOf(t, 'splits_review_zec_0'), '0.4 ZEC');
+  expect(
+    find.descendant(
+      of: find.byKey(const Key('splits_review_payment_0')),
+      matching: find.text('0.4 ZEC'),
+    ),
+    findsOneWidget,
+  );
   expect(textOf(t, 'splits_settle_rate'), contains('25.00'));
   expect(textOf(t, 'splits_review_rate_off'), isNotNull);
   expect(textOf(t, 'splits_review_setter_paid'), isNull);

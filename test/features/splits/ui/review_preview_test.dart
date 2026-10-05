@@ -5,6 +5,11 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:zcash_wallet/src/core/theme/app_theme.dart';
+import 'package:zcash_wallet/src/core/widgets/app_button.dart';
+import 'package:zcash_wallet/src/core/widgets/full_address_viewer.dart';
+import 'package:zcash_wallet/src/core/widgets/mobile/mobile_address_verify_sheet.dart';
+import 'package:zcash_wallet/src/core/widgets/review_list_row.dart';
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'settle_send_test.dart' show app, owingBen;
@@ -25,13 +30,17 @@ Future<void> _openReview(WidgetTester t, SplitsController c, String id) async {
   expect(find.byKey(const Key('splits_review')), findsOneWidget);
 }
 
+/// The text a keyed line shows, or null when it is not on the screen: a
+/// wallet review row's value, or a plain line's text.
 String? _text(WidgetTester t, String key) {
   final found = find.byKey(Key(key));
-  return found.evaluate().isEmpty ? null : t.widget<Text>(found).data;
+  if (found.evaluate().isEmpty) return null;
+  final w = t.widget(found);
+  return w is ReviewListRow ? w.value : (w as Text).data;
 }
 
-FilledButton _send(WidgetTester t) =>
-    t.widget<FilledButton>(find.byKey(const Key('splits_review_send')));
+AppButton _send(WidgetTester t) =>
+    t.widget<AppButton>(find.byKey(const Key('splits_review_send')));
 
 void main() {
   testWidgets('the fee the wallet would pay is on the review', (t) async {
@@ -103,6 +112,41 @@ void main() {
     expect(_text(t, 'splits_review_fee'), isNull);
     expect(_text(t, 'splits_review_short'), isNull);
     expect(_send(t).onPressed, isNotNull);
+  });
+
+  testWidgets('Show full address opens the wallet\'s own address sheet', (
+    t,
+  ) async {
+    final c = _controller((_) async => const SendPreview(feeZatoshi: 10000));
+    final id = await owingBen(c);
+    // As the wallet hosts the feature: its theme above every route, the
+    // sheet's included.
+    await t.pumpWidget(
+      SplitsScope(
+        controller: c,
+        child: MaterialApp(
+          builder: (context, child) =>
+              AppTheme(data: AppThemeData.light, child: child!),
+          home: SettleScreen(billId: id),
+        ),
+      ),
+    );
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const Key('splits_settle_send')));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const Key('splits_review_full_address_0')));
+    await t.pumpAndSettle();
+    final sheet = find.byType(MobileAddressVerifySheet);
+    expect(sheet, findsOneWidget);
+    expect(
+      t.widget<MobileAddressVerifySheet>(sheet).address,
+      'u1benpayable0000000001',
+    );
+    expect(t.widget<MobileAddressVerifySheet>(sheet).title, 'ben');
+    expect(
+      find.descendant(of: sheet, matching: find.byType(FullAddressCopyButton)),
+      findsOneWidget,
+    );
   });
 
   test('the wallet\'s shortfall reads as zatoshi held and needed', () {
