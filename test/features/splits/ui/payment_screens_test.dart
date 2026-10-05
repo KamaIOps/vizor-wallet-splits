@@ -14,6 +14,7 @@ import 'package:zcash_wallet/src/features/splits/ui/screens/arrivals_screen.dart
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'support/fake_wallet.dart';
+import 'support/closing.dart';
 
 /// A provider that delivers USDC on base, quoting a deadline [deadline]
 /// builds from the moment of quoting.
@@ -115,6 +116,7 @@ Future<String> owingBen(
     ),
   ]);
   await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+  await closeForSettling(c, id);
   return id;
 }
 
@@ -152,6 +154,7 @@ Future<(String, SignedPeer)> owingBoundBen(
     ),
   ]);
   await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+  await closeForSettling(c, id);
   return (id, ben);
 }
 
@@ -556,6 +559,7 @@ void main() {
         await c.load();
         final id = (await c.createBill(name: 'Dinner', currency: 'USD'))!;
         await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+        await closeForSettling(c, id);
         final ben = await SignedPeer.named('ben');
         await c.accept(id, [
           await ben.join(id, name: 'Ben', payTo: 'u1benpayable0000000001'),

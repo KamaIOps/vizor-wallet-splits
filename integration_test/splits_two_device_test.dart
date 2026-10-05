@@ -344,6 +344,16 @@ Future<void> _deviceB(
   await controller.syncBill(billId);
 
   // 4 · What this device owes, from the protocol rather than from this lane.
+  // §14.9: nothing is paid until the creator, this device, closes the bill
+  // over the expenses everybody now holds.
+  await controller.syncBill(billId);
+  await controller.closeForSettling(billId);
+  expect(controller.lastError, isNull);
+  expect(
+    controller.bills.firstWhere((b) => b.id == billId).folded!.closed,
+    isTrue,
+  );
+  await controller.syncBill(billId);
   final owed = (await controller.obligation(billId))!;
   expect(owed.settlements.single.to, them);
   expect(

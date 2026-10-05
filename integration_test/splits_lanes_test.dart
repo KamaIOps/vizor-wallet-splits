@@ -244,6 +244,16 @@ Future<void> _payer(
 
   // 2 · §8.5 carries the ZEC payee and reports the other two. A request that
   //     quietly dropped them would claim a debt was settled that was not.
+  // §14.9: nothing is paid until the creator, this device, closes the bill
+  // over the expenses everybody now holds.
+  await controller.syncBill(billId);
+  await controller.closeForSettling(billId);
+  expect(controller.lastError, isNull);
+  expect(
+    controller.bills.firstWhere((b) => b.id == billId).folded!.closed,
+    isTrue,
+  );
+  await controller.syncBill(billId);
   final owed = (await controller.obligation(billId))!;
   // `settlements` is everything this device owes; `unpayable` is the subset
   // §8.5 could not put in the request. They overlap — `settle` subtracts one

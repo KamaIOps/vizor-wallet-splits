@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
+import 'support/closing.dart';
 import 'support/fake_wallet.dart';
 
 /// Storage whose bill listing, the first thing a refresh reads, can be held.
@@ -95,8 +96,10 @@ void main() {
     amountMinorUnits: 175000,
     among: [c.me, 'ghost'],
   );
-  Future<void> ghostCash(SplitsController c, String id) =>
-      c.recordCash(billId: id, to: 'ghost', amountMinorUnits: 175000);
+  Future<void> ghostCash(SplitsController c, String id) async {
+    await closeForSettling(c, id);
+    await c.recordCash(billId: id, to: 'ghost', amountMinorUnits: 175000);
+  }
 
   test('a refused expense is reported though the poll overtook it', () async {
     final r = await rig();

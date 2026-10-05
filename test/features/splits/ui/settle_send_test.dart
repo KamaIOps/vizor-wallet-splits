@@ -11,6 +11,7 @@ import 'package:splitz_core/host.dart' as entries;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'support/fake_wallet.dart';
+import 'support/closing.dart';
 
 SplitsController controllerFor(FakeWallet wallet, BillStorage storage) =>
     SplitsController(
@@ -44,6 +45,7 @@ Future<String> owingBen(SplitsController c) async {
     ),
   ]);
   await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+  await closeForSettling(c, id);
   return id;
 }
 
@@ -456,6 +458,7 @@ void main() {
     // The bill is repriced after the payer read it.
     wallet.tick();
     await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 10000);
+    await closeForSettling(c, id);
 
     await c.settle(id, shown);
     expect(wallet.sender.sent, isEmpty);
@@ -537,6 +540,7 @@ void main() {
       ),
     ]);
     await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+    await closeForSettling(c, id);
 
     await t.pumpWidget(app(c, SettleScreen(billId: id)));
     await t.pumpAndSettle();
@@ -569,6 +573,7 @@ void main() {
       among: const ['ben'],
     );
     await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+    await closeForSettling(c, id);
 
     await t.pumpWidget(app(c, SettleScreen(billId: id)));
     await t.pumpAndSettle();
@@ -596,6 +601,7 @@ void main() {
       ...unpriceable(ben, c.me),
     ]);
     await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+    await closeForSettling(c, id);
 
     await t.pumpWidget(app(c, SettleScreen(billId: id)));
     await t.pumpAndSettle();
@@ -727,6 +733,7 @@ void main() {
         ),
       ]);
       await c2.setRate(billId: id2, currency: 'USD', minorUnitsPerZec: 100000);
+      await closeForSettling(c2, id2);
       expect(c2.bills.single.identities.bound, contains(cai.id));
       await t.pumpWidget(const SizedBox());
       await openReview(t, c2, id2);
@@ -776,6 +783,7 @@ void main() {
       ),
     ]);
     await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+    await closeForSettling(c, id);
     wallet.tick();
     await c.recordCash(billId: id, to: 'carol', amountMinorUnits: 1000);
     wallet.tick();
@@ -832,6 +840,7 @@ void main() {
       ...unpriceable(ben, c.me),
     ]);
     await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+    await closeForSettling(c, id);
     await storage.write('pendingsend/$id', 'not json');
 
     await t.pumpWidget(app(c, SettleScreen(billId: id)));

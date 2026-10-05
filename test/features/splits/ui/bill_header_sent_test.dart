@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:splitz_core/host.dart' as entries;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
+import 'support/closing.dart';
 import 'support/fake_wallet.dart';
 
 Widget _app(SplitsController c, Widget home) => SplitsScope(
@@ -58,6 +59,7 @@ void main() {
     t,
   ) async {
     final (c, _, id) = await _owesBen();
+    await closeForSettling(c, id);
     await c.recordCash(billId: id, to: 'ben', amountMinorUnits: 400);
     expect(c.lastError, isNull);
 
@@ -79,6 +81,7 @@ void main() {
 
   testWidgets('the whole debt sent is said as sent, and still owed', (t) async {
     final (c, _, id) = await _owesBen();
+    await closeForSettling(c, id);
     await c.recordCash(billId: id, to: 'ben', amountMinorUnits: 1000);
 
     await t.pumpWidget(_app(c, BillScreen(billId: id)));
@@ -98,6 +101,7 @@ void main() {
     await t.pumpAndSettle();
     expect(find.byKey(const Key('splits_bill_sent')), findsNothing);
 
+    await closeForSettling(c, id);
     await c.recordCash(billId: id, to: 'ben', amountMinorUnits: 1000);
     final payment = c.bills.single.bill.payments.single.id;
     wallet.tick();
