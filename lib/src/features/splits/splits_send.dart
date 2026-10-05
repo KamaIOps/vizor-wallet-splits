@@ -9,7 +9,7 @@ import 'package:splitz_host/splitz_host.dart';
 import '../../core/storage/wallet_paths.dart';
 import 'splits_request_summary.dart';
 import 'ui/state/splits_controller.dart' show SendPreview;
-import 'ui/view/naming.dart' show sendShortfall;
+import 'ui/view/naming.dart' show formatZec, sendShortfall;
 import '../../rust/api/sync.dart' as rust_sync;
 import '../send/services/send_flow.dart';
 import '../../providers/sync_provider.dart';
@@ -26,11 +26,17 @@ import '../../providers/rpc_endpoint_provider.dart';
 /// a proposal made against a balance the wallet is not yet sure of is a
 /// proposal that can be refused at broadcast, after the person has confirmed
 /// it.
+///
+/// [reviewedFee] is the fee the person was shown, in zatoshi. A proposal whose
+/// fee is higher is discarded and the send refused, with nothing built: notes
+/// can change between the preview and the send, and a person confirms the
+/// figure they saw, not one chosen after.
 Future<WalletSendOutcome> proposeAndBroadcastSplitsBatch({
   required WidgetRef ref,
   required String accountUuid,
   required String sendFlowId,
   required String paymentRequestUri,
+  int? reviewedFee,
 }) async {
   final syncNotifier = ref.read(syncProvider.notifier);
   return sendPaymentRequest(
@@ -43,13 +49,26 @@ Future<WalletSendOutcome> proposeAndBroadcastSplitsBatch({
       operation: () async {
         final dbPath = await getWalletDbPath();
         final endpoint = ref.read(rpcEndpointProvider);
-        return rust_sync.proposeSendMulti(
+        final proposal = await rust_sync.proposeSendMulti(
           dbPath: dbPath,
           network: endpoint.networkName,
           accountUuid: accountUuid,
           sendFlowId: sendFlowId,
           paymentUri: paymentRequestUri,
         );
+        final fee = proposal.feeZatoshi.toInt();
+        if (reviewedFee != null && fee > reviewedFee) {
+          try {
+            await rust_sync.discardProposal(
+              proposalId: proposal.proposalId,
+              sendFlowId: sendFlowId,
+            );
+          } on Object catch (error) {
+            debugPrint('splits: raised-fee proposal not discarded: $error');
+          }
+          throw FeeRaised(reviewed: reviewedFee, now: fee);
+        }
+        return proposal;
       },
     ),
     broadcast: (proposal) async => splitsSendOutcome(
@@ -62,6 +81,20 @@ Future<WalletSendOutcome> proposeAndBroadcastSplitsBatch({
       ),
     ),
   );
+}
+
+/// A send refused before anything was built because its fee came out above
+/// the one the person reviewed.
+class FeeRaised implements Exception {
+  const FeeRaised({required this.reviewed, required this.now});
+
+  final int reviewed;
+  final int now;
+
+  @override
+  String toString() =>
+      'The fee went up from ${formatZec(reviewed)} to ${formatZec(now)} since '
+      'you reviewed this payment. Nothing was sent; review it again.';
 }
 
 /// What sending [paymentRequestUri] would take, from a proposal built the way

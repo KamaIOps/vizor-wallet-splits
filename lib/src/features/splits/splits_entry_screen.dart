@@ -192,6 +192,9 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
       debugPrint('splits: could not keep bills out of device backups: $error');
     }
 
+    // The fee each request's review showed, by request: the send refuses a
+    // proposal whose fee came out higher.
+    final reviewedFees = <String, int>{};
     final wallet = VizorSplitsWallet(
       accountUuid: accountUuid,
       identitySecret: identitySecret,
@@ -204,6 +207,7 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
           // retry of this send rather than a new one.
           sendFlowId: 'splits-${DateTime.now().microsecondsSinceEpoch}',
           paymentRequestUri: uri,
+          reviewedFee: reviewedFees[uri],
         ),
       ),
     );
@@ -252,11 +256,16 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
       readsAddress: (address) => splitsReadsAddress(ref, address),
       // The fee, or that the account is short, before the review asks for a
       // confirmation: built like the send and discarded, never broadcast.
-      previewSend: (uri) => previewSplitsBatch(
-        ref: ref,
-        accountUuid: accountUuid,
-        paymentRequestUri: uri,
-      ),
+      previewSend: (uri) async {
+        final preview = await previewSplitsBatch(
+          ref: ref,
+          accountUuid: accountUuid,
+          paymentRequestUri: uri,
+        );
+        final fee = preview.feeZatoshi;
+        if (fee != null) reviewedFees[uri] = fee;
+        return preview;
+      },
     );
     await controller.load();
     if (!mounted) return;

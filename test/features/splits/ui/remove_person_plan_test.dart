@@ -212,10 +212,10 @@ void main() {
         final errors = <String?>[];
         await Future.wait([
           c
-              .restateExpenses(billId: id, without: 'ben', confirmed: plan)
+              .removePerson(billId: id, id: 'ben', confirmed: plan)
               .then((_) => errors.add(c.lastError)),
           c
-              .restateExpenses(billId: id, without: 'ben', confirmed: plan)
+              .removePerson(billId: id, id: 'ben', confirmed: plan)
               .then((_) => errors.add(c.lastError)),
         ]);
         expect(_total(c), 3000);
@@ -236,10 +236,10 @@ void main() {
         final id = await _taxi(c, wallet);
         final plan = (await c.removalPlan(id, 'ben'))!;
         wallet.tick();
-        await c.restateExpenses(billId: id, without: 'ben', confirmed: plan);
+        await c.removePerson(billId: id, id: 'ben', confirmed: plan);
         expect(c.lastError, isNull);
         wallet.tick();
-        await c.restateExpenses(billId: id, without: 'ben', confirmed: plan);
+        await c.removePerson(billId: id, id: 'ben', confirmed: plan);
         expect(c.lastError, _changed);
         expect(_total(c), 3000);
       },
@@ -293,7 +293,7 @@ void main() {
       await c.accept(id, _deeOnBoat(c, boat, cai));
       final plan = (await c.removalPlan(id, 'ben'))!;
       wallet.tick();
-      await c.restateExpenses(billId: id, without: 'ben', confirmed: plan);
+      await c.removePerson(billId: id, id: 'ben', confirmed: plan);
       expect(c.lastError, isNull);
       final boatNow = c.bills.single.bill.expenses.single;
       expect((boatNow.split['among'] as List).toSet(), {'cai', 'dee', c.me});
@@ -407,7 +407,7 @@ void main() {
       final plan = (await c.removalPlan(id, 'ben'))!;
       expect(plan.edits, hasLength(1));
       wallet.tick();
-      await c.restateExpenses(billId: id, without: 'ben', confirmed: plan);
+      await c.removePerson(billId: id, id: 'ben', confirmed: plan);
       expect(c.lastError, isNull);
       expect(_total(c), 3000);
       expect(c.bills.single.bill.expenses, hasLength(1));
