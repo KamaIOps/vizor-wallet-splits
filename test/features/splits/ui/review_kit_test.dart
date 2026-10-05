@@ -2,6 +2,7 @@
 // check: every fact it lists must be in the text the dialog shows.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:splitz_core/host.dart' as entries;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'settle_send_test.dart'
@@ -22,14 +23,14 @@ Future<List<ReviewFinding>> _review(
   final shown = [
     for (final w in t.widgetList<Text>(
       find.descendant(
-        of: find.byType(AlertDialog),
+        of: find.byKey(const Key('splits_review')),
         matching: find.byType(Text),
       ),
     ))
       w.data ?? w.textSpan?.toPlainText() ?? '',
     for (final w in t.widgetList<SelectableText>(
       find.descendant(
-        of: find.byType(AlertDialog),
+        of: find.byKey(const Key('splits_review')),
         matching: find.byType(SelectableText),
       ),
     ))
@@ -53,7 +54,42 @@ Future<List<ReviewFinding>> _review(
   return findings;
 }
 
+/// Ben's address at the length of a real unified address, so the review
+/// shows it shortened.
+const _longAddress =
+    'u1benpayable0000000000000000000000000000000000000000000000000000000000'
+    '00000000000000000000000000000000000000000000000000000000000000000001';
+
 void main() {
+  testWidgets('a shortened address still counts as shown (§14.2)', (t) async {
+    final wallet = FakeWallet();
+    final storage = InMemoryBillStorage();
+    final c = controllerFor(wallet, storage);
+    await c.load();
+    final id = (await c.createBill(name: 'Dinner', currency: 'USD'))!;
+    final ben = otherHost('ben');
+    await c.accept(id, [
+      entries.joinBill(host: ben, name: 'ben', payTo: _longAddress),
+      entries.addExpense(
+        host: ben,
+        expenseId: 'x1',
+        paidBy: 'ben',
+        amount: 2000,
+        split: <String, dynamic>{
+          'type': 'equal',
+          'among': ['ben', c.me]..sort(),
+        },
+      ),
+    ]);
+    await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+    final findings = await _review(t, c, wallet, storage, id);
+    expect([for (final f in findings) '${f.rule} ${f.fact}'], isEmpty);
+    expect(
+      t.widget<Text>(find.byKey(const Key('splits_review_address_0'))).data,
+      'u1benpayable0 … 00000000001',
+    );
+  });
+
   testWidgets('a rate this device set: nothing §14.2 lists is missing', (
     t,
   ) async {
@@ -74,14 +110,14 @@ void main() {
     final (id, _) = await owingBenWhoPrices(c);
     final findings = await _review(t, c, wallet, storage, id);
     expect([for (final f in findings) '${f.rule} ${f.fact}'], isEmpty);
-    // The check finds a name anywhere, and the payee's is on the review as
-    // its recipient; the rate line itself must say who set it.
+    // The rate line is the figure, and who set it is not on the review.
     final rate = t.widget<Text>(
       find.descendant(
-        of: find.byType(AlertDialog),
+        of: find.byKey(const Key('splits_review')),
         matching: find.byKey(const Key('splits_settle_rate')),
       ),
     );
-    expect(rate.data, '1 ZEC = 1000.00 USD, priced by ben');
+    expect(rate.data, '1 ZEC = 1000.00 USD');
+    expect(find.byKey(const Key('splits_review_setter_paid')), findsNothing);
   });
 }

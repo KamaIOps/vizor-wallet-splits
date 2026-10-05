@@ -46,6 +46,9 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
   bool _unpriced = false;
   bool _loading = true;
 
+  /// The changed-address notices this device closed on this bill.
+  Set<String> _closedNotices = const {};
+
   /// Whether this screen has already tried to price the bill itself. Once:
   /// a feed that has no figure now will not have one on the next rebuild.
   bool _autoPriced = false;
@@ -77,8 +80,12 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
     // Read on its own: a bill whose debts cannot be priced still shows the
     // send that may be out.
     final pending = await controller.pendingSend(widget.billId);
+    final closed = await controller.closedNotices(widget.billId);
     if (!mounted) return;
-    setState(() => _pending = pending);
+    setState(() {
+      _pending = pending;
+      _closedNotices = closed;
+    });
     try {
       final held = controller.bills
           .where((b) => b.id == widget.billId)
@@ -216,10 +223,17 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
       return;
     }
     final via = _via;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) =>
-          _ReviewSend(view: current, owed: owed, live: live, via: via),
+    final confirmed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        fullscreenDialog: true,
+        builder: (_) => _ReviewSend(
+          view: current,
+          owed: owed,
+          live: live,
+          via: via,
+          preview: controller.previewSend(owed),
+        ),
+      ),
     );
     if (confirmed != true || !mounted) return;
     splitz.Settled? settled;
@@ -485,27 +499,41 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
           // pays them or not, the payer is told before deciding anything. One
           // card a person, every change of theirs on it in order.
           for (final id in {for (final r in view.replacedAddresses) r.id})
-            RowCard(
-              key: Key('splits_settle_replaced_$id'),
-              color: Theme.of(context).colorScheme.errorContainer,
-              child: CardLine(
-                title: payoutChangedLine(
-                  who(id),
-                  bound: view.identities.bound.containsKey(id),
-                ),
-                subtitle: Text(
-                  [
-                    view.identities.bound.containsKey(id)
-                        ? 'Sends to their new address. Check with them.'
-                        : 'Sends to the new address, and anyone with the '
-                              'invite could have changed it. Check with them.',
-                    for (final r in view.replacedAddresses)
-                      if (r.id == id)
-                        'was ${_short(r.from)} · now ${_short(r.to)}',
-                  ].join('\n'),
+            if (!SplitsController.noticeClosed(view, id, _closedNotices))
+              RowCard(
+                key: Key('splits_settle_replaced_$id'),
+                color: Theme.of(context).colorScheme.errorContainer,
+                padding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      // Said to be their doing only when a key binds them
+                      // (§10.7); otherwise anyone with the invite could have.
+                      child: Text(
+                        view.identities.bound.containsKey(id)
+                            ? '${payoutChangedLine(who(id), bound: true)}.'
+                            : '${payoutChangedLine(who(id), bound: false)}. '
+                                  'Check with them.',
+                      ),
+                    ),
+                    // The send review says it again for every output it
+                    // pays, so closing this hides nothing a payer needs.
+                    IconButton(
+                      key: Key('splits_settle_replaced_close_$id'),
+                      tooltip: 'Close',
+                      icon: const Icon(Icons.close, size: 18),
+                      onPressed: () async {
+                        final controller = SplitsScope.read(context);
+                        await controller.closeNotice(view, id);
+                        final closed = await controller.closedNotices(
+                          widget.billId,
+                        );
+                        if (mounted) setState(() => _closedNotices = closed);
+                      },
+                    ),
+                  ],
                 ),
               ),
-            ),
           if (_owed != null) ...[
             if (_owed!.settlements.isEmpty && _owed!.awaiting.isEmpty)
               const Padding(
@@ -700,22 +728,53 @@ class _Unpayable extends StatelessWidget {
     // device (§10.7), so an address can be added for them here.
     final canAddAddress =
         needsAddress && !view.identities.bound.containsKey(u.id);
+    // How they are paid can be changed here on the same terms as it can be
+    // added: their record is still anyone's to write (§10.7), and no send
+    // from this bill is unresolved (§14.8).
+    final canEdit =
+        !deadEnd && canSwitch && !view.identities.bound.containsKey(u.id);
+    // A recipient excluded for a payout this request cannot carry is still
+    // owed, and settling them is a different lane rather than an
+    // impossibility.
+    final method = Text(switch (u.reason) {
+      'no_address' => 'No Zcash address yet',
+      'bad_address' => 'Their address can’t be paid',
+      // §8.5: more than one request can carry at this rate.
+      'unpriceable' => 'Needs more than one payment request',
+      _ =>
+        lane == splitz.SettleLane.swap
+            ? '${rank}Pay in ${payout?.asset ?? 'another asset'}'
+                  '${payout?.chain == null ? '' : ' on ${usdcChainName(payout!.chain!)}'}'
+            : '${rank}Cash',
+    });
     final line = CardLine(
       title: 'You → ${who(u.id)}',
-      // A recipient excluded for a payout this request cannot carry is still
-      // owed, and settling them is a different lane rather than an
-      // impossibility.
-      subtitle: Text(switch (u.reason) {
-        'no_address' => 'No Zcash address yet',
-        'bad_address' => 'Their address can’t be paid',
-        // §8.5: more than one request can carry at this rate.
-        'unpriceable' => 'Needs more than one payment request',
-        _ =>
-          lane == splitz.SettleLane.swap
-              ? '${rank}Pay in ${payout?.asset ?? 'another asset'}'
-                    '${payout?.chain == null ? '' : ' on ${usdcChainName(payout!.chain!)}'}'
-              : '${rank}Cash',
-      }),
+      subtitle: !canEdit
+          ? method
+          : Row(
+              children: [
+                Flexible(child: method),
+                TextButton(
+                  key: Key('splits_settle_edit_payout_${u.id}'),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 32),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: () async {
+                    await askAndSetAddress(
+                      context,
+                      billId: billId,
+                      id: u.id,
+                      name: who(u.id),
+                    );
+                    await onReturn();
+                  },
+                  child: const Text('Edit'),
+                ),
+              ],
+            ),
       trailing: formatAmount(u.minorUnits, currency),
       chevron: !deadEnd,
     );
@@ -969,30 +1028,19 @@ Widget? _explain(
   );
 }
 
-/// What one ZEC was priced at for this request (§14.2).
-///
-/// On the review a payment is sent from, it also names who set the rate:
-/// §14.2 requires it there, because a participant who is owed money can set
-/// one. A rate the payee set is called out beside it
-/// (`splits_review_setter_paid`).
+/// What one ZEC was priced at for this request (§14.2). A rate the payee set
+/// is called out beside it on the review (`splits_review_setter_paid`).
 class _RateLine extends StatelessWidget {
-  const _RateLine({required this.view, this.namesSetter = false});
+  const _RateLine({required this.view});
 
   final BillView view;
-  final bool namesSetter;
 
   @override
   Widget build(BuildContext context) {
     final rate = view.bill.rate;
     if (rate == null) return const SizedBox.shrink();
-    final by = view.rateSetBy;
-    final figure =
-        '1 ZEC = ${formatAmount(rate.minorUnitsPerZec, view.bill.currency)}';
     return Text(
-      !namesSetter
-          ? figure
-          : '$figure, priced by '
-                '${by == null ? 'nobody on the bill' : view.bill.displayNameOf(by, creatorId: view.creatorId)}',
+      '1 ZEC = ${formatAmount(rate.minorUnitsPerZec, view.bill.currency)}',
       key: const Key('splits_settle_rate'),
       style: Theme.of(context).textTheme.bodySmall,
     );
@@ -1002,14 +1050,19 @@ class _RateLine extends StatelessWidget {
 /// ZEC, with every digit of the zatoshi figure (§8.2).
 String _zec(int zatoshi) => formatZec(zatoshi);
 
-/// The request as the wallet will send it, for the payer to accept (§14.2).
+/// The review a settlement is sent from, laid out as the wallet's own send
+/// review: per payment its ZEC and what it settles, who it goes to and their
+/// address; then the fee, the rate and the total; then Confirm & send.
 ///
-/// Every output's ZEC amount and address, the rate that produced them and who
-/// set it. A figure in the bill's currency alone hides what the rate did.
-class _ReviewSend extends StatelessWidget {
+/// What §14.2 requires a payer be shown stays on it: every output's ZEC and
+/// address, the rate, a replaced address and a lower preference. A rate far
+/// from the live price is said, and so is an account that cannot cover the
+/// request and its fee, which holds Confirm & send back.
+class _ReviewSend extends StatefulWidget {
   const _ReviewSend({
     required this.view,
     required this.owed,
+    required this.preview,
     this.live,
     this.via = const {},
   });
@@ -1017,25 +1070,46 @@ class _ReviewSend extends StatelessWidget {
   final BillView view;
   final splitz.PayerObligation owed;
 
+  /// What sending [owed] would take, asked of the wallet as the review opens.
+  /// Handed in rather than looked up, so the review reads nothing from the
+  /// navigator it is pushed on.
+  final Future<SendPreview> preview;
+
   /// The payout each recipient it names is paid by, when the payer chose one
   /// below their first (§14.8).
   final Map<String, int> via;
 
   /// A live price for one ZEC in the bill's currency, or null when none can
-  /// be had. The bill's rate is held against it rather than against who set
-  /// it: anyone holding the invite can join under a second name.
+  /// be had.
   final int? live;
 
   @override
+  State<_ReviewSend> createState() => _ReviewSendState();
+}
+
+class _ReviewSendState extends State<_ReviewSend> {
+  SendPreview? _preview;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.preview.then((preview) {
+      if (mounted) setState(() => _preview = preview);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final view = widget.view;
+    final owed = widget.owed;
+    final via = widget.via;
+    final live = widget.live;
     final currency = view.bill.currency;
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final error = TextStyle(color: scheme.error);
     String who(String id) =>
         view.bill.displayNameOf(id, creatorId: view.creatorId);
-    final unpayable = {for (final u in owed.unpayable) u.id};
-    final carried = [
-      for (final s in owed.settlements)
-        if (!unpayable.contains(s.to)) s,
-    ];
     final payments = owed.request.payments;
     // Who each output pays, as the request itself says: `recipients` and
     // `payments` are one order, so no row is matched by its position in a
@@ -1045,128 +1119,272 @@ class _ReviewSend extends StatelessWidget {
     protocol.Settlement? settlementOf(String? to) =>
         owed.settlements.where((s) => s.to == to).firstOrNull;
     final total = payments.fold<int>(0, (sum, p) => sum + p.zatoshi);
-    final setter = view.rateSetBy;
-    final setterIsPaid = setter != null && carried.any((s) => s.to == setter);
-    final error = Theme.of(context).colorScheme.error;
     final rate = view.bill.rate?.minorUnitsPerZec;
-    final current = live;
-    final off = rate == null || current == null
+    final off = rate == null || live == null
         ? null
-        : ratePercentOff(rate, current);
+        : ratePercentOff(rate, live);
     final replaced = {for (final r in view.replacedAddresses) r.id};
+    final preview = _preview;
+    final short = preview?.short ?? false;
 
-    return AlertDialog(
-      title: const Text('Send this?'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (final (i, p) in payments.indexed)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(switch ((toOf(i), settlementOf(toOf(i)))) {
-                      (final to?, final settled?) =>
-                        '${who(to)} · '
-                            '${formatAmount(settled.amount, currency)}',
-                      _ => p.label ?? 'Payment ${i + 1}',
-                    }),
-                    Text(
-                      _zec(p.zatoshi),
-                      key: Key('splits_review_zec_$i'),
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    SelectableText(
-                      p.address,
-                      key: Key('splits_review_address_$i'),
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 11,
-                      ),
-                    ),
-                    if (_parsed(p.address)?.canReceiveMemo == false)
-                      Text(
-                        'A transparent address: this payment is public on '
-                        'the chain.',
-                        key: Key('splits_review_transparent_$i'),
-                        style: TextStyle(color: error),
-                      ),
-                    // §10.7: an id no key is bound to is a name anyone on
-                    // the bill can write for, address included.
-                    if (toOf(i) case final to?
-                        when !view.identities.bound.containsKey(to))
-                      Text(
-                        '${who(toOf(i)!)} hasn’t joined on their phone. Check this address with them.',
-                        key: Key('splits_review_unbound_${toOf(i)}'),
-                        style: TextStyle(color: error),
-                      ),
-                    // §14.2: paid somewhere they ranked lower than first.
-                    if ((via[toOf(i)] ?? 0) > 0)
-                      Text(
-                        'Their ${ordinal(via[toOf(i)]! + 1)} choice, '
-                        'not their first.',
-                        key: Key('splits_review_lower_${toOf(i)}'),
-                        style: TextStyle(color: error),
-                      ),
-                    if (replaced.contains(toOf(i)))
-                      Text(
-                        'This address replaced an earlier one.',
-                        key: Key('splits_review_replaced_${toOf(i)}'),
-                        style: TextStyle(color: error),
-                      ),
-                  ],
+    return Scaffold(
+      key: const Key('splits_review'),
+      appBar: AppBar(title: const Text('Review send')),
+      bottomNavigationBar: BottomActions(
+        children: [
+          FilledButton.icon(
+            key: const Key('splits_review_send'),
+            icon: const Icon(Icons.send_rounded, size: 20),
+            label: const Text('Confirm & send'),
+            // Held while the wallet is asked, and when it says the account
+            // cannot cover the request and its fee: the preview reads the
+            // same settled balance the send does.
+            onPressed: preview == null || short
+                ? null
+                : () => Navigator.of(context).pop(true),
+          ),
+          TextButton(
+            key: const Key('splits_review_cancel'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        children: [
+          for (final (i, p) in payments.indexed) ...[
+            _ReviewLine(
+              label: 'Amount',
+              leading: const _ZecCoin(),
+              value: Text(
+                _zec(p.zatoshi),
+                key: Key('splits_review_zec_$i'),
+                style: text.headlineSmall,
+              ),
+              below: switch (settlementOf(toOf(i))) {
+                final settled? => Text(formatAmount(settled.amount, currency)),
+                null => null,
+              },
+            ),
+            Padding(
+              padding: const EdgeInsets.only(left: 8, top: 4, bottom: 4),
+              child: Icon(Icons.arrow_downward, color: scheme.onSurface),
+            ),
+            _ReviewLine(
+              label: 'To',
+              leading: CircleAvatar(
+                radius: 20,
+                backgroundColor: scheme.surfaceContainerHighest,
+                child: Icon(
+                  Icons.account_balance_wallet_outlined,
+                  color: scheme.onSurfaceVariant,
                 ),
               ),
-            Text('Total ${_zec(total)}, one transaction'),
-            const SizedBox(height: 8),
-            _RateLine(view: view, namesSetter: true),
-            if (live == null) ...[
-              const SizedBox(height: 8),
-              Text(
-                'No live price to compare. Check this rate yourself.',
-                key: const Key('splits_review_rate_unchecked'),
-                style: TextStyle(color: error),
+              value: Text(switch (toOf(i)) {
+                final to? => who(to),
+                null => p.label ?? 'Payment ${i + 1}',
+              }, style: text.headlineSmall),
+              below: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                children: [
+                  Text(
+                    reviewAddress(p.address),
+                    key: Key('splits_review_address_$i'),
+                  ),
+                  TextButton.icon(
+                    key: Key('splits_review_full_address_$i'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: scheme.onSurfaceVariant,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    icon: const Icon(Icons.visibility_outlined, size: 18),
+                    label: const Text('Show full address'),
+                    onPressed: () => showDialog<void>(
+                      context: context,
+                      builder: (dialog) => AlertDialog(
+                        content: SelectableText(p.address),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(dialog).pop(),
+                            child: const Text('Close'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-            if (off != null && off.abs() >= rateWarningPercent) ...[
-              const SizedBox(height: 8),
+            ),
+            // §14.2: paid somewhere they ranked lower than first.
+            if ((via[toOf(i)] ?? 0) > 0)
               Text(
-                'This rate is ${off.abs()}% ${off > 0 ? 'above' : 'below'} '
-                'the current price of '
-                '${formatAmount(live!, view.bill.currency)} a ZEC, so this '
-                'sends ${off > 0 ? 'less' : 'more'} ZEC than the debt is '
-                'worth today.',
-                key: const Key('splits_review_rate_off'),
-                style: TextStyle(color: error),
+                'Their ${ordinal(via[toOf(i)]! + 1)} choice, not their first.',
+                key: Key('splits_review_lower_${toOf(i)}'),
+                style: error,
               ),
-            ],
-            if (setterIsPaid) ...[
-              const SizedBox(height: 8),
+            // §14.2: every pay-to address the fold recorded as replaced.
+            if (replaced.contains(toOf(i)))
               Text(
-                '${who(setter)} set this rate and gets paid here. Check it.',
-                key: const Key('splits_review_setter_paid'),
-                style: TextStyle(color: error),
+                'Address recently changed.',
+                key: Key('splits_review_replaced_${toOf(i)}'),
+                style: error,
               ),
-            ],
+            const SizedBox(height: 24),
           ],
-        ),
+          Card(
+            margin: EdgeInsets.zero,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Column(
+                children: [
+                  if (preview?.feeZatoshi case final fee?)
+                    _ReviewFigure(
+                      label: 'Tx fee',
+                      value: _zec(fee),
+                      valueKey: const Key('splits_review_fee'),
+                    ),
+                  _ReviewFigure(
+                    label: 'Rate',
+                    child: _RateLine(view: view),
+                  ),
+                  if (payments.length > 1)
+                    _ReviewFigure(
+                      label: 'Total',
+                      value: '${_zec(total)}, one transaction',
+                    ),
+                ],
+              ),
+            ),
+          ),
+          if (off != null && off.abs() >= rateWarningPercent) ...[
+            const SizedBox(height: 12),
+            Text(
+              'This rate is ${off.abs()}% ${off > 0 ? 'above' : 'below'} the '
+              'current price of ${formatAmount(live!, currency)} a ZEC.',
+              key: const Key('splits_review_rate_off'),
+              style: error,
+            ),
+          ],
+          if (short) ...[
+            const SizedBox(height: 12),
+            Text(
+              switch ((preview!.haveZatoshi, preview.needZatoshi)) {
+                (final have?, final need?) =>
+                  'Not enough ZEC: this needs ${_zec(need)} including the '
+                      'fee, and the wallet has ${_zec(have)}.',
+                _ => 'Not enough ZEC to cover this and its fee.',
+              },
+              key: const Key('splits_review_short'),
+              style: error,
+            ),
+          ],
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          key: const Key('splits_review_send'),
-          onPressed: () => Navigator.of(context).pop(true),
-          child: const Text('Send'),
+    );
+  }
+}
+
+/// A labelled headline on the review: a leading badge, the label above the
+/// figure or name, and a line under it.
+class _ReviewLine extends StatelessWidget {
+  const _ReviewLine({
+    required this.label,
+    required this.leading,
+    required this.value,
+    this.below,
+  });
+
+  final String label;
+  final Widget leading;
+  final Widget value;
+  final Widget? below;
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = Theme.of(context).textTheme.bodyMedium?.copyWith(
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+    );
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(width: 40, child: leading),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: muted),
+              value,
+              if (below != null)
+                DefaultTextStyle.merge(style: muted, child: below!),
+            ],
+          ),
         ),
       ],
     );
   }
+}
+
+/// One label and figure in the review's summary card.
+class _ReviewFigure extends StatelessWidget {
+  const _ReviewFigure({
+    required this.label,
+    this.value,
+    this.valueKey,
+    this.child,
+  });
+
+  final String label;
+  final String? value;
+  final Key? valueKey;
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: Row(
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child:
+                child ??
+                Text(value ?? '', key: valueKey, textAlign: TextAlign.end),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// The ZEC coin the wallet's own review leads its amount with.
+class _ZecCoin extends StatelessWidget {
+  const _ZecCoin();
+
+  @override
+  Widget build(BuildContext context) => ClipOval(
+    child: Image.asset(
+      'assets/icons/network_zec.png',
+      width: 40,
+      height: 40,
+      fit: BoxFit.cover,
+      // A build without the asset still shows a coin.
+      errorBuilder: (_, _, _) => CircleAvatar(
+        radius: 20,
+        backgroundColor: const Color(0xFFF4B728),
+        child: const Text('ⓩ', style: TextStyle(color: Colors.white)),
+      ),
+    ),
+  );
 }
 
 /// A send this device started and has not seen resolved (§14.3).
@@ -1295,13 +1513,17 @@ class _PendingSendState extends State<_PendingSend> {
   );
 }
 
-/// An address, short enough to compare by eye.
+/// [address] as the send review shows it: its first 13 characters, an
+/// ellipsis and its last 11, or whole when that would save nothing.
 ///
-/// Both ends, because a substitution changes the middle: showing a prefix
-/// alone would make a swapped address look identical to the one it replaced.
-String _short(String? address) {
-  if (address == null || address.isEmpty) return 'nothing';
-  if (address.length <= 20) return address;
-  return '${address.substring(0, 10)}…'
-      '${address.substring(address.length - 8)}';
+/// §14.2 counts an address as shown when its first 10 characters are followed
+/// by a character that is not an ASCII letter or digit, which the space
+/// before the ellipsis is (`checkPayerReview`). Characters are Unicode scalar
+/// values (§2.3).
+String reviewAddress(String address) {
+  const head = 13, tail = 11;
+  final runes = address.runes.toList();
+  if (runes.length <= head + tail + 3) return address;
+  return '${String.fromCharCodes(runes.take(head))} … '
+      '${String.fromCharCodes(runes.skip(runes.length - tail))}';
 }
