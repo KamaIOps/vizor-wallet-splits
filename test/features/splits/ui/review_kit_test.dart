@@ -2,6 +2,7 @@
 // check: every fact it lists must be in the text the dialog shows.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:zcash_wallet/src/core/widgets/review_list_row.dart';
 import 'package:splitz_core/host.dart' as entries;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
@@ -85,8 +86,11 @@ void main() {
     final findings = await _review(t, c, wallet, storage, id);
     expect([for (final f in findings) '${f.rule} ${f.fact}'], isEmpty);
     expect(
-      t.widget<Text>(find.byKey(const Key('splits_review_address_0'))).data,
-      'u1benpayable0 … 00000000001',
+      find.descendant(
+        of: find.byKey(const Key('splits_review_payment_0')),
+        matching: find.text('u1benpayable0 … 00000000001'),
+      ),
+      findsOneWidget,
     );
   });
 
@@ -111,13 +115,13 @@ void main() {
     final findings = await _review(t, c, wallet, storage, id);
     expect([for (final f in findings) '${f.rule} ${f.fact}'], isEmpty);
     // The rate line is the figure, and who set it is not on the review.
-    final rate = t.widget<Text>(
+    final rate = t.widget<ReviewListRow>(
       find.descendant(
         of: find.byKey(const Key('splits_review')),
         matching: find.byKey(const Key('splits_settle_rate')),
       ),
     );
-    expect(rate.data, '1 ZEC = 1000.00 USD');
+    expect(rate.value, '1 ZEC = 1000.00 USD');
     expect(find.byKey(const Key('splits_review_setter_paid')), findsNothing);
   });
 }
