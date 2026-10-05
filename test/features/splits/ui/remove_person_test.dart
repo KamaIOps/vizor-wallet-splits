@@ -165,7 +165,19 @@ void main() {
     );
     await t.tap(find.text('remove'));
     await t.pumpAndSettle();
-    expect(find.text('Remove from all expenses'), findsOneWidget);
+    expect(find.text('Take them off'), findsOneWidget);
+    // 30.00 among three is 10.00 each; without Ben, 15.00 for each of the
+    // other two.
+    expect(
+      t.widget<Text>(find.byKey(const Key('splits_people_remove_moves'))).data,
+      'Their 10.00 USD share of 1 expense moves to the others:',
+    );
+    expect(
+      t
+          .widget<Text>(find.byKey(const Key('splits_people_remove_moves_cai')))
+          .data,
+      '• Cai pays 5.00 USD more',
+    );
     wallet.tick();
     await t.runAsync(() async {
       await t.tap(find.byKey(const Key('splits_people_remove_all')));
@@ -181,6 +193,148 @@ void main() {
       'cai',
     });
   });
+
+  /// Ana's bill with Ben on it, where Ben paid for Hotel and shared a Taxi
+  /// Ana wrote and paid. [anaWroteHotel] decides who entered the Hotel.
+  Future<(SplitsController, String)> paidForHotel(
+    WidgetTester t, {
+    required bool anaWroteHotel,
+  }) async {
+    final wallet = FakeWallet();
+    final c = SplitsController(
+      wallet: wallet,
+      store: BillStore(InMemoryBillStorage()),
+      keys: SplitsKeys(store: InMemorySecretStore(), random: Random(3)),
+      relay: const UnconfiguredSplitsRelay(),
+    );
+    late String id;
+    await t.runAsync(() async {
+      await c.load();
+      id = (await c.createBill(name: 'Trip', currency: 'USD'))!;
+      final ben = otherHost('ben');
+      await c.accept(id, [
+        entries.joinBill(host: ben, name: 'Ben', payTo: 'u1ben'),
+      ]);
+      wallet.tick();
+      if (anaWroteHotel) {
+        await c.addExpense(
+          billId: id,
+          paidBy: 'ben',
+          amountMinorUnits: 2000,
+          among: [c.me, 'ben'],
+          description: 'Hotel',
+        );
+      } else {
+        await c.accept(id, [
+          entries.addExpense(
+            host: ben,
+            expenseId: 'x1',
+            paidBy: 'ben',
+            amount: 2000,
+            description: 'Hotel',
+            split: <String, dynamic>{
+              'type': 'equal',
+              'among': ['ben', c.me]..sort(),
+            },
+          ),
+        ]);
+      }
+      wallet.tick();
+      await c.addExpense(
+        billId: id,
+        paidBy: c.me,
+        amountMinorUnits: 3000,
+        among: [c.me, 'ben'],
+        description: 'Taxi',
+      );
+    });
+    expect(c.lastError, isNull);
+    return (c, id);
+  }
+
+  Future<void> openRemoval(
+    WidgetTester t,
+    SplitsController c,
+    String id,
+  ) async {
+    final ben = c.bills.single.bill.participant('ben')!;
+    await t.pumpWidget(
+      SplitsScope(
+        controller: c,
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () =>
+                  confirmAndRemovePerson(context, billId: id, participant: ben),
+              child: const Text('remove'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await t.tap(find.text('remove'));
+    await t.pumpAndSettle();
+  }
+
+  testWidgets('somebody who paid for an expense stays on the bill: the reason '
+      'is said and nothing is offered to write', (t) async {
+    final (c, id) = await paidForHotel(t, anaWroteHotel: false);
+    await openRemoval(t, c, id);
+
+    expect(
+      find.byKey(const Key('splits_people_remove_blocked')),
+      findsOneWidget,
+    );
+    expect(find.text('Ben stays on the bill'), findsOneWidget);
+    expect(find.text('• They paid for Hotel.'), findsOneWidget);
+    // The taxi Ben shared is not offered on its own: written alone, it would
+    // leave him on the bill sharing in nothing.
+    expect(find.text('Take them off'), findsNothing);
+    expect(find.byKey(const Key('splits_people_remove_all')), findsNothing);
+    // Ben wrote the hotel, so this device cannot open it to change it.
+    expect(find.textContaining('Edit'), findsNothing);
+  });
+
+  testWidgets('an expense this device wrote is offered to open and change', (
+    t,
+  ) async {
+    final (c, id) = await paidForHotel(t, anaWroteHotel: true);
+    await openRemoval(t, c, id);
+
+    expect(find.text('• They paid for Hotel.'), findsOneWidget);
+    final hotelEntry = c.bills.single.expenseEntries.entries
+        .firstWhere(
+          (e) =>
+              c.bills.single.bill.expenses
+                  .firstWhere((x) => x.id == e.key)
+                  .description ==
+              'Hotel',
+        )
+        .value;
+    await t.tap(find.byKey(Key('splits_people_remove_open_$hotelEntry')));
+    await t.pumpAndSettle();
+    expect(find.byType(AddExpenseScreen), findsOneWidget);
+  });
+
+  testWidgets(
+    'the controller writes no part of a removal that leaves them on',
+    (t) async {
+      final (c, id) = await paidForHotel(t, anaWroteHotel: false);
+      final before = c.bills.single.bill.expenses.length;
+      final plan = (await t.runAsync(() => c.removalPlan(id, 'ben')))!;
+      expect(plan.edits, hasLength(1), reason: 'the taxi could be restated');
+      expect(plan.complete, isFalse);
+
+      await t.runAsync(
+        () => c.restateExpenses(billId: id, without: 'ben', confirmed: plan),
+      );
+      expect(c.lastError, contains('still names them'));
+      final bill = c.bills.single.bill;
+      expect(bill.expenses, hasLength(before));
+      final taxi = bill.expenses.firstWhere((e) => e.description == 'Taxi');
+      expect(taxi.split['among'], contains('ben'));
+    },
+  );
 
   test('what this device cannot change is said, not done', () async {
     final wallet = FakeWallet();

@@ -28,6 +28,46 @@ Widget app(SplitsController c, Widget home) => SplitsScope(
 );
 
 void main() {
+  testWidgets('how each person is paid is a tag beside their name', (t) async {
+    final c = controllerFor(FakeWallet());
+    await c.load();
+    final id = (await c.createBill(name: 'Trip', currency: 'USD'))!;
+    await c.accept(id, [
+      entries.joinBill(
+        host: otherHost('ben'),
+        name: 'ben',
+        payouts: [
+          <String, dynamic>{'type': 'cash'},
+        ],
+      ),
+      entries.joinBill(
+        host: otherHost('cai'),
+        name: 'cai',
+        payouts: [
+          <String, dynamic>{
+            'type': 'swap',
+            'asset': 'USDC',
+            'chain': 'base',
+            'address': '0x1111111111111111111111111111111111111111',
+          },
+        ],
+      ),
+      entries.joinBill(host: otherHost('dee'), name: 'dee'),
+    ]);
+    expect(c.lastError, isNull);
+    await t.pumpWidget(app(c, PeopleScreen(billId: id)));
+    await t.pumpAndSettle();
+    String? tag(String id) {
+      final f = find.byKey(Key('splits_person_payout_$id'));
+      return f.evaluate().isEmpty ? null : t.widget<Text>(f).data;
+    }
+
+    expect(tag('ben'), '(Cash)');
+    expect(tag('cai'), '(USDC Base)');
+    expect(tag('dee'), isNull, reason: 'no way to pay them, so no tag');
+    expect(find.textContaining('Gets paid'), findsNothing);
+  });
+
   group('adding somebody by hand', () {
     testWidgets('they go on the bill, unbound and honest about it', (t) async {
       final wallet = FakeWallet();
@@ -50,12 +90,13 @@ void main() {
       // are. §10.7 binds nothing.
       expect(view.bill.participant('ben')!.identityKey, isNull);
       expect(view.identities.bound.containsKey('ben'), isFalse);
-      // Not joined from their own phone: they are offered an invite, and an
-      // address can be added for them.
-      expect(find.byKey(const Key('splits_person_invite_ben')), findsOneWidget);
+      // Not joined from their own phone: how they are paid can be added for
+      // them. Inviting is the screen's, not each row's.
+      expect(find.byKey(const Key('splits_person_invite_ben')), findsNothing);
+      expect(find.text('Add payment method'), findsOneWidget);
       // A later entry, as it is on a phone whose clock moves.
       wallet.tick();
-      await t.tap(find.byKey(const Key('splits_person_add_address_ben')));
+      await t.tap(find.byKey(const Key('splits_person_add_payout_ben')));
       await t.pumpAndSettle();
       await t.enterText(find.byKey(const Key('splits_address_field')), 'u1ben');
       await t.tap(find.byKey(const Key('splits_address_save')));
@@ -63,15 +104,15 @@ void main() {
       expect(c.lastError, isNull);
       final after = c.bills.firstWhere((b) => b.id == id);
       expect(after.bill.participant('ben')!.payableAddress, 'u1ben');
-      expect(find.text('Gets paid in ZEC'), findsWidgets);
+      expect(find.text('(ZEC)'), findsWidgets);
 
       // Once set, it is changed rather than added, from what it is now.
       expect(
-        find.byKey(const Key('splits_person_add_address_ben')),
+        find.byKey(const Key('splits_person_add_payout_ben')),
         findsNothing,
       );
       wallet.tick();
-      await t.tap(find.byKey(const Key('splits_person_change_address_ben')));
+      await t.tap(find.byKey(const Key('splits_person_edit_payout_ben')));
       await t.pumpAndSettle();
       expect(find.text('u1ben'), findsOneWidget);
       await t.enterText(
@@ -129,14 +170,14 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(const Key('splits_person_ben')),
-          matching: find.text('Gets paid in ZEC'),
+          matching: find.text('(ZEC)'),
         ),
         findsOneWidget,
       );
       expect(
         find.descendant(
           of: find.byKey(const Key('splits_person_ben')),
-          matching: find.text('Invite'),
+          matching: find.text('Edit payment method'),
         ),
         findsOneWidget,
       );
