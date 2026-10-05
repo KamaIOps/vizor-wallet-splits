@@ -138,6 +138,8 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
                   screen = ActivityScreen(billId: billId);
                 case 'payout':
                   screen = PayoutScreen(billId: billId);
+                case 'code':
+                  screen = ShareBillScreen(billId: billId, wholeBill: true);
                 case 'sync':
                   act(() => controller.syncBill(billId));
                 case 'forget':
@@ -174,6 +176,14 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
                 key: const Key('splits_bill_payout'),
                 value: 'payout',
                 child: const Text('How you get paid'),
+              ),
+              PopupMenuItem<String>(
+                labelTextStyle: WidgetStatePropertyAll(
+                  Theme.of(context).textTheme.bodyLarge,
+                ),
+                key: const Key('splits_bill_code'),
+                value: 'code',
+                child: const Text('Bill code'),
               ),
               PopupMenuItem<String>(
                 labelTextStyle: WidgetStatePropertyAll(
@@ -222,8 +232,14 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
         children: [
           Text(
+            // Zero on this device says nothing about the rest of the bill:
+            // "settled" only once nobody owes anybody.
             mine == 0
-                ? 'All square'
+                ? view.bill.expenses.isEmpty
+                      ? 'No expenses yet'
+                      : balances.values.every((v) => v == 0)
+                      ? 'All settled'
+                      : 'You owe nothing'
                 : mine > 0
                 ? "You're owed ${formatAmount(mine, currency)}"
                 : 'You owe ${formatAmount(-mine, currency)}',
@@ -552,8 +568,10 @@ class _SyncNotice extends StatelessWidget {
         'Not syncing — this bill travels by code',
         scheme.onSurfaceVariant,
       ),
-      SplitsSyncPhase.idle => ('Not synced yet', scheme.onSurfaceVariant),
-      SplitsSyncPhase.syncing => ('Syncing…', scheme.onSurfaceVariant),
+      // A sync that has not answered yet runs in the background unsaid; what
+      // it ends in, failure or news, is said.
+      SplitsSyncPhase.idle ||
+      SplitsSyncPhase.syncing => (null, scheme.onSurfaceVariant),
       SplitsSyncPhase.synced => (_synced, scheme.onSurfaceVariant),
       // The bill is intact; what failed is reaching the others.
       SplitsSyncPhase.failed => (
@@ -561,6 +579,8 @@ class _SyncNotice extends StatelessWidget {
         scheme.error,
       ),
     };
+    // Nothing new, nothing wrong, or nothing yet: not worth a line.
+    if (text == null) return const SizedBox.shrink();
 
     return Padding(
       key: const Key('splits_bill_sync'),
@@ -569,7 +589,7 @@ class _SyncNotice extends StatelessWidget {
     );
   }
 
-  String get _synced {
+  String? get _synced {
     // A key that is wrong looks identical to a quiet relay unless the
     // unopenable blobs are counted.
     if (state.unopenable > 0) {
@@ -581,7 +601,7 @@ class _SyncNotice extends StatelessWidget {
       return 'Synced — ${state.received} new '
           '${state.received == 1 ? 'entry' : 'entries'}';
     }
-    return 'Synced — up to date';
+    return null;
   }
 }
 

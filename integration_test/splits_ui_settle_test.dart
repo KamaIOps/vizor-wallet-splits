@@ -32,10 +32,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:zcash_wallet/src/features/splits/ui/screens/share_bill_screen.dart'
-    show CodeImage;
 import 'package:zcash_wallet/app.dart';
 import 'package:zcash_wallet/src/features/splits/splits_relay.dart';
+import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'support/mobile_regtest_flow.dart';
 import 'support/splits_coordinator.dart';
@@ -107,19 +106,22 @@ Future<void> _payer(WidgetTester tester) async {
   // the log from a relay. The code carries the log itself and opens the bill
   // with or without one. This bill is two people and one expense, well
   // inside §11.2's cap.
-  await tester.tap(find.byTooltip('Share'));
+  // The bill code is in the bill's menu; Share offers only the invite.
+  await tester.tap(find.byKey(const Key('splits_bill_menu')));
+  await _settle(tester);
+  await tester.tap(find.byKey(const Key('splits_bill_code')));
   await _settle(tester);
   await _reveal(
     tester,
-    find.text('Bill code'),
-    'the whole-bill code on the share screen',
+    find.byKey(const Key('splits_qr_Bill code')),
+    'the whole-bill code from the bill menu',
   );
   final code = tester
       .widgetList<CodeImage>(find.byType(CodeImage))
       .map((w) => w.value)
       .firstWhere(
         (c) => c.startsWith('splitz1:'),
-        orElse: () => throw StateError('the share screen showed no bill code'),
+        orElse: () => throw StateError('the bill code screen showed no code'),
       );
   logE2e('BILLCODE $code');
   await publish('invite', code);
@@ -417,11 +419,15 @@ Future<void> _sync(WidgetTester tester) async {
   );
   await tester.tap(control);
   await _settle(tester);
+  // The screen no longer says it is syncing, so the controller is asked.
+  final screen = tester.widget<BillScreen>(find.byType(BillScreen));
+  final controller = SplitsScope.read(tester.element(find.byType(BillScreen)));
   await tester.tap(find.text('Sync now'));
   await _settle(tester);
   await pumpUntil(
     tester,
-    () => !tester.any(find.text('Syncing…')),
+    () =>
+        controller.syncStateOf(screen.billId).phase != SplitsSyncPhase.syncing,
     description: 'the sync to finish',
     timeout: const Duration(minutes: 2),
   );

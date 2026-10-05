@@ -91,20 +91,11 @@ void main() {
     await c.load();
     final id = (await c.createBill(name: 'Dinner', currency: 'USD'))!;
 
-    await t.pumpWidget(app(c, ShareBillScreen(billId: id)));
+    await t.pumpWidget(app(c, ShareBillScreen(billId: id, wholeBill: true)));
     await t.pumpAndSettle();
-
-    // The whole bill first.
     expect(find.byKey(const Key('splits_qr_Bill code')), findsOneWidget);
-    expect(find.text('Bill code'), findsOneWidget);
 
-    // And the invite below it: they are not interchangeable, and a screen
-    // showing one code leaves a reader guessing which they scanned.
-    await t.scrollUntilVisible(
-      find.text('Invite'),
-      200,
-      scrollable: find.byType(Scrollable).first,
-    );
+    await t.pumpWidget(app(c, ShareBillScreen(billId: id)));
     await t.pumpAndSettle();
     expect(find.text('Invite'), findsOneWidget);
     expect(find.byKey(const Key('splits_qr_Invite')), findsOneWidget);
@@ -123,34 +114,18 @@ void main() {
   });
 
   testWidgets('every code has four modules of white around it', (t) async {
-    // Tall enough that both cards are laid out at once.
-    t.view.physicalSize = const Size(800, 3000);
-    t.view.devicePixelRatio = 1;
-    addTearDown(t.view.reset);
     final c = controllerFor(FakeWallet());
     await c.load();
     final id = (await c.createBill(name: 'Dinner', currency: 'USD'))!;
 
-    await t.pumpWidget(app(c, ShareBillScreen(billId: id)));
-    await t.pumpAndSettle();
-    await t.scrollUntilVisible(
-      find.text('Invite'),
-      200,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await t.pumpAndSettle();
-
-    final codes = t.widgetList<QrImageView>(find.byType(QrImageView)).toList();
-    // What each image carries.
-    final texts = t
-        .widgetList<CodeImage>(find.byType(CodeImage))
-        .map((w) => w.value)
-        .toList();
-    expect(codes, hasLength(2));
-    expect(texts, hasLength(2));
-    for (final (i, code) in codes.indexed) {
+    // The whole-bill code and the invite, each on its own screen.
+    for (final whole in [true, false]) {
+      await t.pumpWidget(app(c, ShareBillScreen(billId: id, wholeBill: whole)));
+      await t.pumpAndSettle();
+      final code = t.widget<QrImageView>(find.byType(QrImageView));
+      final text = t.widget<CodeImage>(find.byType(CodeImage)).value;
       final modules = QrValidator.validate(
-        data: texts[i],
+        data: text,
         errorCorrectionLevel: QrErrorCorrectLevel.M,
       ).qrCode!.moduleCount;
       final pad = code.padding.left;
@@ -160,11 +135,11 @@ void main() {
       expect(
         pad / module,
         greaterThanOrEqualTo(4 - 1e-9),
-        reason: '${texts[i].length} chars, $modules modules',
+        reason: '${text.length} chars, $modules modules',
       );
       expect(code.padding.left, code.padding.top);
     }
-    // Both codes carry the warning that sharing one cannot be undone.
+    // The invite carries the warning that sharing it cannot be undone.
     expect(find.byKey(const Key('splits_code_warning_Invite')), findsOneWidget);
   });
 }

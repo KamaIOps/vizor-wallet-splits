@@ -90,9 +90,12 @@ void main() {
       logE2e('no-relay notice shown');
 
       // ── The whole bill, and the invite, as codes ─────────────────────
-      await tester.tap(find.byTooltip('Share'));
+      // The bill code is in the bill's menu; Share offers only the invite.
+      await tester.tap(find.byKey(const Key('splits_bill_menu')));
       await _settle(tester);
-      expect(find.text('Bill code'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('splits_bill_code')));
+      await _settle(tester);
+      expect(find.byKey(const Key('splits_qr_Bill code')), findsOneWidget);
       final codes = tester
           .widgetList<CodeImage>(find.byType(CodeImage))
           .map((w) => w.value)
@@ -110,8 +113,11 @@ void main() {
       );
       logE2e('bill code reads back as a bill with an invite');
 
-      // The invite on its own is the other thing this screen offers, and it is
-      // a heading further down the list rather than a control.
+      await _back(tester);
+
+      // The invite is what Share offers.
+      await tester.tap(find.byTooltip('Share'));
+      await _settle(tester);
       await _scrollToText(tester, inviteSentence);
       expect(find.text(inviteSentence), findsOneWidget);
       expect(
