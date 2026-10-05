@@ -266,8 +266,7 @@ class _AwaitingTile extends StatelessWidget {
         ? await controller.hasReceived(reference)
         : false;
     if (!context.mounted) return;
-    final covered =
-        controller.arrivedCovering(billId, payment.id) != null;
+    final covered = controller.arrivedCovering(billId, payment.id) != null;
     if (received == true && covered) {
       await showDialog<void>(
         context: context,

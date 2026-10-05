@@ -670,6 +670,8 @@ void main() {
       await t.pumpAndSettle();
       expect(find.byKey(const Key('splits_review_send')), findsOneWidget);
       expect(prices.asked, asked + 1);
+      await t.ensureVisible(find.byKey(const Key('splits_review_send')));
+      await t.pumpAndSettle();
       await t.tap(find.byKey(const Key('splits_review_send')));
       await t.pumpAndSettle();
       expect(wallet.sender.sent, hasLength(1));

@@ -220,6 +220,8 @@ void main() {
 
     expect(await tapPay(t), isTrue);
     expectReviewOfHalvedRate(t);
+    await t.ensureVisible(find.byKey(const Key('splits_review_send')));
+    await t.pumpAndSettle();
     await t.tap(find.byKey(const Key('splits_review_send')));
     await t.pumpAndSettle();
     expect(anaWallet.sender.sent.single, contains('amount=0.4'));
