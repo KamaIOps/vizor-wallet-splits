@@ -98,12 +98,22 @@ class _NewBillScreenState extends State<NewBillScreen> with SplitsActions {
                   (v ?? '').trim().isEmpty ? 'Give the bill a name' : null,
             ),
             const SizedBox(height: 8),
+            // Read inside the field as one line, "Currency USD", in the
+            // label's light style like the rows around it.
             TextFormField(
               controller: _currency,
-              decoration: const InputDecoration(
-                labelText: 'Currency',
-                helperText: 'Can’t be changed later.',
-                helperMaxLines: fieldNoteLines,
+              style: Theme.of(context).inputDecorationTheme.labelStyle,
+              decoration: InputDecoration(
+                // Shown whether or not the field holds a code, and found by
+                // its text, as the label it replaces was.
+                prefixIcon: Padding(
+                  padding: const EdgeInsetsDirectional.only(start: 16, end: 8),
+                  child: Text(
+                    'Currency',
+                    style: Theme.of(context).inputDecorationTheme.labelStyle,
+                  ),
+                ),
+                prefixIconConstraints: const BoxConstraints(),
                 errorMaxLines: fieldNoteLines,
               ),
               textCapitalization: TextCapitalization.characters,
