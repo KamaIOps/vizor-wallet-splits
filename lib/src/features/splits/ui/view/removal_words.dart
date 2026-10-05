@@ -7,6 +7,8 @@ library;
 import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:splitz_host/splitz_host.dart';
 
+import 'naming.dart' show formatAmount;
+
 /// What [edit] restates, as a sentence names it.
 String removalEditName(RemovalEdit edit) =>
     edit.seen.description.isEmpty ? 'an expense' : edit.seen.description;
@@ -33,3 +35,42 @@ String removalBlockerSentence(
     RemovalBlock.confirmation => 'They confirmed a payment.',
   };
 }
+
+/// [id] as the people list names them on [bill], with this device's own
+/// participant ([me]) marked "(you)" whatever name it goes by.
+///
+/// The list's own name already stands in for an empty one (its id's tail),
+/// so a removal never reads as nobody.
+String removalPersonName(
+  protocol.Bill bill,
+  String id, {
+  required String creatorId,
+  required String me,
+}) {
+  final name = bill.displayNameOf(id, creatorId: creatorId);
+  return id == me ? '$name (you)' : name;
+}
+
+/// What the person taken off is moving: their share of [expenses] expenses,
+/// [share] minor units of [currency], stated by its size.
+///
+/// A share below zero is what a refund owed them, so it is said as money
+/// they were to get back rather than as a negative share.
+String removalShareHeadline(
+  int share, {
+  required String currency,
+  required int expenses,
+}) {
+  final what = expenses == 1 ? '1 expense' : '$expenses expenses';
+  return share < 0
+      ? 'The ${formatAmount(-share, currency)} they were to get back from '
+            '$what moves to the others:'
+      : 'Their ${formatAmount(share, currency)} share of $what moves to the '
+            'others:';
+}
+
+/// One person's share moving by [change] minor units of [currency]: by its
+/// size, and "more" or "less" by its sign.
+String removalShareChange(String who, int change, {required String currency}) =>
+    '$who pays ${formatAmount(change.abs(), currency)} '
+    '${change > 0 ? 'more' : 'less'}';

@@ -168,12 +168,12 @@ void main() {
       await t.pumpWidget(app(c, const BillsScreen()));
       await t.pumpAndSettle();
       // Still owed until Ben confirms (§10.5), and already on its way.
-      expect(find.text('owes 10.00 USD'), findsOneWidget);
+      expect(find.text('You owe 10.00 USD'), findsOneWidget);
       expect(find.text('you owe 10.00 USD'), findsOneWidget);
       expect(
         find.text('10.00 USD sent, not yet confirmed'),
-        findsOneWidget,
-        reason: 'the totals row says it; the bill row is name and figure',
+        findsNWidgets(2),
+        reason: 'the totals row says it, and so does the bill row (§14.4)',
       );
 
       // Ben confirms: nothing is owed and nothing is waiting.
@@ -216,7 +216,7 @@ void main() {
       await dinner(c);
       await t.pumpWidget(app(c, const BillsScreen()));
       await t.pumpAndSettle();
-      expect(find.text('owes 10.00 USD'), findsOneWidget);
+      expect(find.text('You owe 10.00 USD'), findsOneWidget);
       expect(find.textContaining('sent, not yet confirmed'), findsNothing);
     });
 

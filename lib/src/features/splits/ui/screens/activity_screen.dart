@@ -266,9 +266,8 @@ class _AwaitingTile extends StatelessWidget {
         ? await controller.hasReceived(reference)
         : false;
     if (!context.mounted) return;
-    final covered = controller.arrived.any(
-      (a) => a.billId == billId && a.payment.id == payment.id,
-    );
+    final covered =
+        controller.arrivedCovering(billId, payment.id) != null;
     if (received == true && covered) {
       await showDialog<void>(
         context: context,
@@ -587,11 +586,34 @@ class _EventTile extends StatelessWidget {
   String _amount(int? minorUnits) =>
       minorUnits == null ? '' : formatAmount(minorUnits, view.bill.currency);
 
+  /// A join from somebody whose earlier join was withdrawn: they were taken
+  /// off, and taking somebody off does not change the bill's key, so they
+  /// could read it all along and came back by joining (§10.8). Said to
+  /// everybody, since nobody else is told any other way.
+  bool get _rejoined =>
+      !event.withdrawn &&
+      view.activity.any(
+        (e) =>
+            e.kind == BillEventKind.joined &&
+            e.entryId != event.entryId &&
+            e.withdrawn &&
+            e.author == event.author &&
+            e.at.compareTo(event.at) < 0,
+      );
+
   String get _sentence => switch (event.kind) {
     BillEventKind.opened =>
       '${_who(event.author)} started ${event.description ?? 'the bill'}',
-    BillEventKind.joined => '${_who(event.author)} joined',
-    BillEventKind.addressChanged => _addressChange,
+    BillEventKind.joined =>
+      _rejoined
+          ? '${_who(event.author)} joined again after being taken off'
+          : '${_who(event.author)} joined',
+    // A join after theirs was withdrawn reads as an address change when it
+    // states another payout; it is a return to the bill first.
+    BillEventKind.addressChanged =>
+      _rejoined
+          ? '${_who(event.author)} joined again after being taken off'
+          : _addressChange,
     BillEventKind.expenseAdded =>
       '${_who(event.subject)} paid ${_amount(event.amountMinorUnits)}'
           '${event.description == null ? '' : ' for ${event.description}'}',

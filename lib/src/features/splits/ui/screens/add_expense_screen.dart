@@ -57,10 +57,23 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
 
   /// What the total is worth as the form stands, or null while it is not a
   /// figure yet.
-  int? get _total => switch (_currency) {
-    final currency? => parseAmountIn(_amount.text, currency),
-    null => parseMinorUnits(_amount.text, exponent: 2),
-  };
+  int? get _total {
+    final currency = _currency;
+    if (_refund && currency != null) {
+      // A refund keeps its sign (§4): a figure that reads as zero or more is
+      // not one, rather than a refund turned into an expense.
+      final units = parseSignedAmountIn(_amount.text, currency);
+      return units != null && units < 0 ? units : null;
+    }
+    return currency == null
+        ? parseMinorUnits(_amount.text, exponent: 2)
+        : parseAmountIn(_amount.text, currency);
+  }
+
+  /// Whether the expense being corrected is a refund — an amount below zero
+  /// (§4). Its figure is shown and read with its minus sign, and saving it
+  /// as anything but a refund is refused rather than flipping its sign.
+  bool _refund = false;
 
   /// The bill's currency, read once the bill is known. Its exponent is what
   /// a typed figure is scaled by (§2.1).
@@ -122,6 +135,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
         .firstOrNull;
     if (current == null) return;
 
+    _refund = current.amount < 0;
     _amount.text = formatAmount(
       current.amount,
       view.bill.currency,
@@ -267,11 +281,31 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
               ),
               // Digits and one separator only. A field that accepts a minus
               // sign accepts a refund, and §4 admits one — but not typed in by
-              // accident on the screen that adds a round of drinks.
+              // accident on the screen that adds a round of drinks. A refund
+              // being corrected keeps its sign.
               inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+                FilteringTextInputFormatter.allow(
+                  RegExp(_refund ? r'[0-9.,-]' : r'[0-9.,]'),
+                ),
               ],
               validator: (v) {
+                if (_refund) {
+                  final units = parseSignedAmountIn(
+                    v ?? '',
+                    view.bill.currency,
+                  );
+                  if (units == null) return figureRefusal(view.bill.currency);
+                  if (units >= 0) {
+                    return 'This is a refund. Keep the minus sign, or remove '
+                        'it and add an expense instead.';
+                  }
+                  if (-units > protocol.maxEntryAmount) {
+                    return 'At most '
+                        '${formatAmount(protocol.maxEntryAmount, view.bill.currency)} '
+                        'in one refund';
+                  }
+                  return null;
+                }
                 final units = parseAmountIn(v ?? '', view.bill.currency);
                 if (units == null) return figureRefusal(view.bill.currency);
                 // §2.2: the fold sets aside an expense past the cap, so it is

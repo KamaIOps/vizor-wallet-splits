@@ -18,7 +18,6 @@ import 'package:splitz_host/splitz_host.dart' show BillNaming, RemovalBlocker;
 
 import '../state/splits_controller.dart';
 import '../view/chrome.dart';
-import '../view/naming.dart' show formatAmount;
 import '../view/removal_words.dart';
 import 'add_expense_screen.dart';
 import 'payout_screen.dart';
@@ -301,10 +300,16 @@ Future<void> confirmAndRemovePerson(
   if (view == null) return;
   final plan = await controller.removalPlan(billId, participant.id);
   if (plan == null || !context.mounted) return;
-  final name = participant.name;
   final currency = view.bill.currency;
-  String who(String id) =>
-      view.bill.displayNameOf(id, creatorId: view.creatorId);
+  // Named as the people list names them, and this device's own participant
+  // marked as such whatever name it goes by.
+  String who(String id) => removalPersonName(
+    view.bill,
+    id,
+    creatorId: view.creatorId,
+    me: controller.me,
+  );
+  final name = who(participant.id);
 
   if (!plan.complete) {
     // The expense each blocker names, where this device wrote it and so can
@@ -412,16 +417,18 @@ Future<void> confirmAndRemovePerson(
               const Text('They’re on no expense or payment.')
             else ...[
               Text(
-                'Their ${formatAmount(theirShare, currency)} share of '
-                '${_expenses(plan.edits.length)} moves to the others:',
+                removalShareHeadline(
+                  theirShare,
+                  currency: currency,
+                  expenses: plan.edits.length,
+                ),
                 key: const Key('splits_people_remove_moves'),
               ),
               for (final e in others)
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
-                    '• ${who(e.key)} pays ${formatAmount(e.value, currency)} '
-                    '${e.value > 0 ? 'more' : 'less'}',
+                    '• ${removalShareChange(who(e.key), e.value, currency: currency)}',
                     key: Key('splits_people_remove_moves_${e.key}'),
                   ),
                 ),
@@ -431,6 +438,16 @@ Future<void> confirmAndRemovePerson(
                   child: Text('• $t'),
                 ),
             ],
+            // §10.8: removal withdraws their joins; it does not change the
+            // bill's key.
+            const Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: Text(
+                'They keep the bill’s code, so they can still read it and '
+                'could join again. Everyone would see that they did.',
+                key: Key('splits_people_remove_keeps_key'),
+              ),
+            ),
           ],
         ),
       ),
@@ -452,21 +469,14 @@ Future<void> confirmAndRemovePerson(
     ),
   );
   if (sure != true) return;
-  if (plan.edits.isNotEmpty) {
-    final restated = await act(
-      () => controller.restateExpenses(
-        billId: billId,
-        without: participant.id,
-        confirmed: plan,
-      ),
-    );
-    if (!restated) return;
-  }
-  await act(() => controller.removePerson(billId: billId, id: participant.id));
+  await act(
+    () => controller.removePerson(
+      billId: billId,
+      id: participant.id,
+      confirmed: plan,
+    ),
+  );
 }
-
-/// `1 expense`, `4 expenses`.
-String _expenses(int n) => n == 1 ? '1 expense' : '$n expenses';
 
 /// An id for somebody being added by hand.
 ///

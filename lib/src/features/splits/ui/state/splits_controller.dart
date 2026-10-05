@@ -114,9 +114,14 @@ class BillView {
     this.expenseAuthors = const {},
     this.paymentDigests = const {},
     this.paymentAuthors = const {},
+    this.folded,
   });
 
   final protocol.Bill bill;
+
+  /// The fold this view was read from, for a rule the host answers from the
+  /// whole of it; null for a view built by hand.
+  final splitz.FoldedBill? folded;
 
   /// Who wrote each payment record on the bill, by payment id: what §14.4
   /// counts as on its way is what its payer recorded.
@@ -136,8 +141,7 @@ class BillView {
 
   /// The [replacedAddresses] that moved money away from an address somebody
   /// had: the ones a payer is warned about. A first address, where there was
-  /// none, redirects nothing; an unbound person's is flagged on the send
-  /// review instead (`splits_review_unbound_`).
+  /// none, redirects nothing.
   List<protocol.ReplacedAddress> get redirectedAddresses => [
     for (final r in replacedAddresses)
       if (r.from != null) r,
@@ -368,6 +372,18 @@ class SplitsController extends ChangeNotifier {
   /// at least the ZEC each states, across every bill (§14.7). Each is shown
   /// to the person before [confirmArrivals] writes anything (§14.2).
   List<splitz.Arrival> get arrived => _arrived;
+
+  splitz.Arrivals _arrivals = const splitz.Arrivals(
+    arrived: [],
+    short: [],
+    unstated: [],
+  );
+
+  /// The proposal holding the payment [paymentId] on [billId] as arrived, or
+  /// null: the payee MUST NOT withdraw a record this answers for (§14.7,
+  /// `Arrivals.covering`).
+  splitz.Arrival? arrivedCovering(String billId, String paymentId) =>
+      _arrivals.covering(billId, paymentId);
 
   /// Whether this wallet's history holds [txid], compared as §14.7 compares
   /// it; null when the history cannot be read.
@@ -812,27 +828,30 @@ class SplitsController extends ChangeNotifier {
     );
   }
 
-  /// Writes each expense in [confirmed] again without [without], withdrawing
-  /// the one it replaces (§10.8), and only when that leaves nothing else
-  /// naming them ([RemovalPlan.complete]).
+  /// Takes [id] off the bill (§10.8): every expense in [confirmed] written
+  /// again without them, naming the entry it replaces, and every join
+  /// stating them withdrawn — one write, so a sync can never land between
+  /// the expenses moving and the person coming off.
   ///
-  /// A withdrawal and a new expense rather than an amendment: §10.8 counts a
-  /// person as named while either an amendment or the entry it corrects names
-  /// them, so only this lets somebody come off the bill afterwards. The new
-  /// expense is this device's, so its author can no longer correct it
-  /// (§10.4); an amendment cannot be written for them, and an expense written
-  /// under their id is one they never signed.
+  /// Refused with `participant_still_named` while anything else names them —
+  /// an expense they paid, a split only a person can redivide, a payment
+  /// either way. **That refusal is the feature**: the fold cannot apply an
+  /// entry naming somebody who is not on the bill, so removing the person
+  /// who spent the most would otherwise drop every expense they paid for.
+  /// Only the bill's creator or the person themselves may do it.
   ///
-  /// [confirmed] is the plan the person agreed to. It is planned again from
-  /// the store before anything is signed, and once more inside the store's
-  /// turn for this bill, where nothing else writes it; when either reading
-  /// differs — an amendment synced in, the same removal already written —
-  /// nothing is written and they are told. Every pair goes in one write, so
-  /// the bill never holds an expense twice or loses one between them.
-  Future<void> restateExpenses({
+  /// [confirmed] is the plan the person agreed to; null plans it now, for a
+  /// person on nothing. It is planned again inside the store's turn for this
+  /// bill, where nothing else writes it, and when that reading differs — an
+  /// amendment synced in, the same removal already written — nothing is
+  /// written and they are told. What is written is folded first and merged
+  /// only when it takes them off and every entry of it applies. A restatement
+  /// names the correction it read, so one a second device writes at the same
+  /// moment is set aside by the fold rather than counted twice.
+  Future<void> removePerson({
     required String billId,
-    required String without,
-    required RemovalPlan confirmed,
+    required String id,
+    RemovalPlan? confirmed,
   }) async {
     await _guard(() async {
       const changed = SplitsRefusal(
@@ -840,11 +859,20 @@ class SplitsController extends ChangeNotifier {
         'again.',
       );
       final held = await _store.read(billId);
-      final plan = await _removalPlanOver(billId, held, without);
-      if (!plan.sameAs(confirmed)) throw changed;
-      // Whole or not at all (§10.8): written while something else names
-      // them, these leave them on the bill, owed what they paid and sharing
-      // in nothing else.
+      final plan = await _removalPlanOver(billId, held, id);
+      // The plan the person agreed to first: one written meanwhile — by this
+      // device or another — is a bill that changed, not a person missing.
+      if (confirmed != null && !plan.sameAs(confirmed)) throw changed;
+      if (plan.joins.isEmpty) {
+        throw protocol.SplitError(
+          protocol.SplitCode.unknownParticipant,
+          'Nobody by that name is on this bill',
+        );
+      }
+      final agreed = confirmed ?? plan;
+      if (!plan.mayWithdrawJoins) {
+        throw const SplitsRefusal('Only the bill’s creator can remove them.');
+      }
       if (!plan.complete) {
         throw const SplitsRefusal(
           'Something else on the bill still names them. Change that first, '
@@ -853,36 +881,13 @@ class SplitsController extends ChangeNotifier {
       }
       final seed = await _requireIdentity();
       final host = _host(seed);
-      final written = <Map<String, dynamic>>[];
-      for (final edit in plan.edits) {
-        final expense = edit.seen;
-        written
-          ..add(
-            await splitz.signEntry(
-              host: host,
-              entry: splitz.addExpense(
-                host: host,
-                expenseId: _expenseId(),
-                paidBy: expense.paidBy,
-                amount: expense.amount,
-                split: edit.split,
-                description: expense.description.isEmpty
-                    ? null
-                    : expense.description,
-              ),
-              billId: billId,
-            ),
-          )
-          ..add(
-            await splitz.signEntry(
-              host: host,
-              entry: splitz.voidEntry(host: host, targetId: edit.entryId),
-              billId: billId,
-            ),
-          );
-      }
-      // Folded first, and written only when every entry applies: a new
-      // expense whose withdrawal was refused would count it twice.
+      final written = [
+        for (final entry in removalEntries(host: host, plan: plan))
+          await splitz.signEntry(host: host, entry: entry, billId: billId),
+      ];
+      // Folded first, and written only when every entry applies and they
+      // come off: a withdrawal the fold sets aside stays in the log, and
+      // applies unannounced on the day nothing names them any more.
       final trial = await foldVerified(
         _wallet,
         [...held, ...written],
@@ -893,10 +898,12 @@ class SplitsController extends ChangeNotifier {
       final refused = trial.setAside
           .where((a) => written.any((w) => w['id'] == a.id))
           .firstOrNull;
-      if (refused != null) {
+      if (refused != null || trial.bill.participant(id) != null) {
         throw SplitsRefusal(
-          protocol.describeCode(refused.code) ??
-              'Not applied: ${refused.code}.',
+          refused == null
+              ? 'They’re on an expense. Remove that first.'
+              : protocol.describeCode(refused.code) ??
+                    'Not applied: ${refused.code}.',
         );
       }
       var stale = false;
@@ -907,9 +914,9 @@ class SplitsController extends ChangeNotifier {
           final now = await _removalPlanOver(
             billId,
             await _store.read(billId),
-            without,
+            id,
           );
-          stale = !now.sameAs(confirmed);
+          stale = !now.sameAs(agreed);
           return !stale;
         },
       );
@@ -1097,69 +1104,6 @@ class SplitsController extends ChangeNotifier {
         payouts: [for (final p in rankedPayouts(who, payout)) _payoutJson(p)],
       );
       await _mergeChecked(billId, entry);
-    });
-  }
-
-  /// Takes somebody off the bill (§10.8).
-  ///
-  /// Refused with `participant_still_named` while any surviving entry names
-  /// them — an expense they paid, a split they are in, a payment either way.
-  /// **That refusal is the feature**: the fold cannot apply an entry naming
-  /// somebody who is not on the bill, so removing the person who spent the
-  /// most would otherwise drop every expense they paid for and zero the bill.
-  ///
-  /// Withdrawing their expenses first and then removing them is permitted,
-  /// and is two visible acts rather than one silent one.
-  Future<void> removePerson({
-    required String billId,
-    required String id,
-  }) async {
-    await _guard(() async {
-      final held = await _store.read(billId);
-      // Every join still stating them, from the plan (§10.8): one left
-      // standing puts them back on the bill.
-      final joins = (await _removalPlanOver(billId, held, id)).joins;
-      if (joins.isEmpty) {
-        throw protocol.SplitError(
-          protocol.SplitCode.unknownParticipant,
-          'Nobody by that name is on this bill',
-        );
-      }
-      final seed = await _requireIdentity();
-      final host = _host(seed);
-      final voids = <Map<String, dynamic>>[];
-      for (final join in joins) {
-        voids.add(
-          await splitz.signEntry(
-            host: host,
-            entry: splitz.voidEntry(host: host, targetId: join),
-            billId: billId,
-          ),
-        );
-      }
-      // Folded first, and written only when they come off. A withdrawal the
-      // fold sets aside stays in the log, and applies unannounced on the day
-      // nothing names them any more.
-      final trial = await foldVerified(
-        _wallet,
-        [...held, ...voids],
-        billId: billId,
-        signer: _signer,
-        seed: seed,
-      );
-      if (trial.bill.participant(id) != null) {
-        final refused = trial.setAside
-            .where((a) => voids.any((v) => v['id'] == a.id))
-            .map((a) => a.code)
-            .toSet();
-        throw SplitsRefusal(
-          refused.contains(protocol.SplitCode.participantStillNamed)
-              ? 'They’re on an expense. Remove that first.'
-              : 'Only the bill’s creator can remove them.',
-        );
-      }
-      if (!await _mergeWhileHeld(billId, voids)) throw _removed;
-      await _refresh();
     });
   }
 
@@ -1399,6 +1343,7 @@ class SplitsController extends ChangeNotifier {
       found = const splitz.Arrivals(arrived: [], short: [], unstated: []);
     }
     if (generation != _refreshes) return;
+    _arrivals = found;
     _arrived = found.arrived;
     _disputed = found.disputed;
     _underpriced = found.underpriced;
@@ -2767,6 +2712,7 @@ class SplitsController extends ChangeNotifier {
               );
         views.add(
           BillView(
+            folded: folded,
             bill: folded.bill,
             creatorId: folded.creatorId,
             setAside: folded.setAside,

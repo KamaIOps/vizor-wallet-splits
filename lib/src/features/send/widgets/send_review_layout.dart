@@ -57,6 +57,7 @@ class SendReviewInfoSection extends StatelessWidget {
     this.connectorIconName = AppIcons.arrowDown,
     this.recipientStruckThrough = false,
     this.recipientRow,
+    this.amountRow,
     this.onShowFullAddress,
     super.key,
   });
@@ -103,6 +104,10 @@ class SendReviewInfoSection extends StatelessWidget {
   /// or contact recipient rendering is preserved.
   final Widget? recipientRow;
 
+  /// Optional flow-specific amount row. When omitted, the normal amount row
+  /// built from [amountText] and [fiatText] is preserved.
+  final Widget? amountRow;
+
   final VoidCallback? onShowFullAddress;
 
   String? get _normalizedRecipientAddressType =>
@@ -138,12 +143,13 @@ class SendReviewInfoSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ReviewInfoRow(
-            label: 'Amount',
-            value: amountText,
-            leading: const ReviewZecCoinImage(),
-            bottomLeftText: fiatText,
-          ),
+          amountRow ??
+              ReviewInfoRow(
+                label: 'Amount',
+                value: amountText,
+                leading: const ReviewZecCoinImage(),
+                bottomLeftText: fiatText,
+              ),
           if (requestedAmountText != null)
             Padding(
               padding: const EdgeInsets.only(left: AppSpacing.xl),

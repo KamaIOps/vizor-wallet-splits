@@ -304,7 +304,8 @@ class _SwapScreenState extends State<SwapScreen> {
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Text(
-                          'Check this address with $who.',
+                          '$who hasn’t joined on their phone. Check this '
+                          'address with them.',
                           key: Key('splits_swap_unbound_${widget.to}'),
                           style: TextStyle(color: error),
                         ),
