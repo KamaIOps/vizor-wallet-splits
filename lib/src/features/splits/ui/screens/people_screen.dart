@@ -326,8 +326,20 @@ Future<void> confirmAndRemovePerson(
   final act = actionsOf(context);
   final view = controller.bills.where((b) => b.id == billId).firstOrNull;
   if (view == null) return;
-  final plan = await controller.removalPlan(billId, participant.id);
-  if (plan == null || !context.mounted) return;
+  // Refused while the bill is closed and they are on an expense (§14.9).
+  final RemovalPlan? planned;
+  try {
+    planned = await controller.removalPlan(billId, participant.id);
+  } on Object catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(SplitsController.describe(error))),
+      );
+    }
+    return;
+  }
+  if (planned == null || !context.mounted) return;
+  final plan = planned;
   final currency = view.bill.currency;
   // Named as the people list names them, and this device's own participant
   // marked as such whatever name it goes by.

@@ -119,6 +119,67 @@ void main() {
     });
   });
 
+  testWidgets('on a closed bill, the refusal is said and nothing is written', (
+    t,
+  ) async {
+    final wallet = FakeWallet();
+    final c = SplitsController(
+      wallet: wallet,
+      store: BillStore(InMemoryBillStorage()),
+      keys: SplitsKeys(store: InMemorySecretStore(), random: Random(3)),
+      relay: const UnconfiguredSplitsRelay(),
+    );
+    late String id;
+    await t.runAsync(() async {
+      await c.load();
+      id = (await c.createBill(name: 'Trip', currency: 'USD'))!;
+      await c.addPerson(billId: id, id: 'ben', name: 'Ben');
+      wallet.tick();
+      await c.addExpense(
+        billId: id,
+        paidBy: c.me,
+        amountMinorUnits: 3000,
+        among: [c.me, 'ben'],
+        description: 'Taxi',
+      );
+      await c.closeForSettling(id);
+    });
+    expect(c.bills.single.folded!.closed, isTrue);
+    final ben = c.bills.single.bill.participant('ben')!;
+    final before = c.bills.single.bill.expenses.length;
+
+    await t.pumpWidget(
+      SplitsScope(
+        controller: c,
+        child: MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => confirmAndRemovePerson(
+                  context,
+                  billId: id,
+                  participant: ben,
+                ),
+                child: const Text('remove'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await t.tap(find.text('remove'));
+    await t.pumpAndSettle();
+    expect(
+      find.text(
+        'The bill is closed for settling. Reopen it to change expenses.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Take them off'), findsNothing);
+    expect(c.bills.single.bill.participant('ben'), isNotNull);
+    expect(c.bills.single.bill.expenses, hasLength(before));
+  });
+
   testWidgets('off every expense this device wrote, then off the bill', (
     t,
   ) async {
