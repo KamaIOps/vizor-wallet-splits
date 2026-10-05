@@ -128,7 +128,12 @@ Future<SendPreview> previewSplitsBatch({
     );
   } on Object catch (error) {
     final detail = '$error';
+    if (detail.toLowerCase().contains('must sync')) {
+      // The wallet's own words when it has not caught up with the chain.
+      return const SendPreview(syncing: true);
+    }
     if (!detail.toLowerCase().contains('insufficient')) {
+      debugPrint('splits: no send preview: $detail');
       return const SendPreview();
     }
     final shortfall = sendShortfall(detail);

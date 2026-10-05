@@ -147,6 +147,8 @@ void main() {
     await t.pumpAndSettle();
     expect(find.byKey(const Key('splits_review_lower_ben')), findsOneWidget);
     expect(find.text(_second), findsOneWidget);
+    await t.ensureVisible(find.byKey(const Key('splits_review_send')));
+    await t.pumpAndSettle();
     await t.tap(find.byKey(const Key('splits_review_send')));
     await t.pumpAndSettle();
 

@@ -492,6 +492,8 @@ void main() {
 
       await t.tap(find.byKey(const Key('splits_settle_send')));
       await t.pumpAndSettle();
+      await t.ensureVisible(find.byKey(const Key('splits_review_send')));
+      await t.pumpAndSettle();
       await t.tap(find.byKey(const Key('splits_review_send')));
       await t.pumpAndSettle();
       expect(wallet.sender.sent, hasLength(1));

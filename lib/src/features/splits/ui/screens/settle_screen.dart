@@ -1308,6 +1308,23 @@ class _ReviewSendState extends State<_ReviewSend> {
                         scaleValueToFit: true,
                       ),
                       const ReviewWrapDivider(),
+                    ] else ...[
+                      // The wallet gave no fee: said, never a blank where the
+                      // fee goes.
+                      ReviewListRow(
+                        key: Key(
+                          preview.syncing
+                              ? 'splits_review_fee_syncing'
+                              : 'splits_review_fee_unknown',
+                        ),
+                        label: 'Tx fee',
+                        value: preview.syncing
+                            ? 'Once the wallet has synced'
+                            : 'Not known until it is sent',
+                        valueColor: context.colors.text.secondary,
+                        scaleValueToFit: true,
+                      ),
+                      const ReviewWrapDivider(),
                     ],
                     ReviewListRow(
                       key: const Key('splits_settle_rate'),
@@ -1367,14 +1384,17 @@ class _ReviewSendState extends State<_ReviewSend> {
                       ? 'Working out the fee…'
                       : short
                       ? 'Not enough ZEC'
+                      : preview.syncing
+                      ? 'Wallet is syncing'
                       : 'Confirm & send',
-                  primaryLeadingIconName: preview == null || short
+                  primaryLeadingIconName:
+                      preview == null || short || preview.syncing
                       ? null
                       : AppIcons.plane,
                   // Held while the wallet is asked, and when it says the
                   // account cannot cover the request and its fee: the preview
                   // reads the same settled balance the send does.
-                  onPrimaryPressed: preview == null || short
+                  onPrimaryPressed: preview == null || short || preview.syncing
                       ? null
                       : () => Navigator.of(context).pop(true),
                   secondaryLabel: 'Cancel',

@@ -76,10 +76,16 @@ class SendPreview {
     this.short = false,
     this.haveZatoshi,
     this.needZatoshi,
+    this.syncing = false,
   });
 
   /// The fee the wallet would pay, or null when it could not say.
   final int? feeZatoshi;
+
+  /// Whether the wallet would not build the send because it has not finished
+  /// syncing: the send would be refused the same way, so it is held and the
+  /// review says why.
+  final bool syncing;
 
   /// Whether the wallet cannot cover the request and its fee.
   final bool short;
