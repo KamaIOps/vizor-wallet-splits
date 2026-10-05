@@ -263,7 +263,7 @@ void main() {
         () => Future<void>.delayed(const Duration(milliseconds: 100)),
       );
       await t.pumpAndSettle();
-      expect(find.text('Remove from all expenses'), findsOneWidget);
+      expect(find.text('Take them off'), findsOneWidget);
 
       await t.runAsync(() => c.accept(id, _deeOnBoat(c, boat, cai)));
       final entriesBefore = c.bills.single.entryCount;
@@ -327,7 +327,7 @@ void main() {
       );
       await t.pumpAndSettle();
       expect(find.text('They’re on no expense or payment.'), findsNothing);
-      expect(find.text('Remove from all expenses'), findsOneWidget);
+      expect(find.text('Take them off'), findsOneWidget);
       wallet.tick();
       await t.runAsync(() async {
         await t.tap(find.byKey(const Key('splits_people_remove_all')));
