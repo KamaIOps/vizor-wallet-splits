@@ -111,7 +111,19 @@ void main() {
 
     expect(_text(t, 'splits_review_fee'), isNull);
     expect(_text(t, 'splits_review_short'), isNull);
+    // Said rather than left blank where the fee goes.
+    expect(find.byKey(const Key('splits_review_fee_unknown')), findsOneWidget);
     expect(_send(t).onPressed, isNotNull);
+  });
+
+  testWidgets('a wallet still syncing holds the send and says why', (t) async {
+    final c = _controller((_) async => const SendPreview(syncing: true));
+    final id = await owingBen(c);
+    await _openReview(t, c, id);
+
+    expect(find.byKey(const Key('splits_review_fee_syncing')), findsOneWidget);
+    expect(find.text('Wallet is syncing'), findsOneWidget);
+    expect(_send(t).onPressed, isNull);
   });
 
   testWidgets('Show full address opens the wallet\'s own address sheet', (
