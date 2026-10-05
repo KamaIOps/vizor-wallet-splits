@@ -543,7 +543,9 @@ class _Sharer extends StatelessWidget {
             draft.toggle(id);
             onChanged();
           },
-          title: Text(name),
+          // A dense tile shrinks its title; a name reads at the size it has
+          // everywhere else on the bill.
+          title: Text(name, style: Theme.of(context).textTheme.bodyLarge),
           subtitle: allocated == null
               ? null
               : Text(formatAmount(allocated!, currency)),

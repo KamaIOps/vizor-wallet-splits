@@ -172,8 +172,8 @@ void main() {
       expect(find.text('you owe 10.00 USD'), findsOneWidget);
       expect(
         find.text('10.00 USD sent, not yet confirmed'),
-        findsNWidgets(2),
-        reason: 'the bill row and the totals row each say it',
+        findsOneWidget,
+        reason: 'the totals row says it; the bill row is name and figure',
       );
 
       // Ben confirms: nothing is owed and nothing is waiting.
@@ -190,7 +190,22 @@ void main() {
       expect(c.lastError, isNull);
       await t.pumpAndSettle();
       expect(find.textContaining('sent, not yet confirmed'), findsNothing);
-      expect(find.text('settled'), findsNWidgets(2));
+      expect(
+        find.text('settled'),
+        findsOneWidget,
+        reason: 'Dinner is settled; Lunch has no expenses and says nothing',
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(
+            Key(
+              'splits_bill_row_${c.bills.firstWhere((b) => b.bill.name == 'Lunch').id}',
+            ),
+          ),
+          matching: find.text('settled'),
+        ),
+        findsNothing,
+      );
     });
 
     testWidgets('a debt with nothing sent says nothing about sending', (
@@ -243,9 +258,8 @@ void main() {
       expect(find.text('Ben (benph) is owed 10.00 USD'), findsOneWidget);
     });
 
-    testWidgets('a joiner by another name, owing nothing, reads "settled"', (
-      t,
-    ) async {
+    testWidgets('a joiner by another name, owing nothing on a bill Ben still '
+        'owes on, reads "owes nothing"', (t) async {
       final (id, code) = await withPlaceholder(benPaid: false);
       final cara = ctl(FakeWallet(id: 'cara', payTo: 'u1cara'), seed: 4);
       await cara.load();
@@ -253,7 +267,8 @@ void main() {
       await cara.join(id, displayName: 'Cara');
       await t.pumpWidget(app(cara, const BillsScreen()));
       await t.pumpAndSettle();
-      expect(find.text('settled'), findsOneWidget);
+      expect(find.text('owes nothing'), findsOneWidget);
+      expect(find.text('settled'), findsNothing);
     });
 
     testWidgets('two people called Ben on two bills are told apart', (t) async {
@@ -430,36 +445,52 @@ void main() {
       return (ana, id);
     }
 
-    testWidgets('past the cap with no relay, no invite is offered and the '
-        'reason is said', (t) async {
+    testWidgets('past the cap with no relay, the bill code says why it is '
+        'missing; the invite is still offered', (t) async {
       final (ana, id) = await tooBig(const UnconfiguredSplitsRelay());
-      await t.pumpWidget(app(ana, ShareBillScreen(billId: id)));
+      await t.pumpWidget(
+        app(ana, ShareBillScreen(billId: id, wholeBill: true)),
+      );
       await t.pumpAndSettle();
       expect(find.byKey(const Key('splits_share_too_big')), findsOneWidget);
       expect(find.textContaining('no bill relay'), findsOneWidget);
       expect(find.byType(CodeImage), findsNothing);
       expect(find.byType(LinearProgressIndicator), findsNothing);
+
+      await t.pumpWidget(app(ana, ShareBillScreen(billId: id)));
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('splits_qr_Invite')), findsOneWidget);
+      expect(find.byKey(const Key('splits_share_too_big')), findsNothing);
     });
 
-    testWidgets('past the cap with a relay, the invite is offered and said '
-        'to bring the bill', (t) async {
+    testWidgets('past the cap with a relay, the bill code points at the '
+        'invite', (t) async {
       final (ana, id) = await tooBig(InMemorySplitsRelay());
-      await t.pumpWidget(app(ana, ShareBillScreen(billId: id)));
+      await t.pumpWidget(
+        app(ana, ShareBillScreen(billId: id, wholeBill: true)),
+      );
       await t.pumpAndSettle();
       expect(find.byKey(const Key('splits_share_too_big')), findsOneWidget);
       expect(find.textContaining('Share the invite'), findsOneWidget);
-      expect(find.text('Invite'), findsOneWidget);
-      expect(find.text('Bill code'), findsNothing);
+      expect(find.byType(CodeImage), findsNothing);
     });
 
-    testWidgets('a bill that fits shows both codes and no notice', (t) async {
+    testWidgets('a bill that fits: sharing shows only the invite, and the '
+        'bill code is its own screen', (t) async {
       final ana = ctl(FakeWallet(), seed: 1);
       await ana.load();
       final id = (await ana.createBill(name: 'Small', currency: 'USD'))!;
       await t.pumpWidget(app(ana, ShareBillScreen(billId: id)));
       await t.pumpAndSettle();
-      expect(find.text('Bill code'), findsOneWidget);
-      expect(find.text('Invite'), findsOneWidget);
+      expect(find.byKey(const Key('splits_qr_Invite')), findsOneWidget);
+      expect(find.byKey(const Key('splits_qr_Bill code')), findsNothing);
+
+      await t.pumpWidget(
+        app(ana, ShareBillScreen(billId: id, wholeBill: true)),
+      );
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('splits_qr_Bill code')), findsOneWidget);
+      expect(find.byKey(const Key('splits_qr_Invite')), findsNothing);
       expect(find.byKey(const Key('splits_share_too_big')), findsNothing);
     });
 
