@@ -91,6 +91,17 @@ void main() {
     );
     logE2e('30.00 on the bill, paid by Ben');
 
+    // ── Closed for settling: Settle up waits for it (§14.9) ────────────
+    await _tapKey(tester, 'splits_bill_close');
+    await _tapKey(tester, 'splits_bill_close_confirm');
+    await pumpUntil(
+      tester,
+      () => tester.any(find.byKey(const Key('splits_bill_closed_notice'))),
+      description: 'the bill to read closed for settling',
+      timeout: const Duration(minutes: 1),
+    );
+    logE2e('closed for settling');
+
     // ── Priced, then settled up to the review ──────────────────────────
     await tester.scrollUntilVisible(
       find.text('Settle up'),

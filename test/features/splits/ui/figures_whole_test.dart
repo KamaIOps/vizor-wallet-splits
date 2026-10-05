@@ -18,6 +18,7 @@ import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'entry_join_test.dart' show splitFigures;
 import 'support/fake_wallet.dart';
+import 'support/closing.dart';
 
 Future<void> _loadFonts() async {
   const families = <String, List<String>>{
@@ -99,6 +100,7 @@ Future<(SplitsController, String)> _bigBill() async {
     ),
   ]);
   await c.setRate(billId: id, currency: 'EUR', minorUnitsPerZec: 3456789);
+  await closeForSettling(c, id);
   wallet.tick();
   await c.recordCash(billId: id, to: priya.id, amountMinorUnits: 12345678901);
   expect(c.lastError, isNull);

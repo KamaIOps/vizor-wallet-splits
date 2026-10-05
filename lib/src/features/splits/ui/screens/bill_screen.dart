@@ -10,6 +10,7 @@ import '../view/chrome.dart';
 import '../view/naming.dart';
 import 'activity_screen.dart';
 import 'add_expense_screen.dart';
+import 'payout_changed_notice.dart';
 import 'payout_screen.dart';
 import 'people_screen.dart';
 import 'settle_screen.dart';
@@ -44,16 +45,53 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
     final controller = SplitsScope.of(context);
     if (identical(controller, _controller)) return;
     _controller = controller;
+    _loadClosedNotices(controller);
     // Sync while the bill is open, and only while it is open: a poll running
     // behind a closed screen spends a person's battery on a bill nobody is
     // looking at.
     controller.pollBill(billId);
   }
 
+  /// The changed-address notices closed on this device for this bill.
+  Set<String> _closedNotices = const {};
+
+  Future<void> _loadClosedNotices(SplitsController controller) async {
+    final closed = await controller.closedNotices(billId);
+    if (mounted) setState(() => _closedNotices = closed);
+  }
+
   @override
   void dispose() {
     _controller?.stopPolling(billId);
     super.dispose();
+  }
+
+  /// Closes the bill for settling (§14.9), after saying what that does.
+  Future<void> _close(BuildContext context) async {
+    final controller = SplitsScope.read(context);
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Close for settling?'),
+        content: const Text(
+          'Everyone can settle up once it is closed. Nobody can add or '
+          'change an expense until you reopen it.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(false),
+            child: const Text('Not yet'),
+          ),
+          FilledButton(
+            key: const Key('splits_bill_close_confirm'),
+            onPressed: () => Navigator.of(dialog).pop(true),
+            child: const Text('Close it'),
+          ),
+        ],
+      ),
+    );
+    if (sure != true || !context.mounted) return;
+    await act(() => controller.closeForSettling(billId));
   }
 
   /// Forgets the bill on this device, after saying what that costs.
@@ -112,6 +150,24 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
     String who(String id) =>
         view.bill.displayNameOf(id, creatorId: view.creatorId);
 
+    // §14.9: paid once the creator has closed it, and changed only while
+    // open. A close nobody withdrew that no longer covers the expenses is a
+    // bill some expense reopened since, which the creator is told about.
+    final closed = view.folded?.closed ?? false;
+    final iOpenedIt = view.creatorId == controller.me;
+    final creator = who(view.creatorId);
+    final withdrawn = {
+      for (final e in view.activity)
+        if (e.kind == BillEventKind.entryWithdrawn) e.subject,
+    };
+    final reopenedByChange =
+        !closed &&
+        view.activity.any(
+          (e) =>
+              e.kind == BillEventKind.closedForSettling &&
+              !withdrawn.contains(e.entryId),
+        );
+
     return Scaffold(
       appBar: AppBar(
         title: Text(view.bill.name.isEmpty ? 'Bill' : view.bill.name),
@@ -142,6 +198,8 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
                   screen = ShareBillScreen(billId: billId, wholeBill: true);
                 case 'sync':
                   act(() => controller.syncBill(billId));
+                case 'reopen':
+                  act(() => controller.reopen(billId));
                 case 'forget':
                   _forget(context);
               }
@@ -194,6 +252,15 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
                 enabled: !controller.busy,
                 child: const Text('Sync now'),
               ),
+              if (closed && iOpenedIt)
+                PopupMenuItem<String>(
+                  labelTextStyle: WidgetStatePropertyAll(
+                    Theme.of(context).textTheme.bodyLarge,
+                  ),
+                  key: const Key('splits_bill_reopen'),
+                  value: 'reopen',
+                  child: const Text('Reopen to change expenses'),
+                ),
               PopupMenuItem<String>(
                 labelTextStyle: WidgetStatePropertyAll(
                   Theme.of(context).textTheme.bodyLarge,
@@ -210,22 +277,40 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
         children: [
           FilledButton(
             key: const Key('splits_bill_add_expense'),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => AddExpenseScreen(billId: billId),
-              ),
-            ),
+            // §14.9: no expense while the bill is closed for settling.
+            onPressed: closed
+                ? null
+                : () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => AddExpenseScreen(billId: billId),
+                    ),
+                  ),
             child: const Text('Add expense'),
           ),
-          SecondaryButton(
-            key: const Key('splits_bill_settle'),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => SettleScreen(billId: billId),
-              ),
+          if (!closed && iOpenedIt)
+            SecondaryButton(
+              key: const Key('splits_bill_close'),
+              onPressed: () => _close(context),
+              child: const Text('Close for settling'),
+            )
+          else
+            SecondaryButton(
+              key: const Key('splits_bill_settle'),
+              // §14.9: nobody pays until the creator closes the bill. A notice
+              // closed on Settle up is closed here too.
+              onPressed: !closed
+                  ? null
+                  : () async {
+                      final controller = SplitsScope.read(context);
+                      await Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => SettleScreen(billId: billId),
+                        ),
+                      );
+                      await _loadClosedNotices(controller);
+                    },
+              child: const Text('Settle up'),
             ),
-            child: const Text('Settle up'),
-          ),
         ],
       ),
       body: ListView(
@@ -260,6 +345,27 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
             ),
           ),
           _SyncNotice(state: controller.syncStateOf(billId)),
+          if (closed)
+            NoticeCard(
+              key: const Key('splits_bill_closed_notice'),
+              message: iOpenedIt
+                  ? 'Closed for settling. Reopen it from ⋯ to change expenses.'
+                  : 'Closed for settling by $creator.',
+            )
+          else if (reopenedByChange)
+            NoticeCard(
+              key: const Key('splits_bill_reopened'),
+              message: iOpenedIt
+                  ? 'An expense changed after you closed it. Close it again '
+                        'once everything is on it.'
+                  : 'An expense changed after $creator closed it. Waiting '
+                        'for $creator to close it again.',
+            )
+          else if (!iOpenedIt && view.bill.expenses.isNotEmpty)
+            NoticeCard(
+              key: const Key('splits_bill_waiting_close'),
+              message: 'Waiting for $creator to close the bill for settling.',
+            ),
           // Until the payee says it arrived, a payment is a claim and the
           // debt stands (§10.5), so the question is put where it is seen.
           if (awaitingConfirmationBy(view.bill, controller.me).isNotEmpty)
@@ -278,18 +384,21 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
           if (failure case final failed?)
             NoticeCard(message: failed, error: true),
           if (!joined) _JoinPrompt(billId: billId),
-          for (final replaced in view.redirectedAddresses)
-            NoticeCard(
-              // §13: a wallet MUST show a changed pay-to address before it
-              // settles to one. Buried in a list it is not shown.
-              // Until somebody joins with their own key, anybody holding the
-              // invite can write their record (§10.7): the change is not
-              // said to be theirs.
-              message: view.identities.bound.containsKey(replaced.id)
-                  ? '${who(replaced.id)} changed their address. Check with them before paying.'
-                  : '${who(replaced.id)}’s address changed, and anyone with the invite could have changed it. Check with them before paying.',
-              error: true,
-            ),
+          // §13: a wallet MUST show a changed pay-to address before it settles
+          // to one. Buried in a list it is not shown. Closed here or on Settle
+          // up, it stays closed on both until that person's address changes
+          // again.
+          for (final id in {for (final r in view.redirectedAddresses) r.id})
+            if (!SplitsController.noticeClosed(view, id, _closedNotices))
+              PayoutChangedNotice(
+                view: view,
+                id: id,
+                who: who(id),
+                keyPrefix: 'splits_bill_replaced',
+                onClosed: (notices) {
+                  if (mounted) setState(() => _closedNotices = notices);
+                },
+              ),
           for (final name in view.bill.sharedNames)
             NoticeCard(
               key: Key('splits_bill_shared_name_$name'),

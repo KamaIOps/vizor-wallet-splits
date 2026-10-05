@@ -15,6 +15,7 @@ import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'support/fake_wallet.dart';
+import 'support/closing.dart';
 
 /// A provider that answers without a network.
 class FakeSwaps implements SwapProvider {
@@ -132,6 +133,7 @@ Future<String> billOwingSwap(
   ]);
   // One ZEC is a thousand dollars here, so 10.00 is 1_000_000 zatoshi.
   await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+  await closeForSettling(c, id);
   return id;
 }
 

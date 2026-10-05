@@ -9,6 +9,7 @@ import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'support/fake_wallet.dart';
+import 'support/closing.dart';
 import 'swap_screens_test.dart' show FakeSwaps, billOwingSwap;
 
 Widget app(SplitsController c, Widget home) => SplitsScope(
@@ -93,6 +94,7 @@ void main() {
       ),
     ]);
     await ben.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+    await closeForSettling(ben, id);
     final held = ben.bills.single.bill.payments.single;
 
     await t.pumpWidget(app(ben, ActivityScreen(billId: id)));
