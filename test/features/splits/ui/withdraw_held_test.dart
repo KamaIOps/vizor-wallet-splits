@@ -10,6 +10,7 @@ import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'support/fake_wallet.dart';
+import 'support/closing.dart';
 
 const _txid =
     '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
@@ -42,6 +43,7 @@ Future<String> owingBen(SplitsController c) async {
     ),
   ]);
   await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+  await closeForSettling(c, id);
   return id;
 }
 

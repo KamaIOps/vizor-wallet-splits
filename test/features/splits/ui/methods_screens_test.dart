@@ -17,6 +17,7 @@ import 'package:splitz_core/splitz_core.dart' as splitz;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'support/fake_wallet.dart';
+import 'support/closing.dart';
 
 SplitsController controllerFor(FakeWallet wallet) => SplitsController(
   wallet: wallet,
@@ -55,6 +56,7 @@ Future<String> billOwing(SplitsController c, {required String other}) async {
     minorUnitsPerZec: 100000,
     source: 'fixed',
   );
+  await closeForSettling(c, id);
   return id;
 }
 
@@ -235,6 +237,8 @@ void main() {
           },
         ),
       ]);
+      // Cai's expense reopened it (§10.9); closed again over all of it.
+      await closeForSettling(c, id);
       return (c, id);
     }
 
@@ -393,6 +397,7 @@ void main() {
         ),
       ]);
       await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+      await closeForSettling(c, id);
 
       await t.pumpWidget(app(c, SettleScreen(billId: id)));
       await t.pumpAndSettle();
@@ -581,6 +586,7 @@ void main() {
         ),
       ]);
       await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+      await closeForSettling(c, id);
 
       await t.pumpWidget(app(c, ActivityScreen(billId: id)));
       await t.pumpAndSettle();
