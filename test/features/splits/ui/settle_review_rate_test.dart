@@ -1,5 +1,5 @@
-// The payer's review shows the rate the request was priced at, and who set
-// it, while a sync has merged a new rate and not yet published it.
+// The payer's review shows the rate the request was priced at while a sync
+// has merged a new rate and not yet published it.
 //
 // The window is held open by storage that answers its next read of the bill
 // only when told.
@@ -68,7 +68,7 @@ class FixedPrices implements ZecPrices {
 
 String? textOf(WidgetTester t, String key) {
   final f = find.descendant(
-    of: find.byType(AlertDialog),
+    of: find.byKey(const Key('splits_review')),
     matching: find.byKey(Key(key)),
   );
   if (f.evaluate().isEmpty) return null;
@@ -166,20 +166,22 @@ Future<bool> tapPay(WidgetTester t) async {
     await t.pump();
     await t.pump();
     await t.pumpAndSettle();
-    if (find.byType(AlertDialog).evaluate().isNotEmpty) return true;
+    if (find.byKey(const Key('splits_review')).evaluate().isNotEmpty) {
+      return true;
+    }
     await t.pump(const Duration(seconds: 5));
     await t.pumpAndSettle();
   }
   return false;
 }
 
-/// What the review shows beside 0.4 ZEC: the rate it was priced at, who set
-/// it, and both warnings a creditor's rate under the market earns (§14.2).
+/// What the review shows beside 0.4 ZEC: the rate it was priced at, and that
+/// it is far under the market (§14.2).
 void expectReviewOfHalvedRate(WidgetTester t) {
   expect(textOf(t, 'splits_review_zec_0'), '0.4 ZEC');
   expect(textOf(t, 'splits_settle_rate'), contains('25.00'));
   expect(textOf(t, 'splits_review_rate_off'), isNotNull);
-  expect(textOf(t, 'splits_review_setter_paid'), isNotNull);
+  expect(textOf(t, 'splits_review_setter_paid'), isNull);
 }
 
 void main() {
@@ -227,7 +229,7 @@ void main() {
     await t.pump();
     await t.pump();
     await t.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byKey(const Key('splits_review')), findsNothing);
     expect(find.textContaining('The bill changed'), findsOneWidget);
     expect(anaWallet.sender.sent, isEmpty);
   });
