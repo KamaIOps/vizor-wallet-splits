@@ -22,7 +22,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:splitz_host/splitz_host.dart';
+import 'package:splitz_host/dev.dart';
 
 import 'dev_account.dart';
 

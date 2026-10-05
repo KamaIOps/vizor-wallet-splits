@@ -113,12 +113,22 @@ class _BillTile extends StatelessWidget {
         leading: const Icon(Icons.receipt_long_outlined),
         boldTitle: true,
         title: bill.name.isEmpty ? 'Bill' : bill.name,
-        // What this device is owed, or owes. Both directions read the same
-        // way, so the sign is the whole message and is never dropped.
+        // §14.4: still owed until the payee confirms it, and already on its
+        // way. Said on every row that shows the debt, however many bills
+        // there are.
+        subtitle: switch (sentNotConfirmed(
+          controller.sentOn(view.id),
+          bill.currency,
+        )) {
+          final sent? => Text(sent, key: Key('splits_bill_sent_${view.id}')),
+          null => null,
+        },
+        // What this device is owed, or owes, said in words: the direction
+        // is the whole message, so it is never one letter apart.
         trailing: mine > 0
-            ? 'owed ${formatAmount(mine, bill.currency)}'
+            ? "You're owed ${formatAmount(mine, bill.currency)}"
             : mine < 0
-            ? 'owes ${formatAmount(-mine, bill.currency)}'
+            ? 'You owe ${formatAmount(-mine, bill.currency)}'
             // Nothing has been spent yet, so there is nothing to be settled
             // and the row says nothing.
             : expenses == 0

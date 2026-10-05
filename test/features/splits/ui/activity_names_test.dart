@@ -262,6 +262,49 @@ void main() {
   });
 
   group('a withdrawal in the history', () {
+    testWidgets('somebody taken off who joins again is said to', (t) async {
+      final wallet = FakeWallet();
+      final c = SplitsController(
+        wallet: wallet,
+        store: BillStore(InMemoryBillStorage()),
+        keys: SplitsKeys(store: InMemorySecretStore(), random: Random(3)),
+        relay: const UnconfiguredSplitsRelay(),
+      );
+      late String id;
+      await t.runAsync(() async {
+        await c.load();
+        id = (await c.createBill(
+          name: 'Trip',
+          currency: 'USD',
+          displayName: 'Ana',
+        ))!;
+        final ben = otherHost('ben');
+        await c.accept(id, [
+          entries.joinBill(host: ben, name: 'Ben', payTo: 'u1ben'),
+        ]);
+        wallet.tick();
+        final plan = (await c.removalPlan(id, 'ben'))!;
+        await c.removePerson(billId: id, id: 'ben', confirmed: plan);
+        expect(c.bills.single.bill.participant('ben'), isNull);
+        // Removal does not change the bill's key: Ben can still write.
+        final benWallet = FakeWallet(id: 'ben', payTo: 'u1ben2');
+        for (var i = 0; i < 5; i++) {
+          benWallet.tick();
+        }
+        final later = WalletBillHost(benWallet);
+        await c.accept(id, [
+          entries.joinBill(host: later, name: 'Ben', payTo: 'u1ben2'),
+        ]);
+      });
+      expect(c.bills.single.bill.participant('ben'), isNotNull);
+      await t.pumpWidget(_app(c, ActivityScreen(billId: id)));
+      await t.pumpAndSettle();
+      expect(
+        _lines(t),
+        anyElement(startsWith('Ben joined again after being taken off')),
+      );
+    });
+
     testWidgets('names what it withdrew, and who came off by name', (t) async {
       final wallet = FakeWallet();
       final c = _controller(wallet);
@@ -285,9 +328,7 @@ void main() {
         );
         final plan = (await c.removalPlan(id, 'ben'))!;
         wallet.tick();
-        await c.restateExpenses(billId: id, without: 'ben', confirmed: plan);
-        wallet.tick();
-        await c.removePerson(billId: id, id: 'ben');
+        await c.removePerson(billId: id, id: 'ben', confirmed: plan);
       });
       expect(c.lastError, isNull);
       expect(c.bills.single.bill.participant('ben'), isNull);
@@ -296,7 +337,10 @@ void main() {
       await t.pumpAndSettle();
       final lines = _lines(t);
       final taxi = formatAmount(3000, 'USD');
-      expect(lines, contains('Ana withdrew the $taxi expense for Taxi'));
+      // Restated without Ben in the same write: the Taxi he was on reads as
+      // withdrawn, the one written in its place does not.
+      expect(lines, contains('Ana paid $taxi for Taxi | withdrawn'));
+      expect(lines, contains('Ana paid $taxi for Taxi'));
       expect(lines, contains('Ana took Ben off the bill'));
       expect(lines.where((l) => l.contains('withdrew an entry')), isEmpty);
       // Ben's own lines still name him, though he is no longer on the bill.

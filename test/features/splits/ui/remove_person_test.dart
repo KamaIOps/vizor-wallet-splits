@@ -326,7 +326,7 @@ void main() {
       expect(plan.complete, isFalse);
 
       await t.runAsync(
-        () => c.restateExpenses(billId: id, without: 'ben', confirmed: plan),
+        () => c.removePerson(billId: id, id: 'ben', confirmed: plan),
       );
       expect(c.lastError, contains('still names them'));
       final bill = c.bills.single.bill;
@@ -404,10 +404,7 @@ void main() {
     final plan = (await c.removalPlan(id, 'ben'))!;
     expect(plan.blockers, isEmpty);
     wallet.tick();
-    await c.restateExpenses(billId: id, without: 'ben', confirmed: plan);
-    expect(c.lastError, isNull);
-    wallet.tick();
-    await c.removePerson(billId: id, id: 'ben');
+    await c.removePerson(billId: id, id: 'ben', confirmed: plan);
     expect(c.lastError, isNull);
 
     final bill = c.bills.single.bill;

@@ -16,7 +16,8 @@ void main() {
         expect(nameSkeleton(forged), 'ben', reason: forged);
       }
       expect(nameSkeleton('ɑna'), 'ana');
-      expect(nameSkeleton('Ben\u{1D7CF}'), 'ben1');
+      // A 1 reads as the l and the capital I it is drawn like.
+      expect(nameSkeleton('Ben\u{1D7CF}'), 'beni');
     },
   );
 
