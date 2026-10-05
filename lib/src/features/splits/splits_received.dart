@@ -132,6 +132,12 @@ Future<Map<String, HeldTransaction>> splitsHeldTransactions({
 /// `createdTime` is the wallet's own creation stamp in Unix seconds, and zero
 /// for a transaction it only received, which is left out. An expired one can
 /// no longer have paid anybody and is left out too.
+///
+/// `sent` is what it sent to others: the history's `accountBalanceDelta` is
+/// what the account received less what it spent (zakura-client-sqlite's
+/// `v_transactions`), so for a send it is minus the outputs to others and the
+/// fee. A send of something else is then told from the unanswered one, and
+/// does not hold its note.
 Future<List<OwnTransaction>> splitsOwnTransactions({
   required WidgetRef ref,
   required String accountUuid,
@@ -145,6 +151,9 @@ Future<List<OwnTransaction>> splitsOwnTransactions({
     for (final tx in history)
       if (tx.createdTime > BigInt.zero && !tx.expiredUnmined)
         OwnTransaction(
+          sent: tx.accountBalanceDelta < 0
+              ? -tx.accountBalanceDelta - tx.fee.toInt()
+              : 0,
           txid: txidForDisplay(tx.txidHex),
           created: canonicalInstant(
             DateTime.fromMillisecondsSinceEpoch(

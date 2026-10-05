@@ -132,35 +132,66 @@ class CardLine extends StatelessWidget {
   ) {
     final figure = trailing;
     final style = DefaultTextStyle.of(context).style.merge(text.bodyLarge);
-    var scaler = MediaQuery.textScalerOf(context);
+    final titleStyle = boldTitle
+        ? text.bodyLarge?.copyWith(
+            fontWeight: FontWeight.w600,
+            fontSize: (text.bodyLarge?.fontSize ?? 16) + 2,
+          )
+        : text.bodyMedium;
+    final chosen = MediaQuery.textScalerOf(context);
+    final direction = Directionality.of(context);
+    // The leading widget and the chevron are 24-wide icons.
+    final sides = (leading != null ? 36 : 0) + (chevron ? 28 : 0);
+    var scaler = chosen;
     var cap = width * 0.45;
+    var below = false;
     if (figure != null) {
       // The box is never narrower than the figure's widest word, so the
       // line breaks between words and never inside the digits; the title
       // wraps instead. A word wider than the row allows is drawn smaller.
-      // The leading widget and the chevron are 24-wide icons.
-      final room =
-          width -
-          (leading != null ? 36 : 0) -
-          12 -
-          (chevron ? 28 : 0) -
-          _titleFloor;
-      final direction = Directionality.of(context);
-      var widest = _widestWord(figure, style, scaler, direction);
-      if (widest > room && room > 0) {
-        // Re-measured after each step: letter spacing does not scale with
-        // the text, so one proportional step can leave the word too wide.
-        final size = style.fontSize ?? 14;
-        for (var i = 0; i < 4 && widest > room; i++) {
-          final shown = scaler.scale(size) * room / widest;
-          scaler = TextScaler.linear(shown / size);
-          widest = _widestWord(figure, style, scaler, direction);
-        }
-        cap = room;
-      } else if (widest > cap) {
-        cap = widest;
+      (scaler, cap) = _fitFigure(
+        figure,
+        style,
+        chosen,
+        direction,
+        room: width - sides - 12 - _titleFloor,
+        cap: cap,
+      );
+      // Beside the figure the title must still hold its widest word, or it
+      // breaks inside one. When it cannot, the figure goes under it.
+      final drawn = _lineWidth(figure, style, scaler, direction);
+      final titleWidest = _widestWord(
+        title,
+        DefaultTextStyle.of(context).style.merge(titleStyle),
+        chosen,
+        direction,
+      );
+      if (titleWidest > width - sides - 12 - (drawn < cap ? drawn : cap)) {
+        below = true;
+        (scaler, _) = _fitFigure(
+          figure,
+          style,
+          chosen,
+          direction,
+          room: width - sides,
+          cap: width - sides,
+        );
       }
     }
+    final figureText = figure == null
+        ? null
+        : Text(
+            figure,
+            // Beside a bold name the figure steps back.
+            style: boldTitle
+                ? text.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w400,
+                    color: scheme.onSurfaceVariant,
+                  )
+                : text.bodyLarge,
+            textAlign: TextAlign.end,
+            textScaler: scaler,
+          );
     return Row(
       children: [
         if (leading != null) ...[leading!, const SizedBox(width: 12)],
@@ -169,15 +200,7 @@ class CardLine extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                title,
-                style: boldTitle
-                    ? text.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        fontSize: (text.bodyLarge?.fontSize ?? 16) + 2,
-                      )
-                    : text.bodyMedium,
-              ),
+              Text(title, style: titleStyle),
               if (subtitle != null)
                 DefaultTextStyle.merge(
                   style: text.bodyMedium?.copyWith(
@@ -185,28 +208,19 @@ class CardLine extends StatelessWidget {
                   ),
                   child: subtitle!,
                 ),
+              if (below && figureText != null)
+                Align(alignment: Alignment.centerRight, child: figureText),
             ],
           ),
         ),
         // At its own width against the right edge, and no more than 45% of
         // the row unless its figure needs more: a figure that cannot shrink
         // otherwise crushes the name beside it to a letter a line.
-        if (figure != null) ...[
+        if (!below && figureText != null) ...[
           const SizedBox(width: 12),
           ConstrainedBox(
             constraints: BoxConstraints(maxWidth: cap),
-            child: Text(
-              figure,
-              // Beside a bold name the figure steps back.
-              style: boldTitle
-                  ? text.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w400,
-                      color: scheme.onSurfaceVariant,
-                    )
-                  : text.bodyLarge,
-              textAlign: TextAlign.end,
-              textScaler: scaler,
-            ),
+            child: figureText,
           ),
         ],
         if (chevron) ...[
@@ -216,6 +230,50 @@ class CardLine extends StatelessWidget {
       ],
     );
   }
+}
+
+/// The scale [figure] is drawn at and the widest its box may be, given
+/// [room] across and a box no wider than [cap] unless its widest word needs
+/// more.
+(TextScaler, double) _fitFigure(
+  String figure,
+  TextStyle style,
+  TextScaler scaler,
+  TextDirection direction, {
+  required double room,
+  required double cap,
+}) {
+  var widest = _widestWord(figure, style, scaler, direction);
+  if (widest > room && room > 0) {
+    // Re-measured after each step: letter spacing does not scale with the
+    // text, so one proportional step can leave the word too wide.
+    final size = style.fontSize ?? 14;
+    for (var i = 0; i < 4 && widest > room; i++) {
+      final shown = scaler.scale(size) * room / widest;
+      scaler = TextScaler.linear(shown / size);
+      widest = _widestWord(figure, style, scaler, direction);
+    }
+    return (scaler, room);
+  }
+  return (scaler, widest > cap ? widest : cap);
+}
+
+/// The width of [line] drawn on one line, rounded up.
+double _lineWidth(
+  String line,
+  TextStyle style,
+  TextScaler scaler,
+  TextDirection direction,
+) {
+  final painter = TextPainter(
+    text: TextSpan(text: line, style: style),
+    textDirection: direction,
+    textScaler: scaler,
+    maxLines: 1,
+  )..layout();
+  final width = painter.width.ceilToDouble() + 1;
+  painter.dispose();
+  return width;
 }
 
 /// The width of the widest space-separated word of [line], as drawn.
