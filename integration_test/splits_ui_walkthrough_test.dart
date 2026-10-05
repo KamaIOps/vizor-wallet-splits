@@ -142,12 +142,14 @@ void main() {
       await _back(tester);
 
       // ── The code another device reads ────────────────────────────────
-      await tester.tap(find.byTooltip('Share'));
-      await _settle(tester);
       // §11.2 caps a payload, and a bill with three addressed people reaches
       // that cap. Either outcome is a state, not a failure: the whole bill as
-      // a code, or the invite alone once the bill has outgrown one code.
-      final whole = find.text('Bill code');
+      // a code, or the notice that it has outgrown one code.
+      await tester.tap(find.byKey(const Key('splits_bill_menu')));
+      await _settle(tester);
+      await tester.tap(find.byKey(const Key('splits_bill_code')));
+      await _settle(tester);
+      final whole = find.byKey(const Key('splits_qr_Bill code'));
       final loading = find.byType(LinearProgressIndicator);
       await pumpUntil(
         tester,
@@ -171,7 +173,11 @@ void main() {
         logE2e('past §11.2\'s cap, and the screen says so');
       }
 
-      // The invite is offered either way, and is what a capped bill is sent as.
+      await _back(tester);
+
+      // Share offers the invite whatever the bill's size.
+      await tester.tap(find.byTooltip('Share'));
+      await _settle(tester);
       await _scrollToText(tester, inviteSentence);
       final inviteCode = find.byKey(const Key('splits_qr_Invite'));
       expect(inviteCode, findsOneWidget, reason: 'the invite, as a code');

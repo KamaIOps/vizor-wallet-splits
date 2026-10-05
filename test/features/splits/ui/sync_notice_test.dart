@@ -1,4 +1,5 @@
-/// Where a bill's sync stands, said in every state.
+/// Where a bill's sync stands, said in every state but the quiet one: synced,
+/// with nothing new and nothing that would not open.
 ///
 /// Including the two that are not failures: a build with no relay, and a bill
 /// that has not synced yet. A sync indicator that never resolves reads as
@@ -159,6 +160,27 @@ void main() {
     expect(state.phase, SplitsSyncPhase.synced);
     expect(state.received, greaterThan(0));
     expect(state.unopenable, 0);
+  });
+
+  testWidgets('a sync that brought nothing and hit nothing says nothing', (
+    t,
+  ) async {
+    final c = controllerFor(FakeWallet(), relay: InMemorySplitsRelay());
+    await c.load();
+    final id = (await c.createBill(name: 'Dinner', currency: 'USD'))!;
+    await c.syncBill(id);
+    await c.syncBill(id);
+    expect(c.syncStateOf(id).phase, SplitsSyncPhase.synced);
+    expect(c.syncStateOf(id).received, 0);
+
+    await t.pumpWidget(app(c, BillScreen(billId: id)));
+    await t.pumpAndSettle();
+    expect(c.syncStateOf(id).phase, SplitsSyncPhase.synced);
+    expect(find.byKey(const Key('splits_bill_sync')), findsNothing);
+    expect(find.textContaining('Synced'), findsNothing);
+    // The screen polls; replacing the tree stops it.
+    await t.pumpWidget(app(c, const BillsScreen()));
+    await t.pumpAndSettle();
   });
 
   testWidgets('blobs that will not open are counted, not ignored', (t) async {

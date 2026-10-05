@@ -12,16 +12,23 @@ import '../state/splits_controller.dart';
 import '../view/chrome.dart';
 import 'splits_scope.dart';
 
-/// The invite, and the whole bill as one code when it still fits.
+/// One code that brings somebody onto a bill: the invite, or — with
+/// [wholeBill] — the whole bill as one code while it still fits.
 ///
-/// Two things, not one, because they are not interchangeable. An invite
-/// carries the bill's id and its key and nothing else — the log still has to
-/// arrive from somewhere. The payload carries the log itself, so a joiner
-/// holds a bill rather than a name to go looking for.
+/// They are not interchangeable. An invite carries the bill's id and its key
+/// and nothing else — the log still has to arrive from the relay. The payload
+/// carries the log itself, so a joiner holds a bill with no network at all.
 class ShareBillScreen extends StatefulWidget {
-  const ShareBillScreen({super.key, required this.billId});
+  const ShareBillScreen({
+    super.key,
+    required this.billId,
+    this.wholeBill = false,
+  });
 
   final String billId;
+
+  /// Show the whole-bill code instead of the invite.
+  final bool wholeBill;
 
   @override
   State<ShareBillScreen> createState() => _ShareBillScreenState();
@@ -33,7 +40,7 @@ class _ShareBillScreenState extends State<ShareBillScreen> {
   bool _tooBig = false;
   bool _loaded = false;
 
-  /// Why neither code could be drawn, or null.
+  /// Why the code could not be drawn, or null.
   String? _failed;
 
   @override
@@ -45,22 +52,45 @@ class _ShareBillScreenState extends State<ShareBillScreen> {
     }
   }
 
+  @override
+  void didUpdateWidget(ShareBillScreen old) {
+    super.didUpdateWidget(old);
+    if (old.billId != widget.billId || old.wholeBill != widget.wholeBill) {
+      _inviteLink = null;
+      _payload = null;
+      _tooBig = false;
+      _failed = null;
+      _build();
+    }
+  }
+
+  /// Whether a load begun for [asked] has been overtaken: the screen is gone,
+  /// or a different bill or code has been asked for and its own load answers.
+  bool _stale(ShareBillScreen asked) =>
+      !mounted ||
+      asked.billId != widget.billId ||
+      asked.wholeBill != widget.wholeBill;
+
   Future<void> _build() async {
     final controller = SplitsScope.read(context);
-    final String invite;
-    final String? payload;
+    final asked = widget;
+    String? invite;
+    String? payload;
     try {
-      // An invite says when its sender stops standing behind it (§11.1).
-      // Long enough for a code shown at the table to be scanned days later.
-      invite = await controller.inviteFor(
-        widget.billId,
-        expiry: controller.now().add(const Duration(days: 30)),
-      );
-      payload = await controller.shareableBill(widget.billId);
+      if (widget.wholeBill) {
+        payload = await controller.shareableBill(widget.billId);
+      } else {
+        // An invite says when its sender stops standing behind it (§11.1).
+        // Long enough for a code shown at the table to be scanned days later.
+        invite = await controller.inviteFor(
+          widget.billId,
+          expiry: controller.now().add(const Duration(days: 30)),
+        );
+      }
     } on Object catch (error) {
       // Both codes carry the bill's key. A key store that cannot be read
       // leaves nothing to draw, and that is said rather than left loading.
-      if (!mounted) return;
+      if (_stale(asked)) return;
       final held = controller.bills.any((b) => b.id == widget.billId);
       setState(
         () => _failed = !held
@@ -72,28 +102,28 @@ class _ShareBillScreenState extends State<ShareBillScreen> {
       );
       return;
     }
-    if (!mounted) return;
+    if (_stale(asked)) return;
     setState(() {
-      _inviteLink = protocol.renderInviteLink(
-        protocol.parseInvite(invite),
-        splitsInviteLinkBase,
-      );
+      if (invite != null) {
+        _inviteLink = protocol.renderInviteLink(
+          protocol.parseInvite(invite),
+          splitsInviteLinkBase,
+        );
+      }
       _payload = payload;
       // Null is a state, not a failure: §11.2 caps a payload, and a bill with
       // several addressed people reaches that cap quickly.
-      _tooBig = payload == null;
+      _tooBig = widget.wholeBill && payload == null;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final hasRelay = SplitsScope.of(context).hasRelay;
-    // Past the cap with no relay, an invite brings only the key: whoever
-    // follows it is sent to a bill code that does not exist. So it is not
-    // offered, and the reason is.
-    final unshareable = _tooBig && !hasRelay;
     return Scaffold(
-      appBar: AppBar(title: const Text('Share this bill')),
+      appBar: AppBar(
+        title: Text(widget.wholeBill ? 'Bill code' : 'Share this bill'),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -103,37 +133,30 @@ class _ShareBillScreenState extends State<ShareBillScreen> {
               message: _failed!,
               error: true,
             )
-          else ...[
-            if (_payload != null) ...[
-              _Code(label: 'Bill code', about: _billSentence, value: _payload!),
-              const SizedBox(height: 16),
-            ] else if (_tooBig)
-              NoticeCard(
-                key: const Key('splits_share_too_big'),
-                message: unshareable
-                    ? 'This bill is too big for one code, and this build has '
-                          'no bill relay to send it through. Nobody can join '
-                          'it from this phone.'
-                    : 'This bill is too big for one code. Share the invite: '
-                          'whoever joins with it gets the bill from the relay.',
-              )
-            else
-              const _Loading(),
-            if (unshareable)
-              const SizedBox.shrink()
-            else if (_inviteLink != null)
-              _Code(
-                label: 'Invite',
-                about: inviteSentence,
-                // The https link, in the code as in a message: a phone's
-                // camera hands a custom scheme to whichever app claims it,
-                // and this key with it. Every scanner here reads the link as
-                // the invite.
-                value: _inviteLink!,
-              )
-            else
-              const _Loading(),
-          ],
+          else if (_payload != null)
+            _Code(label: 'Bill code', about: _billSentence, value: _payload!)
+          else if (_tooBig)
+            NoticeCard(
+              key: const Key('splits_share_too_big'),
+              message: hasRelay
+                  ? 'This bill is too big for one code. Share the invite: '
+                        'whoever joins with it gets the bill from the relay.'
+                  : 'This bill is too big for one code, and this build has '
+                        'no bill relay to send it through. Nobody can join '
+                        'it from this phone.',
+            )
+          else if (_inviteLink != null)
+            _Code(
+              label: 'Invite',
+              about: inviteSentence,
+              // The https link, in the code as in a message: a phone's
+              // camera hands a custom scheme to whichever app claims it,
+              // and this key with it. Every scanner here reads the link as
+              // the invite.
+              value: _inviteLink!,
+            )
+          else
+            const _Loading(),
         ],
       ),
     );
@@ -171,29 +194,36 @@ class _Code extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
+          // The label centred over the code, in the same style as the
+          // sentence under it; the actions sit at the end without moving it.
+          Stack(
+            alignment: Alignment.center,
             children: [
-              Expanded(
-                child: Text(
-                  label,
-                  style: Theme.of(context).textTheme.labelLarge,
+              Text(label, textAlign: TextAlign.center),
+              Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Copy',
+                      icon: const Icon(Icons.copy),
+                      onPressed: () =>
+                          Clipboard.setData(ClipboardData(text: value)),
+                    ),
+                    if (SplitsScope.sharerOf(context) case final share?)
+                      Builder(
+                        builder: (button) => IconButton(
+                          key: Key('splits_share_$label'),
+                          tooltip: 'Share',
+                          icon: const Icon(Icons.share),
+                          onPressed: () =>
+                              share(button, value, origin: _globalRect(button)),
+                        ),
+                      ),
+                  ],
                 ),
               ),
-              IconButton(
-                tooltip: 'Copy',
-                icon: const Icon(Icons.copy),
-                onPressed: () => Clipboard.setData(ClipboardData(text: value)),
-              ),
-              if (SplitsScope.sharerOf(context) case final share?)
-                Builder(
-                  builder: (button) => IconButton(
-                    key: Key('splits_share_$label'),
-                    tooltip: 'Share',
-                    icon: const Icon(Icons.share),
-                    onPressed: () =>
-                        share(button, value, origin: _globalRect(button)),
-                  ),
-                ),
             ],
           ),
           Center(

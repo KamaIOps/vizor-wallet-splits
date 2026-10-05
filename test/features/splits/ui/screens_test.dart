@@ -173,24 +173,29 @@ void main() {
     );
   });
 
-  testWidgets('the share screen offers the bill and the invite separately', (
+  testWidgets('sharing offers the invite; the bill code is in the menu', (
     t,
   ) async {
     final c = controllerFor(FakeWallet());
     await c.load();
     final id = (await c.createBill(name: 'Dinner', currency: 'EUR'))!;
-    await t.pumpWidget(app(c, home: ShareBillScreen(billId: id)));
+    await t.pumpWidget(app(c, home: BillScreen(billId: id)));
     await t.pumpAndSettle();
 
-    expect(find.text('Bill code'), findsOneWidget);
-    // Both sections at once: a ListView builds only what is on screen, and a
-    // default test window is shorter than this page.
-    await t.scrollUntilVisible(
-      find.text('Invite'),
-      200,
-      scrollable: find.byType(Scrollable).first,
-    );
-    expect(find.text('Invite'), findsOneWidget);
+    await t.tap(find.byTooltip('Share'));
+    await t.pumpAndSettle();
+    expect(find.text('Share this bill'), findsOneWidget);
+    expect(find.byKey(const Key('splits_qr_Invite')), findsOneWidget);
+    expect(find.text('Bill code'), findsNothing);
+    await t.pageBack();
+    await t.pumpAndSettle();
+
+    await t.tap(find.byKey(const Key('splits_bill_menu')));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const Key('splits_bill_code')));
+    await t.pumpAndSettle();
+    expect(find.byKey(const Key('splits_qr_Bill code')), findsOneWidget);
+    expect(find.byKey(const Key('splits_qr_Invite')), findsNothing);
     expect(c.lastError, isNull);
   });
 

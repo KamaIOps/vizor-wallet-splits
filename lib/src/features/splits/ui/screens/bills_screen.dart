@@ -67,6 +67,13 @@ class BillsScreen extends StatelessWidget {
       ),
       bottomNavigationBar: BottomActions(
         children: [
+          FilledButton(
+            key: const Key('splits_start_bill'),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const NewBillScreen()),
+            ),
+            child: const Text('Start a bill'),
+          ),
           SecondaryButton(
             key: const Key('splits_join_bill'),
             onPressed: () => Navigator.of(context).push(
@@ -76,13 +83,6 @@ class BillsScreen extends StatelessWidget {
               ),
             ),
             child: const Text('Join a bill'),
-          ),
-          FilledButton(
-            key: const Key('splits_start_bill'),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const NewBillScreen()),
-            ),
-            child: const Text('Start a bill'),
           ),
         ],
       ),
@@ -101,39 +101,28 @@ class _BillTile extends StatelessWidget {
     final bill = view.bill;
     final balances = protocol.netBalances(bill);
     final mine = balances[controller.me] ?? 0;
-    final people = bill.participants.length;
     final expenses = bill.expenses.length;
-    // §14.4: what this device recorded and the payee has not confirmed is
-    // still owed, and is also already on its way. Both are said.
-    final sent = sentNotConfirmed(controller.sentOn(view.id), bill.currency);
 
     return RowCard(
       key: Key('splits_bill_row_${view.id}'),
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(builder: (_) => BillScreen(billId: view.id)),
       ),
+      // The name and what stands on this device; the rest is a tap away.
       child: CardLine(
         leading: const Icon(Icons.receipt_long_outlined),
+        boldTitle: true,
         title: bill.name.isEmpty ? 'Bill' : bill.name,
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '$people ${people == 1 ? 'person' : 'people'} · '
-              '$expenses ${expenses == 1 ? 'expense' : 'expenses'}',
-            ),
-            if (sent != null)
-              // Beside a figure that takes the room it needs, so a long one
-              // here is drawn smaller rather than broken inside its digits.
-              WholeWords(sent, key: Key('splits_bill_row_sent_${view.id}')),
-          ],
-        ),
         // What this device is owed, or owes. Both directions read the same
         // way, so the sign is the whole message and is never dropped.
         trailing: mine > 0
             ? 'owed ${formatAmount(mine, bill.currency)}'
             : mine < 0
             ? 'owes ${formatAmount(-mine, bill.currency)}'
+            // Nothing has been spent yet, so there is nothing to be settled
+            // and the row says nothing.
+            : expenses == 0
+            ? null
             : _nothingOnMe(controller.me),
       ),
     );
@@ -141,16 +130,21 @@ class _BillTile extends StatelessWidget {
 
   /// What the row says when nothing stands on this device's own id.
   ///
-  /// "settled" only when that is the whole story: a device not on the bill
-  /// is not settled with anybody, and a participant going by this device's
-  /// name who still owes or is owed may be this person entered by somebody
-  /// else, whose debt is theirs in all but id.
+  /// "settled" only once nobody on the bill owes anybody; until then this
+  /// device "owes nothing". A device not on the bill is not settled with
+  /// anybody, and a participant going by this device's name who still owes or
+  /// is owed may be this person entered by somebody else, whose debt is
+  /// theirs in all but id.
   String _nothingOnMe(String me) {
     final bill = view.bill;
     final self = bill.participant(me);
     if (self == null) return 'not joined';
-    if (self.name.trim().isEmpty) return 'settled';
     final balances = protocol.netBalances(bill);
+    // "settled" only once nobody on the bill owes anybody.
+    final settled = balances.values.every((v) => v == 0)
+        ? 'settled'
+        : 'owes nothing';
+    if (self.name.trim().isEmpty) return settled;
     final skeleton = nameSkeleton(self.name);
     for (final p in bill.participants) {
       if (p.id == me || nameSkeleton(p.name) != skeleton) continue;
@@ -161,7 +155,7 @@ class _BillTile extends StatelessWidget {
           ? '$who owes ${formatAmount(-net, bill.currency)}'
           : '$who is owed ${formatAmount(net, bill.currency)}';
     }
-    return 'settled';
+    return settled;
   }
 }
 

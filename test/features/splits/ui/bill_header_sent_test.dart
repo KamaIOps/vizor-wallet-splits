@@ -65,13 +65,16 @@ void main() {
     await t.pumpAndSettle();
     // Still owed: §10.5 moves nothing until Ben confirms.
     expect(_text(t, const Key('splits_bill_headline')), 'You owe 10.00 USD');
-    final header = _text(t, const Key('splits_bill_sent'));
+    expect(
+      _text(t, const Key('splits_bill_sent')),
+      '4.00 USD sent, not yet confirmed',
+    );
 
+    // The list's row is the name and the figure; what is on its way is said
+    // on the bill and in the list's totals.
     await t.pumpWidget(_app(c, const BillsScreen()));
     await t.pumpAndSettle();
-    final listed = _text(t, Key('splits_bill_row_sent_$id'));
-    expect(listed, '4.00 USD sent, not yet confirmed');
-    expect(header, listed);
+    expect(find.byKey(Key('splits_bill_row_sent_$id')), findsNothing);
   });
 
   testWidgets('the whole debt sent is said as sent, and still owed', (t) async {
@@ -109,7 +112,53 @@ void main() {
     expect(c.bills.single.bill.confirmedPayments, contains(payment));
     await t.pumpWidget(_app(c, BillScreen(billId: id)));
     await t.pumpAndSettle();
-    expect(_text(t, const Key('splits_bill_headline')), 'All square');
+    expect(_text(t, const Key('splits_bill_headline')), 'All settled');
     expect(find.byKey(const Key('splits_bill_sent')), findsNothing);
+  });
+
+  testWidgets('owing nothing on a bill others still owe on is not "settled"', (
+    t,
+  ) async {
+    final wallet = FakeWallet();
+    final c = SplitsController(
+      wallet: wallet,
+      store: BillStore(InMemoryBillStorage()),
+      keys: SplitsKeys(store: InMemorySecretStore(), random: Random(3)),
+    );
+    await c.load();
+    final id = (await c.createBill(name: 'Trip', currency: 'USD'))!;
+    final ben = otherHost('ben');
+    final cara = otherHost('cara');
+    await c.accept(id, [
+      entries.joinBill(host: ben, name: 'Ben', payTo: 'u1ben'),
+      entries.joinBill(host: cara, name: 'Cara', payTo: 'u1cara'),
+      entries.addExpense(
+        host: ben,
+        expenseId: 'x1',
+        paidBy: 'ben',
+        amount: 2000,
+        split: <String, dynamic>{
+          'type': 'equal',
+          'among': ['ben', 'cara'],
+        },
+      ),
+    ]);
+    expect(c.lastError, isNull);
+    await t.pumpWidget(_app(c, BillScreen(billId: id)));
+    await t.pumpAndSettle();
+    expect(_text(t, const Key('splits_bill_headline')), 'You owe nothing');
+  });
+
+  testWidgets('a bill with no expenses says so', (t) async {
+    final c = SplitsController(
+      wallet: FakeWallet(),
+      store: BillStore(InMemoryBillStorage()),
+      keys: SplitsKeys(store: InMemorySecretStore(), random: Random(3)),
+    );
+    await c.load();
+    final id = (await c.createBill(name: 'Trip', currency: 'USD'))!;
+    await t.pumpWidget(_app(c, BillScreen(billId: id)));
+    await t.pumpAndSettle();
+    expect(_text(t, const Key('splits_bill_headline')), 'No expenses yet');
   });
 }

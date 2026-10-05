@@ -6,6 +6,8 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/app_theme.dart';
+
 /// How many lines a field's helper or refusal may take before it is cut.
 ///
 /// A field's note defaults to one line, which on a narrow phone keeps only
@@ -97,9 +99,14 @@ class CardLine extends StatelessWidget {
     this.trailing,
     this.chevron = false,
     this.leading,
+    this.boldTitle = false,
   });
 
   final String title;
+
+  /// Draws [title] semi-bold and a little larger, and the figure smaller and
+  /// lighter, for a row whose name is the whole point.
+  final bool boldTitle;
   final Widget? subtitle;
   final String? trailing;
   final bool chevron;
@@ -162,7 +169,15 @@ class CardLine extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(title, style: text.bodyMedium),
+              Text(
+                title,
+                style: boldTitle
+                    ? text.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        fontSize: (text.bodyLarge?.fontSize ?? 16) + 2,
+                      )
+                    : text.bodyMedium,
+              ),
               if (subtitle != null)
                 DefaultTextStyle.merge(
                   style: text.bodyMedium?.copyWith(
@@ -182,7 +197,13 @@ class CardLine extends StatelessWidget {
             constraints: BoxConstraints(maxWidth: cap),
             child: Text(
               figure,
-              style: text.bodyLarge,
+              // Beside a bold name the figure steps back.
+              style: boldTitle
+                  ? text.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w400,
+                      color: scheme.onSurfaceVariant,
+                    )
+                  : text.bodyLarge,
               textAlign: TextAlign.end,
               textScaler: scaler,
             ),
@@ -258,8 +279,8 @@ class WholeWords extends StatelessWidget {
   );
 }
 
-/// A heading over a group, in the secondary text colour, with an optional
-/// figure at the other end.
+/// A heading over a group, bold in the secondary text colour, with an
+/// optional figure at the other end.
 class SectionLabel extends StatelessWidget {
   const SectionLabel(this.text, {super.key, this.trailing});
 
@@ -275,7 +296,12 @@ class SectionLabel extends StatelessWidget {
       padding: const EdgeInsets.only(top: 16, bottom: 8),
       child: Row(
         children: [
-          Expanded(child: Text(text, style: style)),
+          Expanded(
+            child: Text(
+              text,
+              style: style?.copyWith(fontWeight: FontWeight.w600),
+            ),
+          ),
           if (trailing != null) Text(trailing!, style: style),
         ],
       ),
@@ -349,6 +375,27 @@ class NoticeCard extends StatelessWidget {
         message,
         style: TextStyle(color: error ? scheme.onErrorContainer : null),
       ),
+    );
+  }
+}
+
+/// [child] under the wallet's [AppTheme], which the wallet's own widgets read
+/// their colours from: the one the wallet provides where there is one, and
+/// otherwise one matching the Material brightness, so a screen built from
+/// those widgets also renders where splits is hosted without it.
+class WalletThemed extends StatelessWidget {
+  const WalletThemed({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.getInheritedWidgetOfExactType<AppTheme>() != null) return child;
+    return AppTheme(
+      data: Theme.of(context).brightness == Brightness.dark
+          ? AppThemeData.dark
+          : AppThemeData.light,
+      child: child,
     );
   }
 }

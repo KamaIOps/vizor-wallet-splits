@@ -26,24 +26,21 @@ void main() {
     final shared = <String>[];
     final origins = <Rect?>[];
 
-    await t.pumpWidget(
-      SplitsScope(
-        controller: c,
-        share: (context, text, {Rect? origin}) async {
-          shared.add(text);
-          origins.add(origin);
-        },
-        child: MaterialApp(home: ShareBillScreen(billId: id)),
+    Widget screen({required bool whole}) => SplitsScope(
+      controller: c,
+      share: (context, text, {Rect? origin}) async {
+        shared.add(text);
+        origins.add(origin);
+      },
+      child: MaterialApp(
+        home: ShareBillScreen(billId: id, wholeBill: whole),
       ),
     );
-    await t.pumpAndSettle();
 
+    await t.pumpWidget(screen(whole: true));
+    await t.pumpAndSettle();
     await t.tap(find.byKey(const Key('splits_share_Bill code')));
-    await t.scrollUntilVisible(
-      find.byKey(const Key('splits_share_Invite')),
-      200,
-      scrollable: find.byType(Scrollable).first,
-    );
+    await t.pumpWidget(screen(whole: false));
     await t.pumpAndSettle();
     await t.tap(find.byKey(const Key('splits_share_Invite')));
     await t.pump();
