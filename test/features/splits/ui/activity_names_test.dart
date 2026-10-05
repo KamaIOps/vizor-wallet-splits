@@ -218,14 +218,7 @@ void main() {
       expect(
         find.descendant(
           of: card,
-          matching: find.text('Where Ben is paid changed'),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(
-          of: card,
-          matching: find.textContaining('anyone with the invite could'),
+          matching: find.text('Where Ben is paid changed. Check with them.'),
         ),
         findsOneWidget,
       );
@@ -257,15 +250,12 @@ void main() {
       expect(
         find.descendant(
           of: card,
-          matching: find.text('Ben changed where they are paid'),
+          matching: find.text('Ben changed where they are paid.'),
         ),
         findsOneWidget,
       );
       expect(
-        find.descendant(
-          of: card,
-          matching: find.textContaining('anyone with the invite could'),
-        ),
+        find.descendant(of: card, matching: find.textContaining('Check with')),
         findsNothing,
       );
     });

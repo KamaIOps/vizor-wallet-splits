@@ -250,6 +250,13 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
       // An address this wallet cannot send to is reported unpayable, so it
       // does not stop the payment to everybody else on the request.
       readsAddress: (address) => splitsReadsAddress(ref, address),
+      // The fee, or that the account is short, before the review asks for a
+      // confirmation: built like the send and discarded, never broadcast.
+      previewSend: (uri) => previewSplitsBatch(
+        ref: ref,
+        accountUuid: accountUuid,
+        paymentRequestUri: uri,
+      ),
     );
     await controller.load();
     if (!mounted) return;

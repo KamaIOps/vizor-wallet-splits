@@ -301,6 +301,75 @@ void main() {
       expect(find.byKey(const Key('splits_settle_apart_ben')), findsOneWidget);
     });
 
+    testWidgets('how somebody not bound to a key is paid can be edited from '
+        'their row; somebody who joined with their own key cannot', (t) async {
+      final c = controllerFor(FakeWallet());
+      final id = await billOwing(c, other: 'ben');
+      // Ben's record is unsigned, so anyone on the bill may write it (§10.7).
+      await c.accept(id, [
+        entries.joinBill(
+          host: otherHost('ben'),
+          name: 'ben',
+          payouts: [
+            <String, dynamic>{'type': 'cash'},
+          ],
+        ),
+      ]);
+      // Cai joins from his own device, signed with his own key, for cash.
+      final cai = await SignedPeer.named('cai');
+      await c.accept(id, [
+        await cai.sign(
+          entries.joinBill(
+            host: cai.host,
+            name: 'cai',
+            payouts: [
+              <String, dynamic>{'type': 'cash'},
+            ],
+            identityKey: cai.key,
+          ),
+          id,
+        ),
+        await cai.sign(
+          entries.addExpense(
+            host: cai.host,
+            expenseId: 'y1',
+            paidBy: cai.id,
+            amount: 2000,
+            split: <String, dynamic>{
+              'type': 'equal',
+              'among': [c.me, cai.id]..sort(),
+            },
+          ),
+          id,
+        ),
+      ]);
+      expect(c.lastError, isNull);
+      expect(c.bills.single.identities.bound, contains(cai.id));
+      expect(c.bills.single.identities.bound.containsKey('ben'), isFalse);
+
+      await t.pumpWidget(app(c, SettleScreen(billId: id)));
+      await t.pumpAndSettle();
+      await t.scrollUntilVisible(
+        find.byKey(Key('splits_settle_unpayable_${cai.id}')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(
+        find.byKey(Key('splits_settle_edit_payout_${cai.id}')),
+        findsNothing,
+      );
+      final edit = find.byKey(const Key('splits_settle_edit_payout_ben'));
+      await t.scrollUntilVisible(
+        edit,
+        -200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await t.tap(edit);
+      await t.pumpAndSettle();
+      expect(find.byType(PayoutForScreen), findsOneWidget);
+      expect(find.text('How ben gets paid'), findsOneWidget);
+    });
+
     testWidgets('somebody with no address at all is offered nothing', (
       t,
     ) async {

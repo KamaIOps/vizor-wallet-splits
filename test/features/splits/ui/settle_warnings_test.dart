@@ -110,9 +110,8 @@ void main() {
       expect(find.textContaining('Check with them'), findsOneWidget);
     });
 
-    testWidgets('shows both ends, because a swap changes the middle', (
-      t,
-    ) async {
+    testWidgets('is one short line that stays closed until the address '
+        'changes again', (t) async {
       final c = controllerFor(FakeWallet());
       final id = await owingBen(c);
       await c.accept(id, [
@@ -125,11 +124,30 @@ void main() {
 
       await t.pumpWidget(app(c, SettleScreen(billId: id)));
       await t.pumpAndSettle();
+      final card = find.byKey(const Key('splits_settle_replaced_ben'));
+      expect(card, findsOneWidget);
+      await t.tap(find.byKey(const Key('splits_settle_replaced_close_ben')));
+      await t.pumpAndSettle();
+      expect(card, findsNothing);
 
-      // A prefix alone would make a substituted address look identical to
-      // the one it replaced.
-      expect(find.textContaining('u1benorigi'), findsOneWidget);
-      expect(find.textContaining('u1bensomew'), findsOneWidget);
+      // Closed on this device: the screen opened again does not show it.
+      await t.pumpWidget(const SizedBox());
+      await t.pumpWidget(app(c, SettleScreen(billId: id)));
+      await t.pumpAndSettle();
+      expect(card, findsNothing);
+
+      // A later change is a different address, and is shown again.
+      await c.accept(id, [
+        entries.joinBill(
+          host: otherHost('ben'),
+          name: 'ben',
+          payTo: 'u1benthirdaddress0000003',
+        ),
+      ]);
+      await t.pumpWidget(const SizedBox());
+      await t.pumpWidget(app(c, SettleScreen(billId: id)));
+      await t.pumpAndSettle();
+      expect(card, findsOneWidget);
     });
 
     testWidgets('a bill where nothing changed shows no warning', (t) async {

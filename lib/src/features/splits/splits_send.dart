@@ -1,12 +1,15 @@
 /// Settling a bill: one payment request, one transaction.
 library;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:splitz_core/host.dart' as splitz;
 import 'package:splitz_host/splitz_host.dart';
 
 import '../../core/storage/wallet_paths.dart';
 import 'splits_request_summary.dart';
+import 'ui/state/splits_controller.dart' show SendPreview;
+import 'ui/view/naming.dart' show sendShortfall;
 import '../../rust/api/sync.dart' as rust_sync;
 import '../send/services/send_flow.dart';
 import '../../providers/sync_provider.dart';
@@ -59,6 +62,58 @@ Future<WalletSendOutcome> proposeAndBroadcastSplitsBatch({
       ),
     ),
   );
+}
+
+/// What sending [paymentRequestUri] would take, from a proposal built the way
+/// [proposeAndBroadcastSplitsBatch] builds one — against the balance a sync
+/// has settled — and then discarded: the fee, or that the account cannot
+/// cover the request and its fee. Nothing is signed or broadcast.
+///
+/// The wallet states a shortfall as "Insufficient balance (have H, need N
+/// including fee)"; any other refusal is an empty preview, and the send
+/// itself reports it.
+Future<SendPreview> previewSplitsBatch({
+  required WidgetRef ref,
+  required String accountUuid,
+  required String paymentRequestUri,
+}) async {
+  final flow = 'splits-preview-${DateTime.now().microsecondsSinceEpoch}';
+  final syncNotifier = ref.read(syncProvider.notifier);
+  final rust_sync.ProposalResult proposal;
+  try {
+    // Against the same settled balance the send waits for, so a shortfall
+    // said here is one the send would meet.
+    proposal = await syncNotifier.runWithAuthoritativeSpendable(
+      accountUuid: accountUuid,
+      operation: () async => rust_sync.proposeSendMulti(
+        dbPath: await getWalletDbPath(),
+        network: ref.read(rpcEndpointProvider).networkName,
+        accountUuid: accountUuid,
+        sendFlowId: flow,
+        paymentUri: paymentRequestUri,
+      ),
+    );
+  } on Object catch (error) {
+    final detail = '$error';
+    if (!detail.toLowerCase().contains('insufficient')) {
+      return const SendPreview();
+    }
+    final shortfall = sendShortfall(detail);
+    return SendPreview(
+      short: true,
+      haveZatoshi: shortfall?.have,
+      needZatoshi: shortfall?.need,
+    );
+  }
+  try {
+    await rust_sync.discardProposal(
+      proposalId: proposal.proposalId,
+      sendFlowId: flow,
+    );
+  } on Object catch (error) {
+    debugPrint('splits: preview proposal not discarded: $error');
+  }
+  return SendPreview(feeZatoshi: proposal.feeZatoshi.toInt());
 }
 
 /// Whether a request naming [address] is one this wallet can send (§14.6):
