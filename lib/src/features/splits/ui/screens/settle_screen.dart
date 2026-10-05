@@ -24,6 +24,16 @@ import 'swap_screen.dart';
 import 'text_entry_screen.dart';
 import 'usdc_chains.dart' show usdcChainName;
 import 'splits_scope.dart';
+import '../../../../core/profile_pictures.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/app_icon.dart';
+import '../../../../core/widgets/app_profile_picture.dart';
+import '../../../../core/widgets/mobile/mobile_address_verify_sheet.dart';
+import '../../../../core/widgets/review_buttons_stack.dart';
+import '../../../../core/widgets/review_info_row.dart';
+import '../../../../core/widgets/review_list_row.dart';
+import '../../../../core/widgets/review_wrap_card.dart';
+import '../../../send/widgets/send_review_layout.dart';
 
 /// What this device owes, what the request will carry, and what it will not.
 ///
@@ -1098,16 +1108,17 @@ class _ReviewSendState extends State<_ReviewSend> {
     });
   }
 
+  // The wallet's own review widgets, under the wallet's theme.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      WalletThemed(child: Builder(builder: _page));
+
+  Widget _page(BuildContext context) {
     final view = widget.view;
     final owed = widget.owed;
     final via = widget.via;
     final live = widget.live;
     final currency = view.bill.currency;
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    final error = TextStyle(color: scheme.error);
     String who(String id) =>
         view.bill.displayNameOf(id, creatorId: view.creatorId);
     final payments = owed.request.payments;
@@ -1127,264 +1138,158 @@ class _ReviewSendState extends State<_ReviewSend> {
     final preview = _preview;
     final short = preview?.short ?? false;
 
+    final colors = context.colors;
+    final notice = AppTypography.bodySmall.copyWith(
+      color: colors.text.secondary,
+    );
+    final warning = AppTypography.bodySmall.copyWith(
+      color: colors.text.warning,
+    );
+    String toName(int i) => switch (toOf(i)) {
+      final to? => who(to),
+      null => payments[i].label ?? 'Payment ${i + 1}',
+    };
+
     return Scaffold(
       key: const Key('splits_review'),
-      appBar: AppBar(title: const Text('Review send')),
-      bottomNavigationBar: BottomActions(
-        children: [
-          FilledButton.icon(
-            key: const Key('splits_review_send'),
-            icon: const Icon(Icons.send_rounded, size: 20),
-            label: const Text('Confirm & send'),
-            // Held while the wallet is asked, and when it says the account
-            // cannot cover the request and its fee: the preview reads the
-            // same settled balance the send does.
-            onPressed: preview == null || short
-                ? null
-                : () => Navigator.of(context).pop(true),
-          ),
-          TextButton(
-            key: const Key('splits_review_cancel'),
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-        children: [
-          for (final (i, p) in payments.indexed) ...[
-            _ReviewLine(
-              label: 'Amount',
-              leading: const _ZecCoin(),
-              value: Text(
-                _zec(p.zatoshi),
-                key: Key('splits_review_zec_$i'),
-                style: text.headlineSmall,
-              ),
-              below: switch (settlementOf(toOf(i))) {
-                final settled? => Text(formatAmount(settled.amount, currency)),
-                null => null,
-              },
-            ),
-            Padding(
-              padding: const EdgeInsets.only(left: 8, top: 4, bottom: 4),
-              child: Icon(Icons.arrow_downward, color: scheme.onSurface),
-            ),
-            _ReviewLine(
-              label: 'To',
-              leading: CircleAvatar(
-                radius: 20,
-                backgroundColor: scheme.surfaceContainerHighest,
-                child: Icon(
-                  Icons.account_balance_wallet_outlined,
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-              value: Text(switch (toOf(i)) {
-                final to? => who(to),
-                null => p.label ?? 'Payment ${i + 1}',
-              }, style: text.headlineSmall),
-              below: Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 8,
-                children: [
-                  Text(
-                    reviewAddress(p.address),
-                    key: Key('splits_review_address_$i'),
-                  ),
-                  TextButton.icon(
-                    key: Key('splits_review_full_address_$i'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: scheme.onSurfaceVariant,
-                      visualDensity: VisualDensity.compact,
-                    ),
-                    icon: const Icon(Icons.visibility_outlined, size: 18),
-                    label: const Text('Show full address'),
-                    onPressed: () => showDialog<void>(
-                      context: context,
-                      builder: (dialog) => AlertDialog(
-                        content: SelectableText(p.address),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(dialog).pop(),
-                            child: const Text('Close'),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: SendReviewContentColumn(
+            title: 'Review send',
+            children: [
+              for (final (i, p) in payments.indexed)
+                Column(
+                  key: Key('splits_review_payment_$i'),
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SendReviewInfoSection(
+                      amountText: _zec(p.zatoshi),
+                      fiatText: switch (settlementOf(toOf(i))) {
+                        final settled? => formatAmount(
+                          settled.amount,
+                          currency,
+                        ),
+                        null => null,
+                      },
+                      recipient: SendReviewAddressRecipient(address: p.address),
+                      // The bill's name for them, and the address as the
+                      // review must show it (§14.2: at least its first ten
+                      // characters, which the wallet's own short form cuts).
+                      recipientRow: ReviewInfoRow(
+                        label: 'To',
+                        value: toName(i),
+                        leading: AppProfilePicture(
+                          profilePictureId: kDefaultProfilePictureId,
+                          size: AppProfilePictureSize.navLarge,
+                        ),
+                        bottomLeftText: reviewAddress(p.address),
+                        trailingActionLabel: 'Show full address',
+                        trailingActionKey: Key('splits_review_full_address_$i'),
+                        onTrailingAction: () => showMobileAddressVerifySheet(
+                          context,
+                          title: toName(i),
+                          address: p.address,
+                          leading: AppProfilePicture(
+                            profilePictureId: kDefaultProfilePictureId,
+                            size: AppProfilePictureSize.large,
                           ),
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-            // §14.2: paid somewhere they ranked lower than first.
-            if ((via[toOf(i)] ?? 0) > 0)
-              Text(
-                'Their ${ordinal(via[toOf(i)]! + 1)} choice, not their first.',
-                key: Key('splits_review_lower_${toOf(i)}'),
-                style: error,
-              ),
-            // §14.2: every pay-to address the fold recorded as replaced.
-            if (replaced.contains(toOf(i)))
-              Text(
-                'Address recently changed.',
-                key: Key('splits_review_replaced_${toOf(i)}'),
-                style: error,
-              ),
-            const SizedBox(height: 24),
-          ],
-          Card(
-            margin: EdgeInsets.zero,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Column(
+                    // §14.2: paid somewhere they ranked lower than first.
+                    if ((via[toOf(i)] ?? 0) > 0)
+                      Text(
+                        'Their ${ordinal(via[toOf(i)]! + 1)} choice, not '
+                        'their first.',
+                        key: Key('splits_review_lower_${toOf(i)}'),
+                        textAlign: TextAlign.center,
+                        style: warning,
+                      ),
+                    // §14.2: every pay-to address the fold recorded as
+                    // replaced.
+                    if (replaced.contains(toOf(i)))
+                      Text(
+                        'Address recently changed.',
+                        key: Key('splits_review_replaced_${toOf(i)}'),
+                        textAlign: TextAlign.center,
+                        style: warning,
+                      ),
+                  ],
+                ),
+              ReviewWrapCard(
                 children: [
-                  if (preview?.feeZatoshi case final fee?)
-                    _ReviewFigure(
+                  if (preview?.feeZatoshi case final fee?) ...[
+                    ReviewListRow(
+                      key: const Key('splits_review_fee'),
                       label: 'Tx fee',
                       value: _zec(fee),
-                      valueKey: const Key('splits_review_fee'),
                     ),
-                  _ReviewFigure(
+                    const ReviewWrapDivider(),
+                  ],
+                  ReviewListRow(
+                    key: const Key('splits_settle_rate'),
                     label: 'Rate',
-                    child: _RateLine(view: view),
+                    value: view.bill.rate == null
+                        ? '—'
+                        : '1 ZEC = ${formatAmount(view.bill.rate!.minorUnitsPerZec, currency)}',
                   ),
-                  if (payments.length > 1)
-                    _ReviewFigure(
+                  if (payments.length > 1) ...[
+                    const ReviewWrapDivider(),
+                    ReviewListRow(
                       label: 'Total',
                       value: '${_zec(total)}, one transaction',
                     ),
+                  ],
                 ],
               ),
-            ),
-          ),
-          if (off != null && off.abs() >= rateWarningPercent) ...[
-            const SizedBox(height: 12),
-            Text(
-              'This rate is ${off.abs()}% ${off > 0 ? 'above' : 'below'} the '
-              'current price of ${formatAmount(live!, currency)} a ZEC.',
-              key: const Key('splits_review_rate_off'),
-              style: error,
-            ),
-          ],
-          if (short) ...[
-            const SizedBox(height: 12),
-            Text(
-              switch ((preview!.haveZatoshi, preview.needZatoshi)) {
-                (final have?, final need?) =>
-                  'Not enough ZEC: this needs ${_zec(need)} including the '
-                      'fee, and the wallet has ${_zec(have)}.',
-                _ => 'Not enough ZEC to cover this and its fee.',
-              },
-              key: const Key('splits_review_short'),
-              style: error,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// A labelled headline on the review: a leading badge, the label above the
-/// figure or name, and a line under it.
-class _ReviewLine extends StatelessWidget {
-  const _ReviewLine({
-    required this.label,
-    required this.leading,
-    required this.value,
-    this.below,
-  });
-
-  final String label;
-  final Widget leading;
-  final Widget value;
-  final Widget? below;
-
-  @override
-  Widget build(BuildContext context) {
-    final muted = Theme.of(context).textTheme.bodyMedium?.copyWith(
-      color: Theme.of(context).colorScheme.onSurfaceVariant,
-    );
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        SizedBox(width: 40, child: leading),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: muted),
-              value,
-              if (below != null)
-                DefaultTextStyle.merge(style: muted, child: below!),
+              if ((off != null && off.abs() >= rateWarningPercent) || short)
+                Column(
+                  children: [
+                    if (off != null && off.abs() >= rateWarningPercent)
+                      Text(
+                        'This rate is ${off.abs()}% '
+                        '${off > 0 ? 'above' : 'below'} the current price of '
+                        '${formatAmount(live!, currency)} a ZEC.',
+                        key: const Key('splits_review_rate_off'),
+                        textAlign: TextAlign.center,
+                        style: warning,
+                      ),
+                    if (short)
+                      Text(
+                        switch ((preview!.haveZatoshi, preview.needZatoshi)) {
+                          (final have?, final need?) =>
+                            'Not enough ZEC: this needs ${_zec(need)} '
+                                'including the fee, and the wallet has '
+                                '${_zec(have)}.',
+                          _ => 'Not enough ZEC to cover this and its fee.',
+                        },
+                        key: const Key('splits_review_short'),
+                        textAlign: TextAlign.center,
+                        style: notice,
+                      ),
+                  ],
+                ),
+              ReviewButtonsStack(
+                primaryKey: const Key('splits_review_send'),
+                // As the wallet's own send says it: the reason on the button
+                // it holds back.
+                primaryLabel: short ? 'Not enough ZEC' : 'Confirm & send',
+                primaryLeadingIconName: short ? null : AppIcons.plane,
+                // Held while the wallet is asked, and when it says the
+                // account cannot cover the request and its fee: the preview
+                // reads the same settled balance the send does.
+                onPrimaryPressed: preview == null || short
+                    ? null
+                    : () => Navigator.of(context).pop(true),
+                secondaryLabel: 'Cancel',
+                onSecondaryPressed: () => Navigator.of(context).pop(false),
+              ),
             ],
           ),
         ),
-      ],
+      ),
     );
   }
-}
-
-/// One label and figure in the review's summary card.
-class _ReviewFigure extends StatelessWidget {
-  const _ReviewFigure({
-    required this.label,
-    this.value,
-    this.valueKey,
-    this.child,
-  });
-
-  final String label;
-  final String? value;
-  final Key? valueKey;
-  final Widget? child;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 8),
-    child: Row(
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Align(
-            alignment: AlignmentDirectional.centerEnd,
-            child:
-                child ??
-                Text(value ?? '', key: valueKey, textAlign: TextAlign.end),
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-/// The ZEC coin the wallet's own review leads its amount with.
-class _ZecCoin extends StatelessWidget {
-  const _ZecCoin();
-
-  @override
-  Widget build(BuildContext context) => ClipOval(
-    child: Image.asset(
-      'assets/icons/network_zec.png',
-      width: 40,
-      height: 40,
-      fit: BoxFit.cover,
-      // A build without the asset still shows a coin.
-      errorBuilder: (_, _, _) => CircleAvatar(
-        radius: 20,
-        backgroundColor: const Color(0xFFF4B728),
-        child: const Text('ⓩ', style: TextStyle(color: Colors.white)),
-      ),
-    ),
-  );
 }
 
 /// A send this device started and has not seen resolved (§14.3).
