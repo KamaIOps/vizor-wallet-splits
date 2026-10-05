@@ -12,6 +12,7 @@ import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:zcash_wallet/src/features/splits/splits_invite_link.dart';
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
+import 'support/closing.dart';
 import 'support/fake_wallet.dart';
 
 SplitsController ctl(
@@ -162,6 +163,7 @@ void main() {
       await c.load();
       final id = await dinner(c);
       await c.createBill(name: 'Lunch', currency: 'USD');
+      await closeForSettling(c, id);
       await c.recordCash(billId: id, to: 'ben', amountMinorUnits: 1000);
       expect(c.lastError, isNull);
 

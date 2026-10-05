@@ -9,6 +9,7 @@ import 'package:splitz_core/host.dart' as entries;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'support/fake_wallet.dart';
+import 'support/closing.dart';
 
 class GatedSwaps implements SwapProvider {
   SwapState reports = SwapState.failed;
@@ -133,6 +134,7 @@ Future<(SplitsController, GatedStorage, SplitsKeys, String)> billWithSwap({
     ),
   ]);
   await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+  await closeForSettling(c, id);
   final q = await c.quoteSwap(billId: id, to: 'ben', amountMinorUnits: 1000);
   expect(q, isNotNull, reason: 'quote: ${c.lastError}');
   final out = await c.sendSwap(
@@ -193,6 +195,9 @@ void main() {
   test('an expense written while the keychain is locked is kept', () async {
     final secrets = LockingSecretStore();
     final (c, _, _, id) = await billWithSwap(secrets: secrets);
+    // Reopened, so an expense may be written (§14.9); what is under test is
+    // the locked keychain.
+    await c.reopen(id);
     final before = c.bills.single.bill.expenses.length;
     secrets.locked = true;
     await c.addExpense(

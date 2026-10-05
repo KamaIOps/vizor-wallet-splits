@@ -150,6 +150,168 @@ void main() {
       expect(card, findsOneWidget);
     });
 
+    testWidgets('closes from the bill screen too, and stays closed on both', (
+      t,
+    ) async {
+      final c = controllerFor(FakeWallet());
+      final id = await owingBen(c);
+      await c.accept(id, [
+        entries.joinBill(
+          host: otherHost('ben'),
+          name: 'ben',
+          payTo: 'u1bensomewhereelse000002',
+        ),
+      ]);
+
+      await t.pumpWidget(app(c, BillScreen(billId: id)));
+      await t.pumpAndSettle();
+      final card = find.byKey(const Key('splits_bill_replaced_ben'));
+      expect(card, findsOneWidget);
+      await t.tap(find.byKey(const Key('splits_bill_replaced_close_ben')));
+      await t.pumpAndSettle();
+      expect(card, findsNothing);
+
+      // The bill screen opened again, and Settle up, both keep it closed.
+      await t.pumpWidget(const SizedBox());
+      await t.pumpWidget(app(c, BillScreen(billId: id)));
+      await t.pumpAndSettle();
+      expect(card, findsNothing);
+      await t.pumpWidget(app(c, SettleScreen(billId: id)));
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('splits_settle_replaced_ben')), findsNothing);
+
+      // A later change is shown again on the bill screen.
+      await c.accept(id, [
+        entries.joinBill(
+          host: otherHost('ben'),
+          name: 'ben',
+          payTo: 'u1benthirdaddress0000003',
+        ),
+      ]);
+      await t.pumpWidget(const SizedBox());
+      await t.pumpWidget(app(c, BillScreen(billId: id)));
+      await t.pumpAndSettle();
+      expect(card, findsOneWidget);
+    });
+
+    testWidgets('closed on Settle up, it is gone on the bill on the way back', (
+      t,
+    ) async {
+      final c = controllerFor(FakeWallet());
+      final id = await owingBen(c);
+      await c.accept(id, [
+        entries.joinBill(
+          host: otherHost('ben'),
+          name: 'ben',
+          payTo: 'u1bensomewhereelse000002',
+        ),
+      ]);
+
+      // §14.9: Settle up opens once the bill is closed.
+      await c.closeForSettling(id);
+      await t.pumpWidget(app(c, BillScreen(billId: id)));
+      await t.pumpAndSettle();
+      final onBill = find.byKey(const Key('splits_bill_replaced_ben'));
+      expect(onBill, findsOneWidget);
+      await t.tap(find.byKey(const Key('splits_bill_settle')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const Key('splits_settle_replaced_close_ben')));
+      await t.pumpAndSettle();
+      await t.pageBack();
+      await t.pumpAndSettle();
+      expect(onBill, findsNothing);
+    });
+
+    testWidgets('a first address, where there was none, shows no card on the '
+        'bill', (t) async {
+      final c = controllerFor(FakeWallet());
+      final id = await owingBen(c);
+      await t.pumpWidget(app(c, BillScreen(billId: id)));
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('splits_bill_replaced_ben')), findsNothing);
+    });
+
+    testWidgets('a switch to cash shows no card on the bill', (t) async {
+      final c = controllerFor(FakeWallet());
+      final id = await owingBen(c);
+      await c.accept(id, [
+        entries.joinBill(
+          host: WalletBillHost(FakeWallet(id: 'ben', payTo: null)..tick()),
+          name: 'ben',
+          payouts: const [
+            <String, dynamic>{'type': 'cash'},
+          ],
+        ),
+      ]);
+      expect(c.bills.single.replacedAddresses, isNotEmpty);
+      expect(c.bills.single.redirectedAddresses, isEmpty);
+
+      await t.pumpWidget(app(c, BillScreen(billId: id)));
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('splits_bill_replaced_ben')), findsNothing);
+    });
+
+    testWidgets('an address, then cash, then another address is shown', (
+      t,
+    ) async {
+      final c = controllerFor(FakeWallet());
+      final id = await owingBen(c);
+      await c.accept(id, [
+        entries.joinBill(
+          host: WalletBillHost(FakeWallet(id: 'ben', payTo: null)..tick()),
+          name: 'ben',
+          payouts: const [
+            <String, dynamic>{'type': 'cash'},
+          ],
+        ),
+      ]);
+      await c.accept(id, [
+        entries.joinBill(
+          host: WalletBillHost(
+            FakeWallet(id: 'ben', payTo: 'u1bensomewhereelse000002')
+              ..tick()
+              ..tick(),
+          ),
+          name: 'ben',
+          payTo: 'u1bensomewhereelse000002',
+        ),
+      ]);
+      expect(
+        c.bills.single.redirectedAddresses.single.to,
+        'u1bensomewhereelse000002',
+      );
+
+      await t.pumpWidget(app(c, BillScreen(billId: id)));
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('splits_bill_replaced_ben')), findsOneWidget);
+    });
+
+    testWidgets('back to the address they had is not a redirect', (t) async {
+      final c = controllerFor(FakeWallet());
+      final id = await owingBen(c);
+      await c.accept(id, [
+        entries.joinBill(
+          host: WalletBillHost(FakeWallet(id: 'ben', payTo: null)..tick()),
+          name: 'ben',
+          payouts: const [
+            <String, dynamic>{'type': 'cash'},
+          ],
+        ),
+      ]);
+      await c.accept(id, [
+        entries.joinBill(
+          host: WalletBillHost(
+            FakeWallet(id: 'ben', payTo: 'u1benoriginaladdress0001')
+              ..tick()
+              ..tick(),
+          ),
+          name: 'ben',
+          payTo: 'u1benoriginaladdress0001',
+        ),
+      ]);
+      expect(c.bills.single.redirectedAddresses, isEmpty);
+    });
+
     testWidgets('a bill where nothing changed shows no warning', (t) async {
       // The control: a warning that is always there is one nobody reads.
       final c = controllerFor(FakeWallet());

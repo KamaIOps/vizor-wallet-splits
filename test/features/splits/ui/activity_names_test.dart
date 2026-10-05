@@ -76,10 +76,7 @@ void main() {
       await t.pumpAndSettle();
       expect(find.textContaining('Ben changed their address'), findsNothing);
       expect(
-        find.text(
-          'Ben’s address changed, and anyone with the invite could have '
-          'changed it. Check with them before paying.',
-        ),
+        find.text('Where Ben is paid changed. Check with them.'),
         findsOneWidget,
       );
 
@@ -114,7 +111,10 @@ void main() {
       expect(c.lastError, isNull);
       await t.pumpWidget(_app(c, BillScreen(billId: id)));
       await t.pumpAndSettle();
-      expect(find.textContaining('Ben’s address changed'), findsOneWidget);
+      expect(
+        find.text('Where Ben is paid changed. Check with them.'),
+        findsOneWidget,
+      );
       await t.pumpWidget(_app(c, ActivityScreen(billId: id)));
       await t.pumpAndSettle();
       expect(
@@ -143,10 +143,7 @@ void main() {
       expect(c.bills.single.redirectedAddresses, isNotEmpty);
       await t.pumpWidget(_app(c, BillScreen(billId: id)));
       await t.pumpAndSettle();
-      expect(
-        find.text('Ben changed their address. Check with them before paying.'),
-        findsOneWidget,
-      );
+      expect(find.text('Ben changed where they are paid.'), findsOneWidget);
       await t.pumpWidget(_app(c, ActivityScreen(billId: id)));
       await t.pumpAndSettle();
       expect(

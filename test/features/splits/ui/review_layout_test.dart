@@ -11,6 +11,7 @@ import 'package:splitz_core/host.dart' as entries;
 import 'package:zcash_wallet/src/core/widgets/mobile/mobile_address_verify_sheet.dart';
 import 'package:zcash_wallet/src/core/widgets/review_list_row.dart';
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
+import 'support/closing.dart';
 
 import 'support/screen_harness.dart';
 import 'swap_screens_test.dart' show FakeSwaps;
@@ -298,8 +299,9 @@ void main() {
           description: 'Taxi',
         );
         wallet.tick();
-        await then?.call(c, id);
         await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+        await closeForSettling(c, id);
+        await then?.call(c, id);
       });
       expect(c.lastError, isNull);
       return (c, wallet, storage, id);
@@ -533,6 +535,7 @@ void main() {
       final c = controllerWith();
       await t.runAsync(() async {
         final id = await owesBen(c);
+        await closeForSettling(c, id);
         await c.recordCash(billId: id, to: 'ben', amountMinorUnits: 1000);
       });
       expect(c.lastError, isNull);
@@ -582,6 +585,7 @@ void main() {
         await c.accept(id, peer(c));
         await then?.call(c, id);
         await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+        await closeForSettling(c, id);
       });
       expect(c.lastError, isNull);
       await t.pumpWidget(host(c, SettleScreen(billId: id)));
@@ -733,6 +737,7 @@ void main() {
           ),
         ]);
         await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+        await closeForSettling(c, id);
       });
       expect(c.bills.single.identities.bound.containsKey('ben'), isFalse);
       await t.pumpWidget(

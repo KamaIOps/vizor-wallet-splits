@@ -13,6 +13,7 @@ import 'package:zcash_wallet/src/core/widgets/review_list_row.dart';
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'support/fake_wallet.dart';
+import 'support/closing.dart';
 
 /// Storage that, once armed, holds the first read of a bill after that
 /// bill's next write.
@@ -140,6 +141,10 @@ Future<Rig> open(WidgetTester t) async {
   );
   await ana.syncBill(id);
   await ben.syncBill(id);
+  // Ben opened the bill, so Ben closes it (§14.9).
+  await closeForSettling(ben, id);
+  await ben.syncBill(id);
+  await ana.syncBill(id);
   expect(ana.lastError, isNull);
   expect(ben.lastError, isNull);
   expect(ana.bills.single.bill.rate?.minorUnitsPerZec, 5000);
@@ -160,6 +165,7 @@ Future<void> benHalvesTheRate(Rig r) async {
   final (_, ben, _, benWallet, _, _, id) = r;
   benWallet.tick(const Duration(minutes: 5));
   await ben.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 2500);
+  await closeForSettling(ben, id);
   await ben.syncBill(id);
   expect(ben.lastError, isNull);
 }

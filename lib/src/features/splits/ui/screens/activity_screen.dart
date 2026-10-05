@@ -567,6 +567,7 @@ class _EventTile extends StatelessWidget {
       BillEventKind.priced => '$who withdrew the rate',
       BillEventKind.entryWithdrawn => '$who undid a withdrawal',
       BillEventKind.expenseAmended => '$who withdrew a change to an expense',
+      BillEventKind.closedForSettling => '$who reopened the bill for changes',
       BillEventKind.opened || BillEventKind.other => '$who withdrew an entry',
     };
   }
@@ -620,6 +621,8 @@ class _EventTile extends StatelessWidget {
       '${_who(event.author)} changed '
           '${_target == null ? 'an expense' : _expense(_target!)}',
     BillEventKind.entryWithdrawn => _withdrawal,
+    BillEventKind.closedForSettling =>
+      '${_who(event.author)} closed the bill for settling',
     BillEventKind.paymentRecorded =>
       '${_who(event.author)} paid ${_who(event.subject)} '
           '${_amount(event.amountMinorUnits)}',

@@ -9,6 +9,7 @@ import 'package:splitz_host/splitz_host.dart'
         BillEventKind,
         BillNaming,
         PendingSend,
+        SwapQuote,
         payoutFallback,
         ratePercentOff,
         rateWarningPercent,
@@ -19,6 +20,7 @@ import '../view/chrome.dart';
 import '../view/naming.dart';
 import '../view/review_rows.dart';
 import 'activity_screen.dart';
+import 'payout_changed_notice.dart';
 import 'arrivals_screen.dart' show shortReference;
 import 'price_bill_screen.dart';
 import 'record_payment_screen.dart';
@@ -234,6 +236,16 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
       return;
     }
     final via = _via;
+    final joining = joiningSwap(owed, current, via: via);
+    final quote = joining == null
+        ? null
+        : await controller.quoteSwap(
+            billId: widget.billId,
+            to: joining.id,
+            amountMinorUnits: joining.minorUnits,
+          );
+    if (!mounted) return;
+    final leg = quote == null ? null : (debt: joining!, quote: quote);
     final confirmed = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
         fullscreenDialog: true,
@@ -243,11 +255,34 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
           live: live,
           via: via,
           me: controller.me,
-          preview: controller.previewSend(owed),
+          swap: leg,
+          preview: leg == null
+              ? controller.previewSend(owed)
+              : controller.previewCombined(
+                  billId: widget.billId,
+                  owed: owed,
+                  to: leg.debt.id,
+                  amountMinorUnits: leg.debt.minorUnits,
+                  quote: leg.quote,
+                ),
         ),
       ),
     );
     if (confirmed != true || !mounted) return;
+    if (leg != null) {
+      await act(
+        () => controller.settleWithSwap(
+          billId: widget.billId,
+          owed: owed,
+          to: leg.debt.id,
+          amountMinorUnits: leg.debt.minorUnits,
+          quote: leg.quote,
+        ),
+      );
+      if (!mounted) return;
+      await _load();
+      return;
+    }
     splitz.Settled? settled;
     await act(() async {
       settled = await controller.settle(widget.billId, owed, via: via);
@@ -409,10 +444,7 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
                   onPressed: controller.busy || _pending != null || _working
                       ? null
                       : () => _send(view),
-                  child: Text(
-                    'Pay ${formatAmount(_owed!.carriedMinorUnits, currency)} '
-                    'in ZEC',
-                  ),
+                  child: Text(_payLabel(_owed!, view, currency, _via)),
                 ),
               ],
             ),
@@ -512,39 +544,13 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
           // card a person, every change of theirs on it in order.
           for (final id in {for (final r in view.replacedAddresses) r.id})
             if (!SplitsController.noticeClosed(view, id, _closedNotices))
-              RowCard(
-                key: Key('splits_settle_replaced_$id'),
-                color: Theme.of(context).colorScheme.errorContainer,
-                padding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      // Said to be their doing only when a key binds them
-                      // (§10.7); otherwise anyone with the invite could have.
-                      child: Text(
-                        view.identities.bound.containsKey(id)
-                            ? '${payoutChangedLine(who(id), bound: true)}.'
-                            : '${payoutChangedLine(who(id), bound: false)}. '
-                                  'Check with them.',
-                      ),
-                    ),
-                    // The send review says it again for every output it
-                    // pays, so closing this hides nothing a payer needs.
-                    IconButton(
-                      key: Key('splits_settle_replaced_close_$id'),
-                      tooltip: 'Close',
-                      icon: const Icon(Icons.close, size: 18),
-                      onPressed: () async {
-                        final controller = SplitsScope.read(context);
-                        await controller.closeNotice(view, id);
-                        final closed = await controller.closedNotices(
-                          widget.billId,
-                        );
-                        if (mounted) setState(() => _closedNotices = closed);
-                      },
-                    ),
-                  ],
-                ),
+              PayoutChangedNotice(
+                view: view,
+                id: id,
+                who: who(id),
+                onClosed: (closed) {
+                  if (mounted) setState(() => _closedNotices = closed);
+                },
               ),
           if (_owed != null) ...[
             if (_owed!.settlements.isEmpty && _owed!.awaiting.isEmpty)
@@ -646,9 +652,10 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
               ),
             if (_owed!.uri != null) ...[
               const SizedBox(height: 8),
-              if (!_owed!.isComplete)
+              if (_leftOwed(_owed!, view, _via) case final left?)
                 Text(
-                  'Sends ${formatAmount(_owed!.carriedMinorUnits, currency)}, leaves ${formatAmount(_owed!.withheldMinorUnits, currency)} owed.',
+                  left,
+                  key: const Key('splits_settle_withheld'),
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               const SizedBox(height: 8),
@@ -951,6 +958,62 @@ extension<T> on Iterable<T> {
   T? get firstOrNull => isEmpty ? null : first;
 }
 
+/// What the pay button sends: the ZEC request, and the swap that joins it.
+/// [via] as the send itself reads it, so the button never promises a swap
+/// the send leaves out.
+String _payLabel(
+  splitz.PayerObligation owed,
+  BillView view,
+  String currency,
+  Map<String, int> via,
+) {
+  final zec = 'Pay ${formatAmount(owed.carriedMinorUnits, currency)} in ZEC';
+  final swap = joiningSwap(owed, view, via: via);
+  return swap == null
+      ? zec
+      : '$zec + ${formatAmount(swap.minorUnits, currency)} by swap';
+}
+
+/// What this send leaves owed, beside what it sends, or null when it leaves
+/// nothing. A swap that joins the send ([joining]) is part of what it sends.
+String? _withheldWords(
+  splitz.PayerObligation owed,
+  String currency,
+  protocol.Unpayable? joining,
+) {
+  final joined = joining?.minorUnits ?? 0;
+  final left = owed.withheldMinorUnits - joined;
+  if (left <= 0) return null;
+  return 'Sends ${formatAmount(owed.carriedMinorUnits + joined, currency)}, '
+      'leaves ${formatAmount(left, currency)} owed.';
+}
+
+String? _leftOwed(
+  splitz.PayerObligation owed,
+  BillView view,
+  Map<String, int> via,
+) =>
+    _withheldWords(owed, view.bill.currency, joiningSwap(owed, view, via: via));
+
+/// The one debt paid by swap that joins the ZEC request as one more output
+/// (§14.10), or null when there is none or more than one, or the payer chose
+/// another payout for somebody. [SplitsController.quoteSwap] refuses a quote
+/// that needs a memo, and the swap is then sent from its own row.
+protocol.Unpayable? joiningSwap(
+  splitz.PayerObligation owed,
+  BillView view, {
+  Map<String, int> via = const {},
+}) {
+  if (owed.uri == null || via.isNotEmpty) return null;
+  final swaps = [
+    for (final u in owed.unpayable)
+      if (u.reason == 'payout_not_zec' &&
+          _laneAt(view, u.id, 0) == splitz.SettleLane.swap)
+        u,
+  ];
+  return swaps.length == 1 ? swaps.single : null;
+}
+
 /// Everything this device owes on the bill, by how it travels, in one line:
 /// `0.21 ZEC + 9.00 INR by swap + 5.00 INR in cash`.
 ///
@@ -1094,10 +1157,15 @@ class _ReviewSend extends StatefulWidget {
     required this.me,
     this.live,
     this.via = const {},
+    this.swap,
   });
 
   final BillView view;
   final splitz.PayerObligation owed;
+
+  /// The swap that joins this send as one more output (§14.10), or null when
+  /// the request goes alone.
+  final ({protocol.Unpayable debt, SwapQuote quote})? swap;
 
   /// This device's participant id: whose own refund a payment may include.
   final String me;
@@ -1135,6 +1203,69 @@ class _ReviewSendState extends State<_ReviewSend> {
   Widget build(BuildContext context) =>
       WalletThemed(child: Builder(builder: _page));
 
+  /// The swap that joins this send (§14.10): the ZEC deposited, the address
+  /// it goes to, and what the payee is to receive in their asset.
+  Widget _swapLeg(
+    BuildContext context,
+    ({protocol.Unpayable debt, SwapQuote quote}) swap,
+    String name,
+  ) {
+    final quote = swap.quote;
+    final asset =
+        '${quote.asset.symbol} on ${usdcChainName(quote.asset.chain)}';
+    final floor = quote.minAmountOut;
+    return Column(
+      key: const Key('splits_review_swap'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SendReviewInfoSection(
+          amountText: _zec(quote.amountInZatoshi),
+          recipient: SendReviewAddressRecipient(address: quote.depositAddress),
+          amountRow: ReviewFitRow(
+            label: 'Amount',
+            value: _zec(quote.amountInZatoshi),
+            leading: const ReviewZecCoinImage(),
+            oneLine: true,
+            bottom: formatAmount(
+              swap.debt.minorUnits,
+              widget.view.bill.currency,
+            ),
+          ),
+          recipientRow: ReviewFitRow(
+            label: 'To',
+            value: '$name, in $asset',
+            leading: AppProfilePicture(
+              profilePictureId: kDefaultProfilePictureId,
+              size: AppProfilePictureSize.navLarge,
+            ),
+            bottom: 'Swap deposit ${reviewAddress(quote.depositAddress)}',
+            actionLabel: 'Show full address',
+            actionKey: const Key('splits_review_swap_full_address'),
+            onAction: () => showMobileAddressVerifySheet(
+              context,
+              title: 'Swap deposit for $name',
+              address: quote.depositAddress,
+              leading: AppProfilePicture(
+                profilePictureId: kDefaultProfilePictureId,
+                size: AppProfilePictureSize.large,
+              ),
+            ),
+          ),
+        ),
+        ReviewNote(
+          floor == null
+              ? '$name receives $asset once the swap completes, and confirms '
+                    'it arrived.'
+              : 'At least ${tokenAmount(floor, quote.asset.decimals)} '
+                    '${quote.asset.symbol} reaches $name, who confirms it '
+                    'arrived.',
+          warning: false,
+          textKey: const Key('splits_review_swap_floor'),
+        ),
+      ],
+    );
+  }
+
   Widget _page(BuildContext context) {
     final view = widget.view;
     final owed = widget.owed;
@@ -1151,7 +1282,10 @@ class _ReviewSendState extends State<_ReviewSend> {
     String? toOf(int i) => i < recipients.length ? recipients[i] : null;
     protocol.Settlement? settlementOf(String? to) =>
         owed.settlements.where((s) => s.to == to).firstOrNull;
-    final total = payments.fold<int>(0, (sum, p) => sum + p.zatoshi);
+    final swap = widget.swap;
+    final total =
+        payments.fold<int>(0, (sum, p) => sum + p.zatoshi) +
+        (swap?.quote.amountInZatoshi ?? 0);
     final rate = view.bill.rate?.minorUnitsPerZec;
     final off = rate == null || live == null
         ? null
@@ -1171,11 +1305,12 @@ class _ReviewSendState extends State<_ReviewSend> {
     // confirms, from the obligation the settle screen shows.
     final unpaid = <Widget>[
       for (final u in owed.unpayable)
-        ReviewNote(
-          '${who(u.id)}: ${formatAmount(u.minorUnits, currency)} is not in '
-          'this send. ${_unpayableWords(view, u, via[u.id] ?? 0)}.',
-          textKey: Key('splits_review_unpayable_${u.id}'),
-        ),
+        if (u.id != swap?.debt.id)
+          ReviewNote(
+            '${who(u.id)}: ${formatAmount(u.minorUnits, currency)} is not in '
+            'this send. ${_unpayableWords(view, u, via[u.id] ?? 0)}.',
+            textKey: Key('splits_review_unpayable_${u.id}'),
+          ),
       for (final a in owed.awaiting)
         ReviewNote(
           'Waiting on '
@@ -1188,12 +1323,8 @@ class _ReviewSendState extends State<_ReviewSend> {
           warning: false,
           textKey: Key('splits_review_awaiting_${a.to}'),
         ),
-      if (!owed.isComplete)
-        ReviewNote(
-          'Sends ${formatAmount(owed.carriedMinorUnits, currency)}, leaves '
-          '${formatAmount(owed.withheldMinorUnits, currency)} owed.',
-          textKey: const Key('splits_review_withheld'),
-        ),
+      if (_withheldWords(owed, currency, swap?.debt) case final left?)
+        ReviewNote(left, textKey: const Key('splits_review_withheld')),
     ];
 
     return Scaffold(
@@ -1279,6 +1410,7 @@ class _ReviewSendState extends State<_ReviewSend> {
                         ),
                   ],
                 ),
+              if (swap != null) _swapLeg(context, swap, who(swap.debt.id)),
               if (unpaid.isNotEmpty)
                 Column(
                   key: const Key('splits_review_unpaid'),
@@ -1334,7 +1466,7 @@ class _ReviewSendState extends State<_ReviewSend> {
                           : '1 ZEC = ${formatAmount(view.bill.rate!.minorUnitsPerZec, currency)}',
                       scaleValueToFit: true,
                     ),
-                    if (payments.length > 1) ...[
+                    if (payments.length + (swap == null ? 0 : 1) > 1) ...[
                       const ReviewWrapDivider(),
                       // With the fee once the wallet has given it; until then
                       // the row says the fee is not in it.
@@ -1446,6 +1578,11 @@ class _PendingSendState extends State<_PendingSend> {
   bool get _unreadable =>
       widget.intent.carried.isEmpty && widget.intent.swap == null;
 
+  /// A request went out, alone or beside a swap's deposit (§14.10), and is
+  /// recorded by its transaction id.
+  bool get _needsTxid =>
+      widget.intent.swap == null || widget.intent.sent.isNotEmpty;
+
   Future<void> _clear() async {
     final sure = await showDialog<bool>(
       context: context,
@@ -1498,7 +1635,7 @@ class _PendingSendState extends State<_PendingSend> {
             ),
           // A swap is recorded by the provider's reference, which this
           // device already holds; a payment request needs the transaction.
-          if (widget.intent.swap == null && !_unreadable) ...[
+          if (_needsTxid && !_unreadable) ...[
             const SizedBox(height: 8),
             TextField(
               key: const Key('splits_pending_txid'),
@@ -1518,7 +1655,7 @@ class _PendingSendState extends State<_PendingSend> {
                     ? null
                     : () => widget.onResolve(
                         landed: true,
-                        txid: widget.intent.swap == null ? _txid.text : null,
+                        txid: _needsTxid ? _txid.text : null,
                       ),
                 child: const Text('It went through'),
               ),

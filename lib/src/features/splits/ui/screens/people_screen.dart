@@ -14,7 +14,8 @@ library;
 import 'package:flutter/material.dart';
 import 'package:splitz_core/host.dart' as hostapi;
 import 'package:splitz_core/splitz_core.dart' as protocol;
-import 'package:splitz_host/splitz_host.dart' show BillNaming, RemovalBlocker;
+import 'package:splitz_host/splitz_host.dart'
+    show BillNaming, RemovalBlocker, RemovalPlan;
 
 import '../state/splits_controller.dart';
 import '../view/chrome.dart';
@@ -177,6 +178,33 @@ class _PersonTile extends StatelessWidget {
             id: participant.id,
             name: name,
           ),
+        ),
+      // Somebody added by hand, before the person joined under their own key
+      // and maybe another name: the creator says the two are one (§10.7).
+      if (!isMe &&
+          !_bound &&
+          participant.identityKey == null &&
+          SplitsScope.of(context).me == view.creatorId &&
+          view.bill.participants.length > 1)
+        TextButton.icon(
+          key: Key('splits_person_merge_${participant.id}'),
+          icon: const Icon(Icons.merge_type, size: 16),
+          label: const Text('Same person as…'),
+          style: TextButton.styleFrom(
+            foregroundColor: scheme.onSurfaceVariant,
+            textStyle: const TextStyle(fontWeight: FontWeight.w400),
+            padding: EdgeInsets.zero,
+            minimumSize: const Size(0, 32),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            visualDensity: VisualDensity.compact,
+          ),
+          onPressed: SplitsScope.of(context).busy
+              ? null
+              : () => confirmAndMergePerson(
+                  context,
+                  billId: billId,
+                  participant: participant,
+                ),
         ),
     ];
     return Padding(
@@ -474,6 +502,125 @@ Future<void> confirmAndRemovePerson(
       billId: billId,
       id: participant.id,
       confirmed: plan,
+    ),
+  );
+}
+
+/// Asks who [participant] — somebody added by hand — really is, and merges
+/// them into that person: every expense naming them written again naming the
+/// person instead, as payer too, and their joins withdrawn (see `planMerge`).
+/// What would hold it back is said, and nothing is written.
+Future<void> confirmAndMergePerson(
+  BuildContext context, {
+  required String billId,
+  required protocol.Participant participant,
+}) async {
+  final controller = SplitsScope.read(context);
+  final act = actionsOf(context);
+  final view = controller.bills.where((b) => b.id == billId).firstOrNull;
+  if (view == null) return;
+  String who(String id) => removalPersonName(
+    view.bill,
+    id,
+    creatorId: view.creatorId,
+    me: controller.me,
+  );
+  final name = who(participant.id);
+  final into = await showDialog<String>(
+    context: context,
+    builder: (dialog) => SimpleDialog(
+      key: const Key('splits_people_merge_pick'),
+      title: Text('Who is $name?'),
+      children: [
+        for (final p in view.bill.participants)
+          if (p.id != participant.id)
+            SimpleDialogOption(
+              key: Key('splits_people_merge_into_${p.id}'),
+              onPressed: () => Navigator.of(dialog).pop(p.id),
+              child: Text(who(p.id)),
+            ),
+      ],
+    ),
+  );
+  if (into == null || !context.mounted) return;
+  final RemovalPlan? plan;
+  try {
+    plan = await controller.removalPlan(billId, participant.id, into: into);
+  } on Object catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(SplitsController.describe(error))),
+      );
+    }
+    return;
+  }
+  if (plan == null || !context.mounted) return;
+  final other = who(into);
+  if (!plan.complete) {
+    await showDialog<void>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        key: const Key('splits_people_merge_blocked'),
+        title: Text('$name can’t become $other yet'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Change these first:'),
+              for (final b in plan!.blockers)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    '• ${removalBlockerSentence(b, bill: view.bill, creatorId: view.creatorId)}',
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+    return;
+  }
+  final sure = await showDialog<bool>(
+    context: context,
+    builder: (dialog) => AlertDialog(
+      title: Text('$name is $other?'),
+      content: Text(
+        plan!.edits.isEmpty
+            ? '$name is on no expense. They come off the bill.'
+            : 'Everything $name paid for or shared becomes $other’s, on '
+                  '${plan.edits.length} '
+                  '${plan.edits.length == 1 ? 'expense' : 'expenses'}. '
+                  'Nobody else’s share changes. $name comes off the bill.',
+        key: const Key('splits_people_merge_moves'),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialog).pop(false),
+          child: const Text('Not the same'),
+        ),
+        FilledButton(
+          key: const Key('splits_people_merge_confirm'),
+          onPressed: () => Navigator.of(dialog).pop(true),
+          child: const Text('Merge'),
+        ),
+      ],
+    ),
+  );
+  if (sure != true) return;
+  await act(
+    () => controller.removePerson(
+      billId: billId,
+      id: participant.id,
+      confirmed: plan,
+      into: into,
     ),
   );
 }

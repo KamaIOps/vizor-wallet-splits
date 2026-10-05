@@ -7,6 +7,7 @@ import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'support/fake_wallet.dart';
+import 'support/closing.dart';
 
 SplitsController controllerFor(
   FakeWallet wallet, {
@@ -118,6 +119,11 @@ void main() {
       await ana.setRate(billId: id, currency: 'EUR', minorUnitsPerZec: 51234);
       await ana.syncBill(id);
       await ben.syncBill(id);
+      // Closed once Ana holds everything: a close over a bill still missing
+      // an entry is reopened by that entry when it arrives (§10.9).
+      await closeForSettling(ana, id);
+      await ana.syncBill(id);
+      await ben.syncBill(id);
 
       // Ana is owed, so ana owes nothing.
       expect((await ana.obligation(id))!.settlements, isEmpty);
@@ -202,6 +208,7 @@ void main() {
       await ana.syncBill(id);
       anaWallet.tick();
       await ana.setRate(billId: id, currency: 'EUR', minorUnitsPerZec: 51234);
+      await closeForSettling(ana, id);
       expect(ana.lastError, isNull);
 
       final owed = (await ana.obligation(id))!;
@@ -240,6 +247,7 @@ void main() {
 
     // And the next action clears it.
     await c.setRate(billId: id, currency: 'EUR', minorUnitsPerZec: 51234);
+    await closeForSettling(c, id);
     expect(c.lastError, isNull);
   });
 

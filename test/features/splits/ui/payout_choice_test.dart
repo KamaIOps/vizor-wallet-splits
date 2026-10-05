@@ -12,6 +12,7 @@ import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'support/fake_wallet.dart';
+import 'support/closing.dart';
 
 /// A provider that answers without a network and delivers USDC on base only.
 class _Swaps implements SwapProvider {
@@ -107,6 +108,7 @@ Future<String> owingBen(
     ),
   ]);
   await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+  await closeForSettling(c, id);
   return id;
 }
 

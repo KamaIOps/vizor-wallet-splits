@@ -12,6 +12,7 @@ import 'package:splitz_core/host.dart' as entries;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'support/fake_wallet.dart';
+import 'support/closing.dart';
 
 /// A sender that answers only when told to.
 class GatedSender implements WalletSender {
@@ -123,6 +124,7 @@ Future<String> owingBen(SplitsController c) async {
     ),
   ]);
   await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+  await closeForSettling(c, id);
   return id;
 }
 

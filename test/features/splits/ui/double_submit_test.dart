@@ -13,6 +13,7 @@ import 'package:splitz_core/host.dart' as entries;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'support/fake_wallet.dart';
+import 'support/closing.dart';
 
 SplitsController _ctl(FakeWallet wallet) => SplitsController(
   wallet: wallet,
@@ -76,6 +77,7 @@ Future<(SplitsController, FakeWallet, String)> _owesBen({
     ),
   ]);
   await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+  await closeForSettling(c, id);
   wallet.tick();
   return (c, wallet, id);
 }
@@ -85,6 +87,7 @@ int _entries(SplitsController c) => c.bills.single.entryCount;
 void main() {
   testWidgets('add expense', (t) async {
     final (c, _, id) = await _owesBen();
+    await c.reopen(id); // §14.9: expenses are written while the bill is open.
     final before = c.bills.single.bill.expenses.length;
     await _over(t, c, AddExpenseScreen(billId: id));
     await t.enterText(find.byKey(const Key('splits_amount')), '12');
@@ -202,6 +205,7 @@ void main() {
 
   testWidgets('a refused tap leaves the next one free to write', (t) async {
     final (c, _, id) = await _owesBen();
+    await c.reopen(id); // §14.9: expenses are written while the bill is open.
     final before = c.bills.single.bill.expenses.length;
     await _over(t, c, AddExpenseScreen(billId: id));
     await t.tap(find.byKey(const Key('splits_expense_save')));
@@ -211,6 +215,7 @@ void main() {
     await t.tap(find.byKey(const Key('splits_expense_save')));
     await t.pumpAndSettle();
     expect(c.bills.single.bill.expenses.length, before + 1);
+    await closeForSettling(c, id); // and paid once it is closed again.
 
     await _over(
       t,

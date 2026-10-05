@@ -1,12 +1,15 @@
-// A swap whose debt a sent, unconfirmed payment covers (§6.3, §14.4) is held
-// until that payment is confirmed, and the refusal names whose confirmation
-// it waits on rather than saying the bill changed.
+// §14.4: a payment counts first against its own payee's settlement. Paying
+// Zed exactly what his settlement asks holds nothing else back, so the swap to
+// Ben goes straight after it. Paying Zed more than that is money netting may
+// have moved onto Ben's debt, and that holds the swap, naming whose
+// confirmation it waits on rather than saying the bill changed.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:splitz_core/host.dart' as entries;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 
 import 'support/fake_wallet.dart';
+import 'support/closing.dart';
 import 'swap_screens_test.dart' show FakeSwaps, controllerFor;
 
 /// This device owes Ben 10.00 and Zed 5.00, and Zed owes Ben 3.00. Netted,
@@ -70,22 +73,47 @@ Future<(SplitsController, FakeWallet, String)> _bill() async {
     ),
   ]);
   await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+  await closeForSettling(c, id);
   return (c, wallet, id);
 }
 
 void main() {
-  test('the swap is held while the ZEC it is netted through is unconfirmed, '
-      'and the refusal names whose confirmation it waits on', () async {
-    final (c, wallet, id) = await _bill();
-    final owed = (await c.obligation(id))!;
-    expect(
-      {for (final s in owed.settlements) s.to: s.amount},
-      {'ben': 1300, 'zed': 200},
-    );
-    // The ZEC leg, through the library's own settle.
-    expect((await c.settle(id, owed))!.result, entries.SendResult.sent);
-    expect(wallet.sender.sent, hasLength(1));
+  test(
+    'paying Zed exactly what he is owed leaves the swap to Ben payable',
+    () async {
+      final (c, wallet, id) = await _bill();
+      final owed = (await c.obligation(id))!;
+      expect(
+        {for (final s in owed.settlements) s.to: s.amount},
+        {'ben': 1300, 'zed': 200},
+      );
+      // The ZEC leg, through the library's own settle.
+      expect((await c.settle(id, owed))!.result, entries.SendResult.sent);
+      expect(wallet.sender.sent, hasLength(1));
 
+      final quote = (await c.quoteSwap(
+        billId: id,
+        to: 'ben',
+        amountMinorUnits: 1300,
+      ))!;
+      await c.sendSwap(
+        billId: id,
+        to: 'ben',
+        amountMinorUnits: 1300,
+        quote: quote,
+      );
+      expect(c.lastError, isNull);
+      expect(wallet.sender.sent, hasLength(2), reason: 'the deposit is sent');
+    },
+  );
+
+  test('paying Zed more than his settlement holds the swap, and the refusal '
+      'names whose confirmation it waits on', () async {
+    final (c, wallet, id) = await _bill();
+    // 5.00 in cash: all this device owed Zed before netting, 3.00 more than
+    // his settlement. That 3.00 may be the debt netting moved onto Ben's.
+    await c.recordCash(billId: id, to: 'zed', amountMinorUnits: 500);
+    expect(c.lastError, isNull);
     final quote = (await c.quoteSwap(
       billId: id,
       to: 'ben',
@@ -97,7 +125,7 @@ void main() {
       amountMinorUnits: 1300,
       quote: quote,
     );
-    expect(wallet.sender.sent, hasLength(1), reason: 'no deposit is sent');
+    expect(wallet.sender.sent, isEmpty, reason: 'no deposit is sent');
     expect(c.lastError, contains('Zed'));
     expect(c.lastError, isNot(contains('The bill changed')));
   });
