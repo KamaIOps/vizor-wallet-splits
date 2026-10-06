@@ -24,6 +24,17 @@ Official public releases currently focus on signed and notarized macOS DMGs.
   UI.
 - Protect local access with an app password and privacy mode.
 
+## Split bills
+
+This build adds shared bills on mobile: friends split expenses and settle in
+ZEC, in another asset by swap, or in cash, each payment confirmed by the person
+paid. Open it from **Settings → Split bills**; [`SPLITS.md`](SPLITS.md) says
+what it does and how to build it.
+
+The wallet itself is [Vizor](https://github.com/chainapsis/vizor-wallet),
+under the Apache License 2.0; the shared-bill screens and their protocol,
+[Splitz-Protocol](https://github.com/KamaIOps/Splitz-Protocol), are added here.
+
 ## Build From Source
 
 Use the release tag that matches the DMG you want to verify:
