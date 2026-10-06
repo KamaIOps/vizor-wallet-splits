@@ -16,7 +16,16 @@ import 'package:splitz_core/host.dart' show Arrival;
 import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:splitz_host/splitz_host.dart';
 
+import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/app_icon.dart';
+import '../../../activity/activity_feed_sections.dart';
+import '../../../activity/activity_row_mapper.dart'
+    show formatActivityTimestamp, outgoingAmountColor;
+import '../../../activity/models/activity_row_data.dart';
+import '../../../activity/widgets/activity_feed.dart'
+    show ActivityFeedSectionData;
 import '../state/splits_controller.dart';
+import '../view/chrome.dart';
 import '../view/naming.dart';
 import 'arrivals_screen.dart'
     show disputedConcern, paymentConcerns, unboundConcern, underpricedConcerns;
@@ -155,8 +164,22 @@ class _ActivityScreenState extends State<ActivityScreen> with SplitsActions {
               _ConfirmedTile(billId: billId, view: view, event: event),
             const Divider(height: 24),
           ],
-          for (final event in view.activity)
-            _EventTile(event: event, view: view),
+          // Every entry, newest first and grouped by month, drawn as the
+          // wallet draws its own activity.
+          WalletThemed(
+            child: Builder(
+              builder: (context) => _History(
+                sections: buildActivityFeedSections([
+                  for (final event in view.activity)
+                    _EventTile(
+                      event: event,
+                      view: view,
+                      me: controller.me,
+                    ).entry(context),
+                ]),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -387,7 +410,7 @@ class _AwaitingTile extends StatelessWidget {
             if (reference != null)
               SelectableText(
                 '${payment.method == 'swap' ? 'swap' : 'tx'} '
-                '${_short(reference)}',
+                '${_shortReference(reference)}',
                 key: Key('splits_confirm_reference_${payment.id}'),
                 style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
               ),
@@ -440,12 +463,12 @@ class _AwaitingTile extends StatelessWidget {
         'swap' => 'by swap — check it arrived',
         _ => null,
       };
-
-  /// [reference]'s first 14 characters and an ellipsis, or all of it when
-  /// that saves nothing.
-  static String _short(String reference) =>
-      reference.length <= 17 ? reference : '${reference.substring(0, 14)}…';
 }
+
+/// [reference]'s first 14 characters and an ellipsis, or all of it when that
+/// saves nothing.
+String _shortReference(String reference) =>
+    reference.length <= 17 ? reference : '${reference.substring(0, 14)}…';
 
 /// A confirmation this device wrote, and the way to take it back (§10.8).
 class _ConfirmedTile extends StatelessWidget {
@@ -510,11 +533,14 @@ class _ConfirmedTile extends StatelessWidget {
   }
 }
 
-class _EventTile extends StatelessWidget {
-  const _EventTile({required this.event, required this.view});
+class _EventTile {
+  const _EventTile({required this.event, required this.view, required this.me});
 
   final BillEvent event;
   final BillView view;
+
+  /// This device's participant: its own payments say what carried them.
+  final String me;
 
   /// [id]'s name. Somebody no longer on the bill is named as they last
   /// joined, not by their id.
@@ -665,33 +691,90 @@ class _EventTile extends StatelessWidget {
       // §13 requires a payer meet this before settling to the new address.
       if (event.kind == BillEventKind.addressChanged)
         'check with them before paying',
+      // A payer's own send, by what carried it, so it can be found in the
+      // wallet or with the provider. Nobody else's list carries it.
+      if (event.kind == BillEventKind.paymentRecorded &&
+          event.author == me &&
+          event.reference != null)
+        '${event.method == 'swap' ? 'swap' : 'tx'} '
+            '${_shortReference(event.reference!)}',
     ];
     return lines.isEmpty ? null : lines.join('\n');
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final struck = event.withdrawn || event.refusedCode != null;
-    final caveat = _caveat;
+  /// The amount an expense or a payment moved, shown on the right.
+  String get _figure => switch (event.kind) {
+    BillEventKind.expenseAdded ||
+    BillEventKind.paymentRecorded => _amount(event.amountMinorUnits),
+    _ => '',
+  };
 
-    return ListTile(
-      key: Key('splits_event_${event.entryId}'),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-      title: Text(
-        _sentence,
-        style: struck
-            ? const TextStyle(decoration: TextDecoration.lineThrough)
+  /// The line a row is named by. An expense goes by what it was for and a
+  /// payment by who paid whom; everything else by its sentence.
+  String get _title => switch (event.kind) {
+    BillEventKind.expenseAdded when event.description != null =>
+      event.description!,
+    BillEventKind.expenseAdded => 'Expense',
+    BillEventKind.paymentRecorded =>
+      '${_who(event.author)} → ${_who(event.subject)}',
+    _ => _sentence,
+  };
+
+  /// What is said under the title: who paid an expense, whether a payment
+  /// is confirmed, and every caveat a reader must know.
+  String? get _subtitle {
+    final lead = switch (event.kind) {
+      BillEventKind.expenseAdded => '${_who(event.subject)} paid',
+      BillEventKind.paymentRecorded when event.confirmed => 'confirmed',
+      _ => null,
+    };
+    final lines = [?lead, ?_caveat];
+    return lines.isEmpty ? null : lines.join(' · ').replaceAll('\n', ' · ');
+  }
+
+  String get _icon => switch (event.kind) {
+    BillEventKind.expenseAdded => AppIcons.coins,
+    BillEventKind.paymentRecorded when event.author == me => AppIcons.plane,
+    BillEventKind.paymentRecorded when event.subject == me =>
+      AppIcons.arrowDownCircle,
+    BillEventKind.paymentRecorded => AppIcons.swapArrows,
+    BillEventKind.paymentConfirmed => AppIcons.checkCircle,
+    BillEventKind.closedForSettling => AppIcons.lock,
+    BillEventKind.joined => AppIcons.user,
+    BillEventKind.opened => AppIcons.plus,
+    BillEventKind.addressChanged => AppIcons.wallet,
+    BillEventKind.priced => AppIcons.zcashCurrency,
+    BillEventKind.expenseAmended => AppIcons.edit,
+    BillEventKind.entryWithdrawn => AppIcons.uturnUp,
+    BillEventKind.other => AppIcons.history,
+  };
+
+  /// This event as a row of the wallet's activity feed, dated by its §9.3
+  /// instant.
+  ActivityEntry entry(BuildContext context) {
+    final colors = context.colors;
+    final struck = event.withdrawn || event.refusedCode != null;
+    final at = DateTime.tryParse(event.at);
+    return ActivityEntry(
+      timestamp: at,
+      row: ActivityRowData(
+        stableId: 'splits_event_${event.entryId}',
+        title: _title,
+        subtitle: _subtitle,
+        leadingIconName: _icon,
+        leadingBackgroundColor: colors.background.neutralSubtleOpacity,
+        leadingIconColor: colors.icon.regular,
+        amountText: _figure,
+        amountColor: struck
+            ? colors.text.muted
+            : event.kind == BillEventKind.paymentRecorded && event.subject == me
+            ? colors.text.positiveStrong
+            : event.kind == BillEventKind.paymentRecorded && event.author == me
+            ? outgoingAmountColor(colors)
             : null,
+        statusText: '',
+        timestampText: formatActivityTimestamp(at),
       ),
-      subtitle: caveat == null
-          ? null
-          : Text(
-              caveat,
-              style: TextStyle(
-                color: struck ? scheme.error : scheme.onSurfaceVariant,
-              ),
-            ),
     );
   }
 }
@@ -755,4 +838,163 @@ class _InFlightTile extends StatelessWidget {
       isThreeLine: true,
     ),
   );
+}
+
+/// The bill's history as the wallet draws its own activity: a card per
+/// month, each row an icon, what happened, and the figure and the time on
+/// the right.
+///
+/// Built here rather than with the wallet's feed row, which is one
+/// fixed-height line that cuts a name or an amount short: every figure on a
+/// bill is read whole, at any text size.
+class _History extends StatelessWidget {
+  const _History({required this.sections});
+
+  final List<ActivityFeedSectionData> sections;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    if (sections.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(AppSpacing.base),
+        child: Text(
+          'Nothing on this bill yet',
+          style: AppTypography.labelLarge.copyWith(
+            color: colors.text.secondary,
+          ),
+        ),
+      );
+    }
+    return Padding(
+      key: const Key('splits_activity_feed'),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s,
+        AppSpacing.s,
+        AppSpacing.s,
+        AppSpacing.base,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (i, section) in sections.indexed) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.md),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: colors.background.ground,
+                borderRadius: BorderRadius.circular(AppRadii.large),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.base,
+                  AppSpacing.lg,
+                  AppSpacing.base,
+                  AppSpacing.s,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      section.title,
+                      style: AppTypography.labelLarge.copyWith(
+                        color: colors.text.secondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.s),
+                    for (final row in section.rows) _HistoryRow(row: row),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _HistoryRow extends StatelessWidget {
+  const _HistoryRow({required this.row});
+
+  final ActivityRowData row;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    const line = AppTypography.labelLarge;
+    // At large text sizes the figure and the time go under the title rather
+    // than beside it: beside it they leave the title too narrow to hold a
+    // figure on one line.
+    final stacked = MediaQuery.textScalerOf(context).scale(16) > 24;
+    final figure = <Widget>[
+      if (row.amountText.isNotEmpty)
+        Text(
+          row.amountText,
+          style: line.copyWith(color: row.amountColor ?? colors.text.primary),
+        ),
+      Text(row.timestampText, style: line.copyWith(color: colors.text.muted)),
+    ];
+    return Padding(
+      key: ValueKey(row.stableId),
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+      child: Row(
+        crossAxisAlignment: stacked
+            ? CrossAxisAlignment.start
+            : CrossAxisAlignment.center,
+        children: [
+          // Dropped at large text sizes, where its width is what a figure
+          // needs to stay on one line.
+          if (!stacked) ...[
+            SizedBox.square(
+              dimension: AppAssetSize.size,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: row.leadingBackgroundColor,
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: AppIcon(
+                    row.leadingIconName,
+                    size: AppAssetSize.icon,
+                    color: row.leadingIconColor,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.s),
+          ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  row.title,
+                  key: ValueKey('${row.stableId}_title'),
+                  style: line.copyWith(color: colors.text.accent),
+                ),
+                if (row.subtitle case final subtitle?)
+                  Text(
+                    subtitle,
+                    key: ValueKey('${row.stableId}_subtitle'),
+                    style: line.copyWith(
+                      color: colors.text.secondary,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                if (stacked) ...figure,
+              ],
+            ),
+          ),
+          if (!stacked) ...[
+            const SizedBox(width: AppSpacing.s),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: figure,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }

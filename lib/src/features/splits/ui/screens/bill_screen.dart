@@ -345,12 +345,12 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
             ),
           ),
           _SyncNotice(state: controller.syncStateOf(billId)),
-          if (closed)
+          // The creator closed it and reopens it from ⋯; everybody else is
+          // told who did.
+          if (closed && !iOpenedIt)
             NoticeCard(
               key: const Key('splits_bill_closed_notice'),
-              message: iOpenedIt
-                  ? 'Closed for settling. Reopen it from ⋯ to change expenses.'
-                  : 'Closed for settling by $creator.',
+              message: 'Closed for settling by $creator.',
             )
           else if (reopenedByChange)
             NoticeCard(

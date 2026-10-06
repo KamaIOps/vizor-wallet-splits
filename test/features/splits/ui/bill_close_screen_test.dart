@@ -72,7 +72,11 @@ void main() {
     await t.pumpAndSettle();
 
     expect(c.bills.single.folded!.closed, isTrue);
-    expect(find.byKey(const Key('splits_bill_closed_notice')), findsOneWidget);
+    expect(
+      find.byKey(const Key('splits_bill_closed_notice')),
+      findsNothing,
+      reason: 'the creator is not told what they just did',
+    );
     expect(_enabled(t, 'splits_bill_settle'), isTrue);
     expect(_enabled(t, 'splits_bill_add_expense'), isFalse);
 
