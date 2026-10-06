@@ -22,6 +22,13 @@ typedef ScanACode = Future<String?> Function(BuildContext context);
 typedef ShareText =
     Future<void> Function(BuildContext context, String text, {Rect? origin});
 
+/// Opens the Zcash transaction [txid] in the wallet's block explorer, and
+/// says whether it could. [txid] is in the order explorers show it.
+///
+/// Supplied by the wallet, which knows its network and which explorer its
+/// person chose.
+typedef OpenTransaction = Future<bool> Function(String txid);
+
 /// Hands [SplitsController] down the tree and rebuilds what reads it.
 ///
 /// One controller for the whole feature. Two would be two answers to "what
@@ -33,6 +40,7 @@ class SplitsScope extends InheritedNotifier<SplitsController> {
     required super.child,
     this.scan,
     this.share,
+    this.openTransaction,
   }) : super(notifier: controller);
 
   /// The wallet's camera, or null in a build that has none.
@@ -46,6 +54,9 @@ class SplitsScope extends InheritedNotifier<SplitsController> {
   ///
   /// Null leaves copying and the drawn code, which carry the same string.
   final ShareText? share;
+
+  /// The wallet's block explorer, or null in a build that has none.
+  final OpenTransaction? openTransaction;
 
   static SplitsController of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<SplitsScope>();
@@ -69,11 +80,16 @@ class SplitsScope extends InheritedNotifier<SplitsController> {
   static ShareText? sharerOf(BuildContext context) =>
       context.getInheritedWidgetOfExactType<SplitsScope>()?.share;
 
+  /// The wallet's block explorer, or null where it supplied none.
+  static OpenTransaction? transactionOpenerOf(BuildContext context) =>
+      context.getInheritedWidgetOfExactType<SplitsScope>()?.openTransaction;
+
   @override
   bool updateShouldNotify(covariant SplitsScope oldWidget) =>
       super.updateShouldNotify(oldWidget) ||
       scan != oldWidget.scan ||
-      share != oldWidget.share;
+      share != oldWidget.share ||
+      openTransaction != oldWidget.openTransaction;
 }
 
 /// What the actions taken on one screen could not do.
