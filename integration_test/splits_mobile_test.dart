@@ -98,6 +98,13 @@ void main() {
     expect(find.text('Pizza'), findsOneWidget);
     expect(find.text('90.00 STN'), findsOneWidget);
 
+    logE2e('closing it for settling');
+    // §14.9: nobody settles an open bill, so its creator closes it first.
+    await tester.tap(find.byKey(const Key('splits_bill_close')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('splits_bill_close_confirm')));
+    await tester.pumpAndSettle();
+
     logE2e('pricing it');
     // In the bill screen's bottom bar, so it needs no scroll.
     await tester.tap(find.text('Settle up'));
