@@ -36,227 +36,221 @@ void main() {
     await initializeZcashWalletRuntime();
   });
 
-  testWidgets(
-    'a bill, opened and settled through its own screens',
-    (tester) async {
-      tolerateRenderOverflows();
-      final defaultHandler = FlutterError.onError;
-      FlutterError.onError = (details) {
-        if (details.exception is SocketException) return;
-        defaultHandler?.call(details);
-      };
+  testWidgets('a bill, opened and settled through its own screens', (
+    tester,
+  ) async {
+    tolerateRenderOverflows();
+    final defaultHandler = FlutterError.onError;
+    FlutterError.onError = (details) {
+      if (details.exception is SocketException) return;
+      defaultHandler?.call(details);
+    };
 
-      await tester.pumpWidget(await buildBootstrappedZcashWalletApp());
-      await createWalletWithPasscode(tester);
+    await tester.pumpWidget(await buildBootstrappedZcashWalletApp());
+    await createWalletWithPasscode(tester);
 
-      // ── Split bills ──────────────────────────────────────────────────
-      //
-      // Through the app's own router, so the wallet around it stays up: its
-      // providers, its keychain and its database are what the feature reads.
-      // Pumping a fresh tree here would take the `ProviderScope` with it.
-      GoRouter.of(tester.element(find.byType(Scaffold).first)).push('/splits');
-      await tester.pumpAndSettle(const Duration(seconds: 10));
-      expect(
-        find.text('Split a bill'),
-        findsOneWidget,
-        reason: 'the feature opens on its own list',
-      );
-      expect(find.textContaining('No bills yet'), findsOneWidget);
-      logE2e('splits opened, empty');
+    // ── Split bills ──────────────────────────────────────────────────
+    //
+    // Through the app's own router, so the wallet around it stays up: its
+    // providers, its keychain and its database are what the feature reads.
+    // Pumping a fresh tree here would take the `ProviderScope` with it.
+    GoRouter.of(tester.element(find.byType(Scaffold).first)).push('/splits');
+    await tester.pumpAndSettle(const Duration(seconds: 10));
+    expect(
+      find.text('Split a bill'),
+      findsOneWidget,
+      reason: 'the feature opens on its own list',
+    );
+    expect(find.textContaining('No bills yet'), findsOneWidget);
+    logE2e('splits opened, empty');
 
-      // ── A new bill ───────────────────────────────────────────────────
-      await _tapText(tester, 'Start a bill');
-      await _typeInto(tester, 'What is it for', 'Dinner');
-      // A currency neither Binance nor Coinbase prices, so the pricing screen
-      // is walked through by hand rather than skipped by the automatic one.
-      // KES or EUR would be priced from Coinbase whenever it answers.
-      await _typeInto(tester, 'Currency', 'STN');
-      await _tapText(tester, 'Open the bill');
+    // ── A new bill ───────────────────────────────────────────────────
+    await _tapText(tester, 'Start a bill');
+    await _typeInto(tester, 'What is it for', 'Dinner');
+    // A currency neither Binance nor Coinbase prices, so the pricing screen
+    // is walked through by hand rather than skipped by the automatic one.
+    // KES or EUR would be priced from Coinbase whenever it answers.
+    await _typeInto(tester, 'Currency', 'STN');
+    await _tapText(tester, 'Open the bill');
+    await _settle(tester);
+    expect(find.text('Dinner'), findsWidgets);
+    logE2e('bill opened');
+
+    // ── Two more people on it ────────────────────────────────────────
+    await _tapKey(tester, 'splits_bill_people');
+    for (final name in ['Ben', 'Cara']) {
+      await _tapKey(tester, 'splits_people_add');
       await _settle(tester);
-      expect(find.text('Dinner'), findsWidgets);
-      logE2e('bill opened');
-
-      // ── Two more people on it ────────────────────────────────────────
-      await _tapKey(tester, 'splits_bill_people');
-      for (final name in ['Ben', 'Cara']) {
-        await _tapKey(tester, 'splits_people_add');
-        await _settle(tester);
-        await tester.enterText(
-          find.byKey(const Key('splits_people_name')),
-          name,
-        );
-        await tester.pump();
-        await _tapKey(tester, 'splits_people_name_ok');
-        await _settle(tester);
-        expect(find.text(name), findsWidgets, reason: '$name is on the bill');
-      }
-      logE2e('three people on the bill');
-      await _back(tester);
-
-      // ── An expense, typed in ─────────────────────────────────────────
-      await _tapText(tester, 'Add expense');
-      await _typeInto(tester, 'What was it for?', 'Dinner');
-      await tester.enterText(find.byKey(const Key('splits_amount')), '90');
+      await tester.enterText(find.byKey(const Key('splits_people_name')), name);
       await tester.pump();
-      await _tapText(tester, 'Add');
+      await _tapKey(tester, 'splits_people_name_ok');
       await _settle(tester);
-      await _expenseWritten(tester);
+      expect(find.text(name), findsWidgets, reason: '$name is on the bill');
+    }
+    logE2e('three people on the bill');
+    await _back(tester);
+
+    // ── An expense, typed in ─────────────────────────────────────────
+    await _tapText(tester, 'Add expense');
+    await _typeInto(tester, 'What was it for?', 'Dinner');
+    await tester.enterText(find.byKey(const Key('splits_amount')), '90');
+    await tester.pump();
+    await _tapText(tester, 'Add');
+    await _settle(tester);
+    await _expenseWritten(tester);
+    expect(
+      find.textContaining('90.00'),
+      findsWidgets,
+      reason: 'the expense the form was given, in the currency it shows',
+    );
+    logE2e('90.00 on the bill');
+
+    // ── A second one, then take it off again ─────────────────────────
+    await _tapText(tester, 'Add expense');
+    await _typeInto(tester, 'What was it for?', 'Drinks');
+    await tester.enterText(find.byKey(const Key('splits_amount')), '30');
+    await tester.pump();
+    await _tapText(tester, 'Add');
+    await _settle(tester);
+    await _expenseWritten(tester);
+    expect(find.text('Drinks'), findsWidgets);
+
+    await tester.drag(find.text('Drinks').first, const Offset(-400, 0));
+    await _settle(tester);
+    expect(
+      find.text('Take this off the bill?'),
+      findsOneWidget,
+      reason: 'a withdrawal is confirmed, never silent',
+    );
+    await _tapKey(tester, 'splits_expense_withdraw_confirm');
+    await _settle(tester);
+    expect(
+      find.text('Drinks'),
+      findsNothing,
+      reason: '§10.4: a withdrawn expense leaves the bill',
+    );
+    logE2e('Drinks withdrawn');
+
+    // ── The activity log ─────────────────────────────────────────────
+    await _tapKey(tester, 'splits_bill_activity');
+    await _settle(tester);
+    expect(find.text('Activity'), findsWidgets);
+    logE2e('activity read');
+    await _back(tester);
+
+    // ── The code another device reads ────────────────────────────────
+    // §11.2 caps a payload, and a bill with three addressed people reaches
+    // that cap. Either outcome is a state, not a failure: the whole bill as
+    // a code, or the notice that it has outgrown one code.
+    await tester.tap(find.byKey(const Key('splits_bill_menu')));
+    await _settle(tester);
+    await tester.tap(find.byKey(const Key('splits_bill_code')));
+    await _settle(tester);
+    final whole = find.byKey(const Key('splits_qr_Bill code'));
+    final loading = find.byType(LinearProgressIndicator);
+    await pumpUntil(
+      tester,
+      () => !tester.any(loading),
+      description: 'the whole-bill code, or the cap that refused it',
+    );
+    if (tester.any(whole)) {
+      final code = tester
+          .widgetList<CodeImage>(find.byType(CodeImage))
+          .first
+          .value;
+      // A code only this app can read is a code no wallet can scan, so it is
+      // read back through the protocol rather than eyeballed.
       expect(
-        find.textContaining('90.00'),
-        findsWidgets,
-        reason: 'the expense the form was given, in the currency it shows',
+        splitz.readScan(code),
+        isA<splitz.ScannedBill>(),
+        reason: 'the screen shows what §11 defines',
       );
-      logE2e('90.00 on the bill');
+      logE2e('shared as a code the protocol reads back');
+    } else {
+      logE2e('past §11.2\'s cap, and the screen says so');
+    }
 
-      // ── A second one, then take it off again ─────────────────────────
-      await _tapText(tester, 'Add expense');
-      await _typeInto(tester, 'What was it for?', 'Drinks');
-      await tester.enterText(find.byKey(const Key('splits_amount')), '30');
-      await tester.pump();
-      await _tapText(tester, 'Add');
-      await _settle(tester);
-      await _expenseWritten(tester);
-      expect(find.text('Drinks'), findsWidgets);
+    await _back(tester);
 
-      await tester.drag(find.text('Drinks').first, const Offset(-400, 0));
-      await _settle(tester);
+    // Share offers the invite whatever the bill's size.
+    await tester.tap(find.byTooltip('Share'));
+    await _settle(tester);
+    await _scrollToText(tester, inviteSentence);
+    final inviteCode = find.byKey(const Key('splits_qr_Invite'));
+    expect(inviteCode, findsOneWidget, reason: 'the invite, as a code');
+    final invite = tester.widget<CodeImage>(inviteCode).value;
+    expect(
+      splitz.readScan(invite),
+      isA<splitz.ScannedInvite>(),
+      reason: '§11.1 renders an invite as a link, whatever the bill\'s size',
+    );
+    logE2e('invite offered and read back');
+    await _back(tester);
+
+    // ── Pricing is reached from the settle screen, which is where the
+    //    absence of a price is what stops a send. §14.9: the creator
+    //    closes the bill before anybody settles it ───────────────────
+    await _tapKey(tester, 'splits_bill_close');
+    await _tapKey(tester, 'splits_bill_close_confirm');
+    await _settle(tester);
+    await _tapText(tester, 'Settle up');
+    expect(
+      find.textContaining('no price on it yet'),
+      findsOneWidget,
+      reason: 'an unpriced bill says so rather than guessing a rate',
+    );
+    await _tapText(tester, 'Price it');
+    await _typeInto(tester, 'One ZEC costs', '1000');
+    await _tapText(tester, 'Put this price on the bill');
+    await _settle(tester);
+    expect(find.textContaining('no price on it yet'), findsNothing);
+    // Ana covered the only expense, so Ana is owed and owes nothing. That is
+    // the honest answer rather than an error.
+    expect(find.byKey(const Key('splits_settle_owe_nothing')), findsOneWidget);
+    logE2e('priced at 1000.00 a ZEC; nothing owed by this device');
+    await _back(tester);
+
+    // ── §9.2: this device's own lane, which is the only one it may set ──
+    //
+    // `people_screen.dart` offers the payout control for the account holder
+    // alone. A payout says where somebody's money goes, so §10.7 leaves it to
+    // the device that can sign for them — which is also why the cash and swap
+    // record screens, reached from a withheld row on Settle up, need a payee
+    // on another device to put themselves in those lanes.
+    await _tapKey(tester, 'splits_bill_people');
+    await _settle(tester);
+    expect(
+      find.byKey(const Key('splits_person_payout')),
+      findsOneWidget,
+      reason: 'one payout control, and it is this device\'s own',
+    );
+    await _tapKey(tester, 'splits_person_payout');
+    await _settle(tester);
+    expect(find.text('How you get paid'), findsOneWidget);
+    for (final lane in ['zec', 'swap', 'cash']) {
       expect(
-        find.text('Take this off the bill?'),
+        find.byKey(Key("splits_payout_$lane")),
         findsOneWidget,
-        reason: 'a withdrawal is confirmed, never silent',
+        reason: '§9.2 offers all three lanes',
       );
-      await _tapKey(tester, 'splits_expense_withdraw_confirm');
-      await _settle(tester);
-      expect(
-        find.text('Drinks'),
-        findsNothing,
-        reason: '§10.4: a withdrawn expense leaves the bill',
-      );
-      logE2e('Drinks withdrawn');
+    }
 
-      // ── The activity log ─────────────────────────────────────────────
-      await _tapKey(tester, 'splits_bill_activity');
-      await _settle(tester);
-      expect(find.text('Activity'), findsWidgets);
-      logE2e('activity read');
-      await _back(tester);
-
-      // ── The code another device reads ────────────────────────────────
-      // §11.2 caps a payload, and a bill with three addressed people reaches
-      // that cap. Either outcome is a state, not a failure: the whole bill as
-      // a code, or the notice that it has outgrown one code.
-      await tester.tap(find.byKey(const Key('splits_bill_menu')));
-      await _settle(tester);
-      await tester.tap(find.byKey(const Key('splits_bill_code')));
-      await _settle(tester);
-      final whole = find.byKey(const Key('splits_qr_Bill code'));
-      final loading = find.byType(LinearProgressIndicator);
-      await pumpUntil(
-        tester,
-        () => !tester.any(loading),
-        description: 'the whole-bill code, or the cap that refused it',
-      );
-      if (tester.any(whole)) {
-        final code = tester
-            .widgetList<CodeImage>(find.byType(CodeImage))
-            .first
-            .value;
-        // A code only this app can read is a code no wallet can scan, so it is
-        // read back through the protocol rather than eyeballed.
-        expect(
-          splitz.readScan(code),
-          isA<splitz.ScannedBill>(),
-          reason: 'the screen shows what §11 defines',
-        );
-        logE2e('shared as a code the protocol reads back');
-      } else {
-        logE2e('past §11.2\'s cap, and the screen says so');
-      }
-
-      await _back(tester);
-
-      // Share offers the invite whatever the bill's size.
-      await tester.tap(find.byTooltip('Share'));
-      await _settle(tester);
-      await _scrollToText(tester, inviteSentence);
-      final inviteCode = find.byKey(const Key('splits_qr_Invite'));
-      expect(inviteCode, findsOneWidget, reason: 'the invite, as a code');
-      final invite = tester.widget<CodeImage>(inviteCode).value;
-      expect(
-        splitz.readScan(invite),
-        isA<splitz.ScannedInvite>(),
-        reason: '§11.1 renders an invite as a link, whatever the bill\'s size',
-      );
-      logE2e('invite offered and read back');
-      await _back(tester);
-
-      // ── Pricing is reached from the settle screen, which is where the
-      //    absence of a price is what stops a send ──────────────────────
-      await tester.scrollUntilVisible(
-        find.text('Settle up'),
-        200,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await _tapText(tester, 'Settle up');
-      expect(
-        find.textContaining('no price on it yet'),
-        findsOneWidget,
-        reason: 'an unpriced bill says so rather than guessing a rate',
-      );
-      await _tapText(tester, 'Price it');
-      await _typeInto(tester, 'One ZEC costs', '1000');
-      await _tapText(tester, 'Put this price on the bill');
-      await _settle(tester);
-      expect(find.textContaining('no price on it yet'), findsNothing);
-      // Ana covered the only expense, so Ana is owed and owes nothing. That is
-      // the honest answer rather than an error.
-      expect(find.byKey(const Key('splits_settle_owe_nothing')), findsOneWidget);
-      logE2e('priced at 1000.00 a ZEC; nothing owed by this device');
-      await _back(tester);
-
-      // ── §9.2: this device's own lane, which is the only one it may set ──
-      //
-      // `people_screen.dart` offers the payout control for the account holder
-      // alone. A payout says where somebody's money goes, so §10.7 leaves it to
-      // the device that can sign for them — which is also why the cash and swap
-      // record screens, reached from a withheld row on Settle up, need a payee
-      // on another device to put themselves in those lanes.
-      await _tapKey(tester, 'splits_bill_people');
-      await _settle(tester);
-      expect(
-        find.byKey(const Key('splits_person_payout')),
-        findsOneWidget,
-        reason: 'one payout control, and it is this device\'s own',
-      );
-      await _tapKey(tester, 'splits_person_payout');
-      await _settle(tester);
-      expect(find.text('How you get paid'), findsOneWidget);
-      for (final lane in ['zec', 'swap', 'cash']) {
-        expect(
-          find.byKey(Key("splits_payout_$lane")),
-          findsOneWidget,
-          reason: '§9.2 offers all three lanes',
-        );
-      }
-
-      await _tapKey(tester, 'splits_payout_swap');
-      await _payInUsdc(
-        tester,
-        'base',
-        '0x4444444444444444444444444444444444444444',
-      );
-      await _tapKey(tester, 'splits_payout_save');
-      await _settle(tester);
-      expect(
-        find.textContaining('USDC'),
-        findsWidgets,
-        reason: 'the lane the bill now shows for this device',
-      );
-      logE2e('own payout set to USDC on base');
-      logE2e('walkthrough complete');
-    },
-    timeout: const Timeout(Duration(minutes: 20)),
-  );
+    await _tapKey(tester, 'splits_payout_swap');
+    await _payInUsdc(
+      tester,
+      'base',
+      '0x4444444444444444444444444444444444444444',
+    );
+    await _tapKey(tester, 'splits_payout_save');
+    await _settle(tester);
+    expect(
+      find.textContaining('USDC'),
+      findsWidgets,
+      reason: 'the lane the bill now shows for this device',
+    );
+    logE2e('own payout set to USDC on base');
+    logE2e('walkthrough complete');
+  }, timeout: const Timeout(Duration(minutes: 20)));
 }
 
 /// Scrolls the screen until [text] is on it.
