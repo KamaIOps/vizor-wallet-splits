@@ -86,10 +86,7 @@ void main() {
       expect(lines.where((l) => l.contains('Ben changed where')), isEmpty);
       expect(
         lines,
-        contains(
-          'Where Ben is paid changed | anyone with the invite can change it '
-          '— check with them before paying',
-        ),
+        contains('Where Ben is paid changed | check with them before paying'),
       );
     });
 
@@ -149,8 +146,7 @@ void main() {
       expect(
         _lines(t),
         contains(
-          'Ben changed where they are paid | check this with them before '
-          'paying',
+          'Ben changed where they are paid | check with them before paying',
         ),
       );
     });

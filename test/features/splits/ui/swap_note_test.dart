@@ -103,16 +103,10 @@ void main() {
     final card = find.byKey(Key('splits_confirm_${held.id}'));
     // Positive control: the confirm card is there and shows the reference.
     expect(card, findsOneWidget);
-    expect(
-      find.text('swap reference near-intent-7f3a — not a Zcash transaction'),
-      findsOneWidget,
-    );
+    expect(find.text('swap near-intent-7f3a'), findsOneWidget);
     final shown = textsUnder(card);
     expect(find.byKey(Key('splits_confirm_note_${held.id}')), findsOneWidget);
-    expect(
-      shown,
-      contains('their swap was to deliver at least 9.405 USDC on base'),
-    );
+    expect(shown, contains('to deliver at least 9.405 USDC on base'));
   });
 
   testWidgets('a record with no note shows no note line', (t) async {

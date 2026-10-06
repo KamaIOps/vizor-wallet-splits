@@ -360,11 +360,6 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
                         'once everything is on it.'
                   : 'An expense changed after $creator closed it. Waiting '
                         'for $creator to close it again.',
-            )
-          else if (!iOpenedIt && view.bill.expenses.isNotEmpty)
-            NoticeCard(
-              key: const Key('splits_bill_waiting_close'),
-              message: 'Waiting for $creator to close the bill for settling.',
             ),
           // Until the payee says it arrived, a payment is a claim and the
           // debt stands (§10.5), so the question is put where it is seen.
