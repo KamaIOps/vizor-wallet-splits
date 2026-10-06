@@ -85,17 +85,20 @@ void main() {
 
     // A request naming two recipients, as a settled bill produces.
     //
-    // `propose_send_inner` checks the wallet's transaction version before it
-    // builds the request and long before it selects inputs, and that check
-    // refuses with "must sync" until the sync completion event has been
-    // applied. Accepting that answer here would pass with input selection
-    // entirely broken, so it is retried until the guard clears and only the
-    // answer from behind it is asserted on.
+    // Two guards answer "must sync" before input selection runs: the
+    // transaction-version check, until the sync completion event has been
+    // applied, and the anchor lookup, which needs a checkpoint at least
+    // `ConfirmationsPolicy::default().trusted()` (3) below the next block. A
+    // wallet created at the tip can lack one until the chain moves past its
+    // birthday, which takes new blocks rather than seconds, so the wait allows
+    // for several. Accepting that answer here would pass with input selection
+    // entirely broken, so it is retried until both guards clear and only the
+    // answer from behind them is asserted on.
     const uri =
         'zcash:$_recipientA?amount=0.0878323'
         '&address.1=$_recipientB&amount.1=0.5';
     var twoRecipients = await propose(uri);
-    final deadline = DateTime.now().add(const Duration(seconds: 120));
+    final deadline = DateTime.now().add(const Duration(minutes: 15));
     while (twoRecipients.toLowerCase().contains('sync') &&
         DateTime.now().isBefore(deadline)) {
       await tester.pump(const Duration(milliseconds: 250));
