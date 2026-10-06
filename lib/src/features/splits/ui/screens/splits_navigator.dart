@@ -25,6 +25,7 @@ class SplitsNavigator extends StatefulWidget {
     required this.controller,
     this.scan,
     this.share,
+    this.openTransaction,
     this.initialCode,
   });
 
@@ -35,6 +36,9 @@ class SplitsNavigator extends StatefulWidget {
 
   /// The wallet's share sheet, or null in a build that has none.
   final ShareText? share;
+
+  /// The wallet's block explorer, or null in a build that has none.
+  final OpenTransaction? openTransaction;
 
   /// A code to read as soon as the feature opens — an invite link that
   /// launched it. Read on the scan screen, over the bills list, so backing out
@@ -89,6 +93,7 @@ class SplitsNavigatorState extends State<SplitsNavigator> {
     controller: widget.controller,
     scan: widget.scan,
     share: widget.share,
+    openTransaction: widget.openTransaction,
     child: PopScope(
       // False while this navigator has something of its own to pop, so a
       // back gesture walks the feature's own screens before leaving it.

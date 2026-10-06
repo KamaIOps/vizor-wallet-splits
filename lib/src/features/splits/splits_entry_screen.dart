@@ -28,6 +28,8 @@ import '../../core/storage/device_backup.dart';
 import '../../core/storage/wallet_paths.dart';
 import '../../providers/account_provider.dart';
 import '../../providers/rpc_endpoint_provider.dart';
+import '../../providers/zcash_explorer_provider.dart';
+import '../../core/config/zcash_explorer.dart';
 import '../../rust/api/wallet.dart' as rust_wallet;
 import 'dev_accounts_import.dart';
 import 'splits_send.dart';
@@ -329,6 +331,13 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
         // The platform's share sheet, so a code reaches a message as well as
         // a camera or a clipboard.
         share: shareSplitsCode,
+        // The wallet's explorer, on its network and as its person set it.
+        openTransaction: (txid) => launchZcashExplorerTransaction(
+          networkName: ref.read(rpcEndpointProvider).networkName,
+          txidHex: txid,
+          txidOrder: ZcashExplorerTxidOrder.display,
+          customTemplate: ref.read(zcashExplorerProvider),
+        ),
       ),
     );
   }
