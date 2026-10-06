@@ -26,13 +26,24 @@ Widget _app(SplitsController c, Widget home) => SplitsScope(
 );
 
 /// Every line the history shows, title and caveat.
-List<String> _lines(WidgetTester t) => [
-  for (final tile in t.widgetList<ListTile>(find.byType(ListTile)))
-    [
-      (tile.title as Text?)?.data,
-      (tile.subtitle as Text?)?.data,
-    ].whereType<String>().join(' | '),
-];
+/// Each history row as "title | subtitle", newest first.
+List<String> _lines(WidgetTester t) {
+  String? text(String key) {
+    final f = find.byKey(ValueKey(key));
+    return f.evaluate().isEmpty ? null : t.widget<Text>(f).data;
+  }
+
+  return [
+    for (final e in t.widgetList<Padding>(find.byType(Padding)))
+      if (e.key case ValueKey<String?>(
+        :final String value,
+      ) when value.startsWith('splits_event_'))
+        [
+          text('${value}_title'),
+          text('${value}_subtitle'),
+        ].whereType<String>().join(' | '),
+  ];
+}
 
 class _SlowDelete extends InMemoryBillStorage {
   bool hold = false;
@@ -332,8 +343,10 @@ void main() {
       final taxi = formatAmount(3000, 'USD');
       // Restated without Ben in the same write: the Taxi he was on reads as
       // withdrawn, the one written in its place does not.
-      expect(lines, contains('Ana paid $taxi for Taxi | withdrawn'));
-      expect(lines, contains('Ana paid $taxi for Taxi'));
+      expect(lines, contains('Taxi | Ana paid · withdrawn'));
+      expect(lines, contains('Taxi | Ana paid'));
+      // The amount stands beside each, on the right.
+      expect(find.text(taxi), findsWidgets);
       expect(lines, contains('Ana took Ben off the bill'));
       expect(lines.where((l) => l.contains('withdrew an entry')), isEmpty);
       // Ben's own lines still name him, though he is no longer on the bill.
