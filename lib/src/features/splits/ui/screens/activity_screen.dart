@@ -107,7 +107,7 @@ class _ActivityScreenState extends State<ActivityScreen> with SplitsActions {
       return const Scaffold(body: Center(child: Text('This bill is gone')));
     }
 
-    final mine = awaitingConfirmationBy(view.bill, controller.me);
+    final mine = view.awaitingMyConfirmation(controller.me);
     // Confirmations this device wrote that still stand: each can be taken
     // back by its author (§10.8), which is the only undo a tap here has.
     final confirmed = [
@@ -240,7 +240,14 @@ class _AwaitingTile extends StatelessWidget {
       builder: (dialog) => AlertDialog(
         title: const Text('It arrived?'),
         content: Text(
-          concerns.isEmpty
+          payment.to != controller.me
+              // §14.11: the creator says it for somebody they added, who has
+              // no key of their own to say it with.
+              ? '${concerns.isEmpty ? '' : '${concerns.join('\n\n')}\n\n'}'
+                    'You added ${view.bill.displayNameOf(payment.to, creatorId: view.creatorId)}, so you '
+                    'say it for them. Ask them first: this settles $settles '
+                    'of what $who owes them, for everyone.'
+              : concerns.isEmpty
               ? 'This settles $settles for everyone. Check your wallet first.'
               : '${concerns.join('\n\n')}\n\nThis settles $settles of what '
                     '$who owes you, for everyone.',
@@ -579,6 +586,39 @@ class _EventTile {
     ].join(' ');
   }
 
+  /// A correction, said with what it changed: the amount it now reads, or —
+  /// for the creator rewriting somebody else's expense to take a person off
+  /// (§10.8) — whose part it moved, and to whom.
+  String get _amendment {
+    final who = _who(event.author);
+    final target = _target;
+    final what = target == null ? 'an expense' : _expense(target);
+    if (event.takenOff case final off?) {
+      return switch (event.movedTo) {
+        final to? => '$who moved ${_who(off)}’s part of $what to ${_who(to)}',
+        null => '$who took ${_who(off)} off $what',
+      };
+    }
+    final now = event.amountMinorUnits;
+    return now == null || now == target?.amountMinorUnits
+        ? '$who changed $what'
+        : '$who changed $what to ${_amount(now)}';
+  }
+
+  /// Whom a withdrawal of [id]'s join merged them into: the one person every
+  /// part of theirs that its author moved went to (§14.11).
+  String? _mergedInto(String id) {
+    final into = {
+      for (final e in view.activity)
+        if (e.kind == BillEventKind.expenseAmended &&
+            e.author == event.author &&
+            e.takenOff == id &&
+            e.applied)
+          e.movedTo,
+    };
+    return into.length == 1 ? into.single : null;
+  }
+
   /// A withdrawal, said as what it undid (§10.8).
   String get _withdrawal {
     final who = _who(event.author);
@@ -589,9 +629,13 @@ class _EventTile {
       // Off the bill only once no join of theirs stands: withdrawing one of
       // several leaves them on it.
       BillEventKind.joined =>
-        view.bill.participant(target.subject ?? '') == null
-            ? '$who took ${_who(target.subject)} off the bill'
-            : '$who withdrew a join for ${_who(target.subject)}',
+        view.bill.participant(target.subject ?? '') != null
+            ? '$who withdrew a join for ${_who(target.subject)}'
+            : switch (_mergedInto(target.subject ?? '')) {
+                final into? =>
+                  '$who merged ${_who(target.subject)} into ${_who(into)}',
+                null => '$who took ${_who(target.subject)} off the bill',
+              },
       BillEventKind.addressChanged =>
         '$who withdrew a change to where ${_who(target.subject)} is paid',
       BillEventKind.paymentRecorded =>
@@ -620,20 +664,33 @@ class _EventTile {
   String _amount(int? minorUnits) =>
       minorUnits == null ? '' : formatAmount(minorUnits, view.bill.currency);
 
-  /// A join from somebody whose earlier join was withdrawn: they were taken
-  /// off, and taking somebody off does not change the bill's key, so they
-  /// could read it all along and came back by joining (§10.8). Said to
-  /// everybody, since nobody else is told any other way.
-  bool get _rejoined =>
-      !event.withdrawn &&
-      view.activity.any(
-        (e) =>
-            e.kind == BillEventKind.joined &&
-            e.entryId != event.entryId &&
-            e.withdrawn &&
-            e.author == event.author &&
-            e.at.compareTo(event.at) < 0,
-      );
+  /// A join from somebody another join of whose was withdrawn by somebody
+  /// else: they were taken off, and taking somebody off does not change the
+  /// bill's key, so they could read it all along and came back by joining
+  /// (§10.8). Said to everybody, since nobody else is told any other way.
+  ///
+  /// Whatever the join's `at` says: its author chooses it, and a return
+  /// dated before the removal is still a return. A join its own author
+  /// withdrew is an address change undone, not a removal.
+  bool get _rejoined {
+    if (event.withdrawn) return false;
+    bool takenOff(String joinId) => view.activity.any(
+      (w) =>
+          w.kind == BillEventKind.entryWithdrawn &&
+          w.refusedCode == null &&
+          w.subject == joinId &&
+          w.author != event.author,
+    );
+    return view.activity.any(
+      (e) =>
+          (e.kind == BillEventKind.joined ||
+              e.kind == BillEventKind.addressChanged) &&
+          e.entryId != event.entryId &&
+          e.withdrawn &&
+          e.author == event.author &&
+          takenOff(e.entryId),
+    );
+  }
 
   String get _sentence => switch (event.kind) {
     BillEventKind.opened =>
@@ -651,9 +708,7 @@ class _EventTile {
     BillEventKind.expenseAdded =>
       '${_who(event.subject)} paid ${_amount(event.amountMinorUnits)}'
           '${event.description == null ? '' : ' for ${event.description}'}',
-    BillEventKind.expenseAmended =>
-      '${_who(event.author)} changed '
-          '${_target == null ? 'an expense' : _expense(_target!)}',
+    BillEventKind.expenseAmended => _amendment,
     BillEventKind.entryWithdrawn => _withdrawal,
     BillEventKind.closedForSettling =>
       '${_who(event.author)} closed the bill for settling',
@@ -923,10 +978,21 @@ class _HistoryRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.colors;
     const line = AppTypography.labelLarge;
-    // At large text sizes the figure and the time go under the title rather
-    // than beside it: beside it they leave the title too narrow to hold a
-    // figure on one line.
-    final stacked = MediaQuery.textScalerOf(context).scale(16) > 24;
+    final scaler = MediaQuery.textScalerOf(context);
+    final base = DefaultTextStyle.of(context).style.merge(line);
+    // The widest of the figure and the time, as they are drawn.
+    double widest = 0;
+    for (final text in [row.amountText, row.timestampText]) {
+      if (text.isEmpty) continue;
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: base),
+        textDirection: Directionality.of(context),
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      widest = widest > painter.width ? widest : painter.width;
+      painter.dispose();
+    }
     final figure = <Widget>[
       if (row.amountText.isNotEmpty)
         Text(
@@ -935,6 +1001,27 @@ class _HistoryRow extends StatelessWidget {
         ),
       Text(row.timestampText, style: line.copyWith(color: colors.text.muted)),
     ];
+    return LayoutBuilder(
+      builder: (context, box) {
+        // The figure and the time go under the title rather than beside it
+        // when beside it they would take more than half the row, or at large
+        // text sizes: there they leave the title too narrow to read, or push
+        // the figure past the edge.
+        final stacked =
+            scaler.scale(16) > 24 ||
+            AppAssetSize.size + 2 * AppSpacing.s + widest > box.maxWidth / 2;
+        return _rowBody(context, stacked, figure, line);
+      },
+    );
+  }
+
+  Widget _rowBody(
+    BuildContext context,
+    bool stacked,
+    List<Widget> figure,
+    TextStyle line,
+  ) {
+    final colors = context.colors;
     return Padding(
       key: ValueKey(row.stableId),
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),

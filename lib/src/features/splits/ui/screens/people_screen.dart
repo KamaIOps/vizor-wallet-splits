@@ -195,8 +195,8 @@ class _PersonTile extends StatelessWidget {
             textStyle: const TextStyle(fontWeight: FontWeight.w400),
             padding: EdgeInsets.zero,
             minimumSize: const Size(0, 32),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            visualDensity: VisualDensity.compact,
+            // Drawn small, touched at full size.
+            tapTargetSize: MaterialTapTargetSize.padded,
           ),
           onPressed: SplitsScope.of(context).busy
               ? null
@@ -359,8 +359,7 @@ Future<void> confirmAndRemovePerson(
           .where((e) => e.value == b.entryId)
           .map((e) => e.key)
           .firstOrNull;
-      return expenseId != null &&
-              view.expenseAuthors[expenseId] == controller.me
+      return expenseId != null && view.mayCorrect(expenseId, controller.me)
           ? b.entryId
           : null;
     }
@@ -610,7 +609,9 @@ Future<void> confirmAndMergePerson(
             : 'Everything $name paid for or shared becomes $other’s, on '
                   '${plan.edits.length} '
                   '${plan.edits.length == 1 ? 'expense' : 'expenses'}. '
-                  'Nobody else’s share changes. $name comes off the bill.',
+                  'Nobody else’s share changes. $name comes off the bill. '
+                  'You write those expenses again, and whoever first wrote '
+                  'each can still change it.',
         key: const Key('splits_people_merge_moves'),
       ),
       actions: [

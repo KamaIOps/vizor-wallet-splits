@@ -368,6 +368,9 @@ void main() {
         -200,
         scrollable: find.byType(Scrollable).first,
       );
+      // Touched at the 48 a finger needs, though drawn smaller.
+      expect(t.getSize(edit).height, greaterThanOrEqualTo(48));
+      expect(t.getSize(edit).width, greaterThanOrEqualTo(48));
       await t.tap(edit);
       await t.pumpAndSettle();
       expect(find.byType(PayoutForScreen), findsOneWidget);

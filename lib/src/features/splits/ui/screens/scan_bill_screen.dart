@@ -345,7 +345,7 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
   }) async {
     final view = controller.bills.where((b) => b.id == billId).firstOrNull;
     if (view == null) return false;
-    if (view.bill.participants.any((p) => p.id == controller.me)) return true;
+    if (view.joinedAsMe(controller.me)) return true;
     final failed = await controller.failureOf(
       () => _fetch(
         () => controller.join(billId, displayName: name ?? _name.text.trim()),
@@ -463,6 +463,14 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
               labelText: 'Your name',
               hintText: 'What others on the bill see',
             ),
+          ),
+          const SizedBox(height: 8),
+          // What a join writes beside the name (§9.1): where this wallet is
+          // paid, readable by everyone holding the bill.
+          const Text(
+            'Joining shares this wallet’s receiving address with everyone on '
+            'the bill.',
+            key: Key('splits_scan_join_shares'),
           ),
           const SizedBox(height: 16),
           if (_fetching)

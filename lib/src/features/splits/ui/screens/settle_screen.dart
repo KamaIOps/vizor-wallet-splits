@@ -14,7 +14,8 @@ import 'package:splitz_host/splitz_host.dart'
         payoutFallback,
         ratePercentOff,
         rateWarningPercent,
-        refundsBehind;
+        refundsBehind,
+        sentOf;
 
 import '../state/splits_controller.dart';
 import '../view/chrome.dart';
@@ -272,23 +273,27 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
       ),
     );
     if (confirmed != true || !mounted) return;
-    if (leg != null) {
-      await act(
-        () => controller.settleWithSwap(
-          billId: widget.billId,
-          owed: owed,
-          to: leg.debt.id,
-          amountMinorUnits: leg.debt.minorUnits,
-          quote: leg.quote,
-        ),
-      );
-      if (!mounted) return;
-      await _load();
-      return;
-    }
     splitz.Settled? settled;
     await act(() async {
-      settled = await controller.settle(widget.billId, owed, via: via);
+      if (leg == null) {
+        settled = await controller.settle(widget.billId, owed, via: via);
+        return;
+      }
+      // The same three states the ZEC request alone ends in.
+      final outcome = await controller.settleWithSwap(
+        billId: widget.billId,
+        owed: owed,
+        to: leg.debt.id,
+        amountMinorUnits: leg.debt.minorUnits,
+        quote: leg.quote,
+      );
+      if (outcome == null) return;
+      final sent = sentOf(outcome);
+      settled = splitz.Settled(
+        result: sent.result,
+        txid: sent.txid,
+        detail: sent.detail,
+      );
     });
     if (!mounted) return;
     setState(() => _settled = settled);
@@ -638,46 +643,63 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
                 if (_auto[s.to] case (_, final why))
                   _Passed(id: s.to, why: why),
               ],
-            for (final a in _owed!.awaiting) ...[
-              RowCard(
-                key: Key('splits_settle_awaiting_${a.to}'),
-                child: CardLine(
-                  // Named by who the money went to. Under §6.3 that can be
-                  // somebody other than who the debt is owed to, and the payer
-                  // looks for a payment to them.
-                  title:
-                      'Waiting on ${a.paidTo.isEmpty ? who(a.to) : a.paidTo.map(who).join(', ')}',
-                  // §10.5: a record does not discharge a debt. Asking again
-                  // would send the same money twice.
-                  subtitle: Text(
-                    a.paidTo.isEmpty || a.paidTo.every((p) => p == a.to)
-                        ? 'Sent, waiting for them'
-                        : 'Sent for ${who(a.to)}, waiting for them',
+            for (final a in _owed!.awaiting)
+              if (a.othersPaid > 0)
+                // §14.4: what others sent them already covers what the plan
+                // still owes them. Nothing of this payer's to take back.
+                RowCard(
+                  key: Key('splits_settle_awaiting_${a.to}'),
+                  child: CardLine(
+                    title: 'Waiting on ${who(a.to)}',
+                    subtitle: Text(
+                      'Others sent ${who(a.to)} '
+                      '${formatAmount(a.othersPaid, currency)} that '
+                      '${who(a.to)} has not confirmed yet. Pay once they do.',
+                      key: Key('splits_settle_others_paid_${a.to}'),
+                    ),
+                    trailing: formatAmount(a.owed, currency),
                   ),
-                  // What was sent against what is owed: a debt that grew
-                  // after the payment is otherwise shown nowhere.
-                  trailing: a.owed > a.paid
-                      ? '${formatAmount(a.paid, currency)} of '
-                            '${formatAmount(a.owed, currency)}'
-                      : formatAmount(a.paid, currency),
-                ),
-              ),
-              // The record of a payment that never left the wallet holds the
-              // debt forever unless it can be taken back (§10.8). One control
-              // per person paid, so a payment that landed is never taken back
-              // with one that did not.
-              for (final to in a.paidTo.isEmpty ? [a.to] : a.paidTo)
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    key: Key('splits_settle_withdraw_$to'),
-                    onPressed: controller.busy
-                        ? null
-                        : () => _withdrawRecords(view, to),
-                    child: Text('It did not reach ${who(to)}'),
+                )
+              else ...[
+                RowCard(
+                  key: Key('splits_settle_awaiting_${a.to}'),
+                  child: CardLine(
+                    // Named by who the money went to. Under §6.3 that can be
+                    // somebody other than who the debt is owed to, and the payer
+                    // looks for a payment to them.
+                    title:
+                        'Waiting on ${a.paidTo.isEmpty ? who(a.to) : a.paidTo.map(who).join(', ')}',
+                    // §10.5: a record does not discharge a debt. Asking again
+                    // would send the same money twice.
+                    subtitle: Text(
+                      a.paidTo.isEmpty || a.paidTo.every((p) => p == a.to)
+                          ? 'Sent, waiting for them'
+                          : 'Sent for ${who(a.to)}, waiting for them',
+                    ),
+                    // What was sent against what is owed: a debt that grew
+                    // after the payment is otherwise shown nowhere.
+                    trailing: a.owed > a.paid
+                        ? '${formatAmount(a.paid, currency)} of '
+                              '${formatAmount(a.owed, currency)}'
+                        : formatAmount(a.paid, currency),
                   ),
                 ),
-            ],
+                // The record of a payment that never left the wallet holds the
+                // debt forever unless it can be taken back (§10.8). One control
+                // per person paid, so a payment that landed is never taken back
+                // with one that did not.
+                for (final to in a.paidTo.isEmpty ? [a.to] : a.paidTo)
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      key: Key('splits_settle_withdraw_$to'),
+                      onPressed: controller.busy
+                          ? null
+                          : () => _withdrawRecords(view, to),
+                      child: Text('It did not reach ${who(to)}'),
+                    ),
+                  ),
+              ],
             for (final u in _owed!.unpayable)
               _Unpayable(
                 billId: widget.billId,
@@ -817,10 +839,10 @@ class _Unpayable extends StatelessWidget {
                 TextButton(
                   key: Key('splits_settle_edit_payout_${u.id}'),
                   style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     minimumSize: const Size(0, 32),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    // Drawn small, touched at full size.
+                    tapTargetSize: MaterialTapTargetSize.padded,
                   ),
                   onPressed: () async {
                     await askAndSetAddress(
@@ -1257,8 +1279,10 @@ class _ReviewSendState extends State<_ReviewSend> {
   Widget _swapLeg(
     BuildContext context,
     ({protocol.Unpayable debt, SwapQuote quote}) swap,
-    String name,
-  ) {
+    String name, {
+    required bool replaced,
+    required bool bound,
+  }) {
     final quote = swap.quote;
     final asset =
         '${quote.asset.symbol} on ${usdcChainName(quote.asset.chain)}';
@@ -1311,6 +1335,28 @@ class _ReviewSendState extends State<_ReviewSend> {
           warning: false,
           textKey: const Key('splits_review_swap_floor'),
         ),
+        // §14.2: the payout this swap delivers to, as the bill states it —
+        // what the payer checks with the payee.
+        if (quote.recipient case final recipient?)
+          ReviewNote(
+            '$name receives at $recipient',
+            warning: false,
+            textKey: const Key('splits_review_swap_recipient'),
+          ),
+        // §14.2: a pay-to address the fold recorded as replaced.
+        if (replaced)
+          ReviewNote(
+            'Address recently changed.',
+            textKey: Key('splits_review_replaced_${swap.debt.id}'),
+          ),
+        // §10.7: an id no key is bound to is a name anyone on the bill can
+        // write for, payout included.
+        if (!bound)
+          ReviewNote(
+            '$name hasn’t joined on their phone. Check this address with '
+            'them.',
+            textKey: Key('splits_swap_unbound_${swap.debt.id}'),
+          ),
       ],
     );
   }
@@ -1361,17 +1407,27 @@ class _ReviewSendState extends State<_ReviewSend> {
             textKey: Key('splits_review_unpayable_${u.id}'),
           ),
       for (final a in owed.awaiting)
-        ReviewNote(
-          'Waiting on '
-          '${a.paidTo.isEmpty ? who(a.to) : a.paidTo.map(who).join(', ')}'
-          '${a.paidTo.isEmpty || a.paidTo.every((p) => p == a.to) ? '' : ' for ${who(a.to)}'}: '
-          '${formatAmount(a.paid, currency)}'
-          '${a.owed > a.paid ? ' of ${formatAmount(a.owed, currency)}' : ''} '
-          'sent, not yet confirmed. Not in this send.',
-          iconName: AppIcons.time,
-          warning: false,
-          textKey: Key('splits_review_awaiting_${a.to}'),
-        ),
+        if (a.othersPaid > 0)
+          ReviewNote(
+            '${who(a.to)}: ${formatAmount(a.owed, currency)} is not in this '
+            'send. Others sent them ${formatAmount(a.othersPaid, currency)} '
+            'they have not confirmed yet.',
+            iconName: AppIcons.time,
+            warning: false,
+            textKey: Key('splits_review_others_paid_${a.to}'),
+          )
+        else
+          ReviewNote(
+            'Waiting on '
+            '${a.paidTo.isEmpty ? who(a.to) : a.paidTo.map(who).join(', ')}'
+            '${a.paidTo.isEmpty || a.paidTo.every((p) => p == a.to) ? '' : ' for ${who(a.to)}'}: '
+            '${formatAmount(a.paid, currency)}'
+            '${a.owed > a.paid ? ' of ${formatAmount(a.owed, currency)}' : ''} '
+            'sent, not yet confirmed. Not in this send.',
+            iconName: AppIcons.time,
+            warning: false,
+            textKey: Key('splits_review_awaiting_${a.to}'),
+          ),
       if (_withheldWords(owed, currency, swap?.debt) case final left?)
         ReviewNote(left, textKey: const Key('splits_review_withheld')),
     ];
@@ -1459,7 +1515,14 @@ class _ReviewSendState extends State<_ReviewSend> {
                         ),
                   ],
                 ),
-              if (swap != null) _swapLeg(context, swap, who(swap.debt.id)),
+              if (swap != null)
+                _swapLeg(
+                  context,
+                  swap,
+                  who(swap.debt.id),
+                  replaced: replaced.contains(swap.debt.id),
+                  bound: view.identities.bound.containsKey(swap.debt.id),
+                ),
               if (unpaid.isNotEmpty)
                 Column(
                   key: const Key('splits_review_unpaid'),
