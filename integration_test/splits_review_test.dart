@@ -96,7 +96,7 @@ void main() {
     await _tapKey(tester, 'splits_bill_close_confirm');
     await pumpUntil(
       tester,
-      () => tester.any(find.byKey(const Key('splits_bill_closed_notice'))),
+      () => tester.any(find.byKey(const Key('splits_bill_settle'))),
       description: 'the bill to read closed for settling',
       timeout: const Duration(minutes: 1),
     );
