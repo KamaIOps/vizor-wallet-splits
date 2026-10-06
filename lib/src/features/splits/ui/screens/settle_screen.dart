@@ -2,6 +2,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:splitz_core/host.dart' as splitz;
 import 'package:splitz_core/splitz_core.dart' as protocol;
 import 'package:splitz_host/splitz_host.dart'
@@ -564,7 +565,15 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
             ]..sort((a, b) => a.at.compareTo(b.at)))
               RowCard(
                 key: Key('splits_settle_history_${p.id}'),
+                onTap: () => showSettledPayment(
+                  context,
+                  payment: p,
+                  from: who(p.from),
+                  to: who(p.to),
+                  confirmed: view.bill.confirmedPayments.contains(p.id),
+                ),
                 child: CardLine(
+                  chevron: true,
                   title: '${who(p.from)} → ${who(p.to)}',
                   subtitle: Text(
                     [
@@ -1725,4 +1734,121 @@ String reviewAddress(String address) {
   if (runes.length <= head + tail + 3) return address;
   return '${String.fromCharCodes(runes.take(head))} … '
       '${String.fromCharCodes(runes.skip(runes.length - tail))}';
+}
+
+/// [payment]'s details in a sheet: who paid whom, how much and how, when,
+/// whether the payee has said it arrived, and what carried it, whole and
+/// copyable. A shielded payment's transaction opens in the wallet's explorer
+/// where the wallet supplied one.
+Future<void> showSettledPayment(
+  BuildContext context, {
+  required protocol.PaymentRecord payment,
+  required String from,
+  required String to,
+  required bool confirmed,
+}) {
+  final open = SplitsScope.transactionOpenerOf(context);
+  final reference = payment.reference;
+  final onChain = payment.method == 'shieldedZec' && reference != null;
+  return showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (sheet) {
+      final theme = Theme.of(sheet);
+      Widget fact(String label, String value, {Key? key}) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 110,
+              child: Text(
+                label,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            Expanded(child: Text(value, key: key)),
+          ],
+        ),
+      );
+      return SafeArea(
+        child: Padding(
+          key: Key('splits_settled_${payment.id}'),
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('$from → $to', style: theme.textTheme.titleLarge),
+              const SizedBox(height: 12),
+              fact('Amount', formatAmount(payment.amount, payment.currency)),
+              if (payment.zatoshi case final zatoshi?)
+                fact('ZEC sent', formatZec(zatoshi)),
+              fact('Paid by', switch (payment.method) {
+                'shieldedZec' => 'a shielded ZEC transaction',
+                'swap' => 'a swap',
+                'cash' => 'cash',
+                final other => other,
+              }),
+              fact(
+                'Status',
+                confirmed ? 'Confirmed by $to' : 'Waiting for $to',
+              ),
+              fact(
+                'Recorded',
+                formatActivityTimestamp(DateTime.tryParse(payment.at)),
+              ),
+              if (reference != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  payment.method == 'swap'
+                      ? 'Swap reference'
+                      : 'Transaction ID',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                SelectableText(
+                  reference,
+                  key: Key('splits_settled_reference_${payment.id}'),
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    TextButton.icon(
+                      key: Key('splits_settled_copy_${payment.id}'),
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: reference));
+                        if (sheet.mounted) {
+                          ScaffoldMessenger.maybeOf(sheet)?.showSnackBar(
+                            const SnackBar(content: Text('Copied')),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.copy, size: 18),
+                      label: const Text('Copy'),
+                    ),
+                    if (onChain && open != null)
+                      TextButton.icon(
+                        key: Key('splits_settled_explorer_${payment.id}'),
+                        onPressed: () => open(reference),
+                        icon: const Icon(Icons.open_in_new, size: 18),
+                        label: const Text('View in explorer'),
+                      ),
+                  ],
+                ),
+              ] else
+                fact('Transaction', 'none — paid in cash'),
+            ],
+          ),
+        ),
+      );
+    },
+  );
 }
