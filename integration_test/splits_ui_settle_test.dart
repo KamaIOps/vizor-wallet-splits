@@ -137,12 +137,11 @@ Future<void> _payer(WidgetTester tester) async {
   );
   logE2e('the payee joined and spent');
 
-  // 2 · A price is what makes the bill settleable.
-  await tester.scrollUntilVisible(
-    find.text('Settle up'),
-    200,
-    scrollable: find.byType(Scrollable).first,
-  );
+  // 2 · §14.9: the creator closes the bill before anybody settles it, and a
+  //     price is what makes it settleable.
+  await _tapKey(tester, 'splits_bill_close');
+  await _tapKey(tester, 'splits_bill_close_confirm');
+  await _settle(tester);
   await _tapText(tester, 'Settle up');
   if (tester.any(find.text('Price it'))) {
     await _tapText(tester, 'Price it');
