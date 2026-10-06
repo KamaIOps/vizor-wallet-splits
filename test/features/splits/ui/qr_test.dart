@@ -189,6 +189,8 @@ void _scannerTests() {
     await t.tap(find.byKey(const Key('splits_scan_camera')));
     await t.pumpAndSettle();
     expect(c.bills, isEmpty, reason: 'a scan is previewed, not taken');
+    await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+    await t.pump();
     await t.tap(find.byKey(const Key('splits_scan_read')));
     await t.pumpAndSettle();
 

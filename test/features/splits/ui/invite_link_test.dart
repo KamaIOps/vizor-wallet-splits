@@ -57,6 +57,8 @@ void main() {
     expect(find.byType(BillScreen), findsNothing);
     expect(ben.bills, isEmpty);
 
+    await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+    await t.pump();
     await t.tap(find.byKey(const Key('splits_scan_read')));
     await t.pumpAndSettle();
 
@@ -79,6 +81,8 @@ void main() {
     await t.pumpWidget(openedWith(ben, invite));
     await t.pumpAndSettle();
     expect(await keys.readBillKey(id), isNull, reason: 'not joined on open');
+    await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+    await t.pump();
     await t.tap(find.byKey(const Key('splits_scan_read')));
     await t.pumpAndSettle();
 
@@ -102,6 +106,8 @@ void main() {
     await t.pumpWidget(openedWith(ben, invite));
     await t.pumpAndSettle();
     expect(await keys.readBillKey(id), isNull, reason: 'not joined on open');
+    await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+    await t.pump();
     await t.tap(find.byKey(const Key('splits_scan_read')));
     await t.pumpAndSettle();
 
@@ -119,6 +125,8 @@ void main() {
 
     await t.pumpWidget(openedWith(ben, 'splitz://join?v=1&b=a+b&k=AAAA'));
     await t.pumpAndSettle();
+    await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+    await t.pump();
     await t.tap(find.byKey(const Key('splits_scan_read')));
     await t.pumpAndSettle();
 
@@ -163,6 +171,8 @@ void main() {
     );
     await t.pumpWidget(openedWith(ben, other));
     await t.pumpAndSettle();
+    await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+    await t.pump();
     await t.tap(find.byKey(const Key('splits_scan_read')));
     await t.pumpAndSettle();
 
@@ -188,6 +198,8 @@ void main() {
 
     await t.pumpWidget(openedWith(ben, invite));
     await t.pumpAndSettle();
+    await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+    await t.pump();
     await t.tap(find.byKey(const Key('splits_scan_read')));
     await t.pumpAndSettle();
     await t.tap(find.byKey(const Key('splits_scan_replace_key')));

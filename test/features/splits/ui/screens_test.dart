@@ -138,8 +138,10 @@ void main() {
     await c.load();
     await t.pumpWidget(app(c, home: const ScanBillScreen()));
 
-    await t.enterText(find.byType(TextField), 'not a splitz anything');
-    await t.tap(find.text('Read it'));
+    await t.enterText(find.byType(TextField).first, 'not a splitz anything');
+    await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ana');
+    await t.pump();
+    await t.tap(find.byKey(const Key('splits_scan_read')));
     await t.pumpAndSettle();
 
     expect(find.textContaining('not a bill code or an invite'), findsOneWidget);
@@ -156,21 +158,23 @@ void main() {
     await mine.load();
     await t.pumpWidget(app(mine, home: const ScanBillScreen()));
 
-    await t.enterText(find.byType(TextField), payload!);
-    await t.tap(find.text('Read it'));
-    await t.pumpAndSettle();
-    // Read first, then taken only when asked.
+    await t.enterText(find.byType(TextField).first, payload!);
+    await t.pump();
+    // Described as soon as it is pasted; taken only on Join.
     expect(find.textContaining('A bill code for “Dinner”'), findsOneWidget);
     expect(mine.bills, isEmpty);
-    await t.tap(find.text('Join'));
+    await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ana');
+    await t.pump();
+    await t.tap(find.byKey(const Key('splits_scan_read')));
     await t.pumpAndSettle();
 
     expect(mine.bills.single.id, id);
     expect(
-      find.text('Join'),
-      findsOneWidget,
-      reason: 'scanning a bill does not put you on it',
+      mine.bills.single.bill.participant(mine.me)?.name,
+      'Ana',
+      reason: 'Join takes the bill and puts you on it under the name given',
     );
+    expect(find.byKey(const Key('splits_bill_join')), findsNothing);
   });
 
   testWidgets('sharing offers the invite; the bill code is in the menu', (

@@ -542,6 +542,8 @@ void main() {
       await ben.load();
       await t.pumpWidget(app(ben, ScanBillScreen(initialCode: forged)));
       await t.pumpAndSettle();
+      await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+      await t.pump();
       await t.tap(find.byKey(const Key('splits_scan_read')));
       await t.pumpAndSettle();
       expect(ben.syncStateOf(id).unopenable, greaterThan(0));
@@ -559,6 +561,8 @@ void main() {
         app(ben2, ScanBillScreen(initialCode: link(await ana.inviteFor(id)))),
       );
       await t.pumpAndSettle();
+      await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+      await t.pump();
       await t.tap(find.byKey(const Key('splits_scan_read')));
       await t.pumpAndSettle();
       expect(find.byType(BillScreen), findsOneWidget);
@@ -579,6 +583,8 @@ void main() {
       await ben.load();
       await t.pumpWidget(app(ben, ScanBillScreen(initialCode: invite)));
       await t.pumpAndSettle();
+      await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+      await t.pump();
       await t.tap(find.byKey(const Key('splits_scan_read')));
       await t.pumpAndSettle();
       expect(find.textContaining('hasn’t reached the relay yet'), findsOne);
@@ -608,6 +614,8 @@ void main() {
       await ben.load();
       await t.pumpWidget(app(ben, ScanBillScreen(initialCode: invite)));
       await t.pumpAndSettle();
+      await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+      await t.pump();
       await t.tap(find.byKey(const Key('splits_scan_read')));
       await t.pumpAndSettle();
       await t.pumpWidget(const SizedBox());
@@ -627,6 +635,8 @@ void main() {
         app(ben, ScanBillScreen(initialCode: link(await ana.inviteFor(id)))),
       );
       await t.pumpAndSettle();
+      await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+      await t.pump();
       await t.tap(find.byKey(const Key('splits_scan_read')));
       await t.pumpAndSettle();
       expect(find.textContaining('Now scan the bill’s code'), findsNothing);
@@ -648,6 +658,8 @@ void main() {
       secrets.locked = true;
       await t.pumpWidget(app(ben, ScanBillScreen(initialCode: code)));
       await t.pumpAndSettle();
+      await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+      await t.pump();
       await t.tap(find.byKey(const Key('splits_scan_read')));
       await t.pumpAndSettle();
       expect(t.takeException(), isNull);
@@ -723,13 +735,15 @@ void main() {
       );
       expect(find.text('Join'), findsOneWidget);
 
+      await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+      await t.pump();
       await t.tap(find.byKey(const Key('splits_scan_read')));
       await t.pumpAndSettle();
       expect(find.byType(BillScreen), findsOneWidget);
     });
 
-    testWidgets('a pasted code is previewed, and a changed one previewed '
-        'again', (t) async {
+    testWidgets('a pasted code is described as it is typed, and joined '
+        'under the name given in one tap', (t) async {
       final ana = ctl(FakeWallet(), seed: 1);
       await ana.load();
       final id = (await ana.createBill(name: 'Dinner', currency: 'USD'))!;
@@ -737,25 +751,35 @@ void main() {
       final ben = ctl(FakeWallet(id: 'ben', payTo: 'u1ben'), seed: 2);
       await ben.load();
       await t.pumpWidget(app(ben, const ScanBillScreen()));
-      await t.enterText(find.byType(TextField), (await ana.shareableBill(id))!);
-      await t.tap(find.text('Read it'));
-      await t.pumpAndSettle();
+      final join = find.byKey(const Key('splits_scan_read'));
+      await t.enterText(
+        find.byType(TextField).first,
+        (await ana.shareableBill(id))!,
+      );
+      await t.pump();
       expect(find.textContaining('“Dinner”'), findsOneWidget);
+      expect(
+        t.widget<FilledButton>(join).onPressed,
+        isNull,
+        reason: 'no name yet',
+      );
       expect(ben.bills, isEmpty);
 
       await t.enterText(
-        find.byType(TextField),
+        find.byType(TextField).first,
         (await ana.shareableBill(other))!,
       );
       await t.pump();
-      expect(find.text('Read it'), findsOneWidget);
-      await t.tap(find.text('Read it'));
-      await t.pumpAndSettle();
       expect(find.textContaining('“Taxi”'), findsOneWidget);
-      expect(ben.bills, isEmpty);
-      await t.tap(find.text('Join'));
+      await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+      await t.pump();
+      expect(ben.bills, isEmpty, reason: 'nothing is taken before Join');
+      await t.tap(join);
       await t.pumpAndSettle();
-      expect(ben.bills.single.bill.name, 'Taxi');
+      expect(find.byType(BillScreen), findsOneWidget);
+      final bill = ben.bills.single.bill;
+      expect(bill.name, 'Taxi');
+      expect(bill.participant(ben.me)?.name, 'Ben');
     });
 
     testWidgets('a code that is not one is refused on the first tap', (
@@ -764,8 +788,10 @@ void main() {
       final c = ctl(FakeWallet());
       await c.load();
       await t.pumpWidget(app(c, const ScanBillScreen()));
-      await t.enterText(find.byType(TextField), 'splitz1:notacode');
-      await t.tap(find.text('Read it'));
+      await t.enterText(find.byType(TextField).first, 'splitz1:notacode');
+      await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+      await t.pump();
+      await t.tap(find.byKey(const Key('splits_scan_read')));
       await t.pumpAndSettle();
       expect(find.textContaining('('), findsOneWidget);
     });
@@ -788,6 +814,9 @@ void main() {
       await t.pumpWidget(app(vic, ScanBillScreen(initialCode: invite)));
       await t.pumpAndSettle();
       final join = find.byKey(const Key('splits_scan_read'));
+      expect(t.widget<FilledButton>(join).onPressed, isNull, reason: 'no name');
+      await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+      await t.pump();
       expect(t.widget<FilledButton>(join).onPressed, isNotNull);
 
       await t.tap(join);
@@ -820,6 +849,8 @@ void main() {
       );
       await t.pumpAndSettle();
       final join = find.byKey(const Key('splits_scan_read'));
+      await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+      await t.pump();
       await t.tap(join);
       await t.tap(join);
       await t.pump(const Duration(milliseconds: 100));

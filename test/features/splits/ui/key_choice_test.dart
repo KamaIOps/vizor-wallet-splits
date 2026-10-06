@@ -167,6 +167,8 @@ void main() {
         ),
       );
       await t.pumpAndSettle();
+      await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+      await t.pump();
       await t.tap(find.byKey(const Key('splits_scan_read')));
       await t.pumpAndSettle();
 
@@ -192,6 +194,8 @@ void main() {
         ),
       );
       await t.pumpAndSettle();
+      await t.enterText(find.byKey(const Key('splits_scan_name')), 'Ben');
+      await t.pump();
       await t.tap(find.byKey(const Key('splits_scan_read')));
       await t.pumpAndSettle();
 

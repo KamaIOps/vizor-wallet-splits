@@ -32,11 +32,15 @@ class ScanBillScreen extends StatefulWidget {
 
 class _ScanBillScreenState extends State<ScanBillScreen> {
   final _text = TextEditingController();
+
+  /// What this person is called on the bill. Asked here, beside the code, so
+  /// one tap takes the bill and puts them on it.
+  final _name = TextEditingController();
   String? _message;
 
-  /// The code whose preview is on screen. The next activation acts on it;
-  /// any other code is previewed first.
-  String? _previewed;
+  /// The name to join a bill under once it arrives, for an invite whose bill
+  /// the relay did not yet hold when Join was tapped.
+  String? _joinAs;
 
   /// Whether an activation is being acted on. Set before the first await,
   /// so a second tap in the same frame starts nothing.
@@ -58,16 +62,13 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
   @override
   void initState() {
     super.initState();
-    // A code is shown, not acted on, until the person asks. Opening a link
-    // or pointing a camera is not agreeing to join the bill it names, and
-    // reading an invite keeps its key on this device for good.
+    // A code is shown, not acted on, until the person taps Join. Opening a
+    // link or pointing a camera is not agreeing to join the bill it names,
+    // and reading an invite keeps its key on this device for good.
     final code = widget.initialCode?.trim();
-    if (code != null && code.isNotEmpty) {
-      _text.text = code;
-      _message = _preview(code);
-      if (_message != null) _previewed = code;
-    }
+    if (code != null && code.isNotEmpty) _text.text = code;
     _text.addListener(_edited);
+    _name.addListener(_edited);
   }
 
   void _edited() {
@@ -114,37 +115,31 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
   @override
   void dispose() {
     _text.removeListener(_edited);
+    _name.removeListener(_edited);
     _text.dispose();
+    _name.dispose();
     if (_awaiting case final billId?) _poller?.stopPolling(billId);
     super.dispose();
   }
 
-  /// Opens the wallet's camera and previews whatever it produced.
+  /// Opens the wallet's camera and puts whatever it produced in the field.
   ///
   /// A cancelled scan returns null and changes nothing: somebody who backed
-  /// out of the camera has not asked for anything.
+  /// out of the camera has not asked for anything. Nothing is joined until
+  /// Join is tapped.
   Future<void> _scan(ScanACode scan) async {
     final code = await scan(context);
     if (!mounted || code == null || code.trim().isEmpty) return;
     _text.text = code.trim();
-    await _activate();
   }
 
-  /// Previews the code in the field, or acts on the one already previewed.
+  /// Takes the code's bill and joins it under the name given.
   Future<void> _activate() async {
     if (_joining) return;
-    final code = _text.text.trim();
-    if (code != _previewed) {
-      final preview = _preview(code);
-      if (preview != null) {
-        setState(() {
-          _previewed = code;
-          _message = preview;
-        });
-        return;
-      }
-    }
-    setState(() => _joining = true);
+    setState(() {
+      _joining = true;
+      _message = null;
+    });
     try {
       await _read();
     } finally {
@@ -245,6 +240,7 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
           setState(() => _message = failed);
           return;
         }
+        if (!await _joinUnder(controller, invite.billId)) return;
         navigator.pushReplacement(
           MaterialPageRoute<void>(
             builder: (_) => BillScreen(billId: invite.billId),
@@ -296,6 +292,7 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
           });
           if (!mounted) return;
           if (controller.bills.any((b) => b.id == invite.billId)) {
+            if (!await _joinUnder(controller, invite.billId)) return;
             navigator.pushReplacement(
               MaterialPageRoute<void>(
                 builder: (_) => BillScreen(billId: invite.billId),
@@ -323,9 +320,11 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
               'bill. Ask whoever sent it for a new invite.';
         } else {
           message =
-              'Joined, but the bill hasn’t reached the relay yet. This '
-              'screen keeps checking while it is open. Later, open the '
-              'invite again once whoever sent it has opened the bill.';
+              'The bill hasn’t reached the relay yet. This screen keeps '
+              'checking while it is open and joins you when it arrives. '
+              'Later, open the invite again once whoever sent it has '
+              'opened the bill.';
+          _joinAs = _name.text.trim();
           _await(controller, invite.billId);
         }
         setState(() => _message = message);
@@ -335,6 +334,29 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
         // written beside it.
         setState(() => _message = _explain(code));
     }
+  }
+
+  /// Puts this device on [billId] under the name given, unless it already
+  /// is. False, with the reason shown, when the join was refused.
+  Future<bool> _joinUnder(
+    SplitsController controller,
+    String billId, {
+    String? name,
+  }) async {
+    final view = controller.bills.where((b) => b.id == billId).firstOrNull;
+    if (view == null) return false;
+    if (view.bill.participants.any((p) => p.id == controller.me)) return true;
+    final failed = await controller.failureOf(
+      () => _fetch(
+        () => controller.join(billId, displayName: name ?? _name.text.trim()),
+      ),
+    );
+    if (!mounted) return false;
+    if (failed != null) {
+      setState(() => _message = failed);
+      return false;
+    }
+    return true;
   }
 
   /// Runs [work] with the progress bar shown.
@@ -363,7 +385,13 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
     }
     _awaiting = null;
     controller.stopPolling(billId);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    final name = _joinAs;
+    _joinAs = null;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      if (name != null && !await _joinUnder(controller, billId, name: name)) {
+        return;
+      }
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(builder: (_) => BillScreen(billId: billId)),
@@ -377,7 +405,9 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
     final scan = SplitsScope.scannerOf(context);
     _openArrived(controller);
     final idle = !controller.busy && !_joining;
-    final previewed = _previewed != null && _text.text.trim() == _previewed;
+    final code = _text.text.trim();
+    final ready = code.isNotEmpty && _name.text.trim().isNotEmpty;
+    final about = code.isEmpty ? null : _preview(code);
     return Scaffold(
       appBar: AppBar(title: const Text('Join a bill')),
       bottomNavigationBar: BottomActions(
@@ -390,8 +420,8 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
             ),
           FilledButton(
             key: const Key('splits_scan_read'),
-            onPressed: idle ? _activate : null,
-            child: Text(previewed ? 'Join' : 'Read it'),
+            onPressed: idle && ready ? _activate : null,
+            child: const Text('Join'),
           ),
         ],
       ),
@@ -417,6 +447,22 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
               hintText: 'splitz1:… or https://…/join#…',
             ),
             style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+          ),
+          if (about != null)
+            Padding(
+              key: const Key('splits_scan_about'),
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(about),
+            ),
+          const SizedBox(height: 16),
+          TextField(
+            key: const Key('splits_scan_name'),
+            controller: _name,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: 'Your name',
+              hintText: 'What others on the bill see',
+            ),
           ),
           const SizedBox(height: 16),
           if (_fetching)

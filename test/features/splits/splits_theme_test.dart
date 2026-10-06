@@ -194,7 +194,7 @@ void main() {
       'Record': (RecordPaymentScreen(billId: id, to: payee), 'Record payment'),
       'PriceBill': (PriceBillScreen(billId: id), 'Reprice the bill'),
       'NewBill': (const NewBillScreen(), 'Open the bill'),
-      'Scan': (const ScanBillScreen(), 'Read it'),
+      'Scan': (const ScanBillScreen(), 'Join'),
     }.entries) {
       t.view.resetViewInsets();
       await t.pumpWidget(_themed(c, e.value.$1, dark: false));

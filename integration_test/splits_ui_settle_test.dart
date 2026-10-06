@@ -257,14 +257,14 @@ Future<void> _payee(WidgetTester tester) async {
   );
   expect(invite, isNotEmpty, reason: 'the payer published a bill code');
 
-  // 1 · Joining is reading a code, on the screen that reads codes. A whole
-  //     bill opens straight onto itself; §11.2's invite would only take the
-  //     key and leave the bill to arrive some other way.
+  // 1 · Joining is a code and a name, on the screen that reads codes. A whole
+  //     bill opens straight onto itself with this device already on it.
   await tester.tap(find.text('Join a bill'));
   await _settle(tester);
   await _typeIntoField(tester, 'Code', invite);
-  await _tapText(tester, 'Read it');
-  // Read first, then taken only when asked.
+  // The name is asked beside the code, and one Join takes the bill and puts
+  // this device on it under that name.
+  await _typeIntoField(tester, 'Your name', 'Payee');
   await _tapText(tester, 'Join');
   await _settle(tester);
   await pumpUntil(
@@ -274,35 +274,7 @@ Future<void> _payee(WidgetTester tester) async {
     timeout: const Duration(minutes: 3),
   );
   logE2e('the bill arrived by code');
-
-  // 2 · Reading a bill is not being on it. `bill_screen.dart` says so — "You
-  //     are not on this bill yet." — and offers the join, which is what writes
-  //     this device's own participant. Until that exists there is no "me" row
-  //     on the people screen and so no payout to set.
-  await _reveal(
-    tester,
-    find.text('You are not on this bill yet.'),
-    'the notice that this device is not on the bill',
-  );
-  expect(find.text('You are not on this bill yet.'), findsOneWidget);
-  // Joining asks what to be called; the name reaches every device.
-  await _tapKey(tester, 'splits_bill_join');
-  await tester.enterText(
-    find.byKey(const Key('splits_bill_join_name')),
-    'Payee',
-  );
-  await _tapKey(tester, 'splits_bill_join_ok');
-  // The notice going away is what says the join landed. What replaces it is
-  // not "You haven’t said yet": `_payoutSummary` reads that only for somebody with
-  // neither a payout nor an address, and the wallet gives every participant
-  // its own address when it joins — so this device is already in the ZEC lane
-  // before it chooses another.
-  await _untilGone(
-    tester,
-    find.text('You are not on this bill yet.'),
-    description: 'the not-on-this-bill notice, after joining',
-    timeout: const Duration(minutes: 3),
-  );
+  expect(find.text('You are not on this bill yet.'), findsNothing);
   logE2e('joined the bill');
 
   // 3 · This device's own lane, which is the only one it may set.
@@ -476,28 +448,6 @@ Future<void> _syncThenLookOn(
     // while the sync control is absent and so cannot pop past it.
     await Future<void>.delayed(const Duration(seconds: 2));
     if (++polls % 10 == 0) logE2e('still waiting for $description');
-  }
-  fail('Timed out waiting for $description.');
-}
-
-/// Syncs until [target] is no longer on screen.
-///
-/// Absence is what some steps assert: a notice that goes away is how the
-/// screen says the thing it was about has been done.
-Future<void> _untilGone(
-  WidgetTester tester,
-  Finder target, {
-  required String description,
-  required Duration timeout,
-}) async {
-  final end = DateTime.now().add(timeout);
-  var polls = 0;
-  while (DateTime.now().isBefore(end)) {
-    if (!tester.any(target)) return;
-    await _sync(tester);
-    await tester.pump(const Duration(milliseconds: 200));
-    await Future<void>.delayed(const Duration(seconds: 2));
-    if (++polls % 15 == 0) logE2e('still waiting for $description');
   }
   fail('Timed out waiting for $description.');
 }
