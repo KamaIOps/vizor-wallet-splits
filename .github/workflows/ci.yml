@@ -25,6 +25,9 @@ name: ci
 on:
   push:
     branches: [splits-clean]
+  # `pull_request`, never `pull_request_target`. A pull request from a fork
+  # runs here without this repository's secrets; `pull_request_target` runs in
+  # the base repository's context, where `SPLITS_REPOS_TOKEN` is readable.
   pull_request:
   workflow_dispatch:
 
