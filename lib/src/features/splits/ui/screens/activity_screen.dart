@@ -342,49 +342,52 @@ class _AwaitingTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '$who says they paid you '
+              '$who paid you '
               '${formatAmount(payment.amount, payment.currency)}',
               style: Theme.of(context).textTheme.titleSmall,
             ),
-            Text(_how(payment)),
-            // §14.2: what to hold against the wallet before confirming. A
-            // confirmation settles the debt in the bill's currency, so the
-            // ZEC the payer's rate made of it is what arrived or did not.
-            //
-            // A figure a ZEC or swap record does not carry is said to be
-            // missing rather than left out: a card without it reads the same
-            // as one that needs none. Cash carries none of them.
-            if (zatoshi != null)
-              Text(
-                formatZec(zatoshi),
-                key: Key('splits_confirm_zec_${payment.id}'),
-              )
-            else if (payment.method != 'cash')
-              Text(
-                'ZEC sent: not recorded',
-                key: Key('splits_confirm_zec_${payment.id}'),
-              ),
-            if (rate != null)
-              Text(
-                'priced at ${formatAmount(rate.minorUnitsPerZec, rate.currency)} '
-                'a ZEC',
-                key: Key('splits_confirm_rate_${payment.id}'),
-              )
-            else if (payment.method != 'cash')
-              Text(
-                'rate: not recorded',
-                key: Key('splits_confirm_rate_${payment.id}'),
-              ),
-            if (reference == null && payment.method != 'cash')
-              Text(
-                'reference: not recorded',
-                key: Key('splits_confirm_reference_${payment.id}'),
-              ),
+            if (_how(payment) case final how?) Text(how),
+            // §14.2: the ZEC the record says was sent, the rate it was priced
+            // at, and its reference, on one line. A figure a ZEC or swap
+            // record does not carry is said to be missing, since a card
+            // without it reads the same as one that needs none. The
+            // reference is shown by its first 14 characters, which
+            // `checkPayeeReview` accepts; it is selectable whole.
+            Wrap(
+              spacing: 6,
+              children: [
+                if (zatoshi != null)
+                  Text(
+                    formatZec(zatoshi),
+                    key: Key('splits_confirm_zec_${payment.id}'),
+                  )
+                else if (payment.method != 'cash')
+                  Text(
+                    'ZEC not recorded',
+                    key: Key('splits_confirm_zec_${payment.id}'),
+                  ),
+                if (rate != null)
+                  Text(
+                    'at ${formatAmount(rate.minorUnitsPerZec, rate.currency)}'
+                    '/ZEC',
+                    key: Key('splits_confirm_rate_${payment.id}'),
+                  )
+                else if (payment.method != 'cash')
+                  Text(
+                    'rate not recorded',
+                    key: Key('splits_confirm_rate_${payment.id}'),
+                  ),
+                if (reference == null && payment.method != 'cash')
+                  Text(
+                    'reference not recorded',
+                    key: Key('splits_confirm_reference_${payment.id}'),
+                  ),
+              ],
+            ),
             if (reference != null)
               SelectableText(
-                payment.method == 'swap'
-                    ? 'swap reference $reference — not a Zcash transaction'
-                    : 'transaction $reference',
+                '${payment.method == 'swap' ? 'swap' : 'tx'} '
+                '${_short(reference)}',
                 key: Key('splits_confirm_reference_${payment.id}'),
                 style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
               ),
@@ -393,9 +396,7 @@ class _AwaitingTile extends StatelessWidget {
             // payer's word, so it is shown as theirs.
             if (payment.note case final note? when note.trim().isNotEmpty)
               Text(
-                payment.method == 'swap'
-                    ? 'their swap was to deliver $note'
-                    : 'their note: $note',
+                payment.method == 'swap' ? 'to deliver $note' : note,
                 key: Key('splits_confirm_note_${payment.id}'),
               ),
             for (final (i, c) in concerns.indexed)
@@ -429,14 +430,21 @@ class _AwaitingTile extends StatelessWidget {
     );
   }
 
-  static String _how(protocol.PaymentRecord payment) =>
+  /// How it was paid, where that changes what to check. A shielded payment
+  /// says nothing more than its figures do.
+  static String? _how(protocol.PaymentRecord payment) =>
       switch (payment.method) {
-        'cash' => 'in cash — nothing verifies this but you',
+        'cash' => 'in cash',
         // Half of a swap is visible and half is not: the ZEC leg left their
         // wallet, and whether the asset reached yours is yours to say.
-        'swap' => 'by a swap — check the asset actually arrived',
-        _ => 'by a shielded transaction',
+        'swap' => 'by swap — check it arrived',
+        _ => null,
       };
+
+  /// [reference]'s first 14 characters and an ellipsis, or all of it when
+  /// that saves nothing.
+  static String _short(String reference) =>
+      reference.length <= 17 ? reference : '${reference.substring(0, 14)}…';
 }
 
 /// A confirmation this device wrote, and the way to take it back (§10.8).
@@ -653,19 +661,10 @@ class _EventTile extends StatelessWidget {
       // A record is a claim. Saying "paid" without this tells a payer a debt
       // is discharged that the payee has never agreed was paid.
       if (event.kind == BillEventKind.paymentRecorded && !event.confirmed)
-        'not confirmed yet — still owed',
+        'waiting',
       // §13 requires a payer meet this before settling to the new address.
       if (event.kind == BillEventKind.addressChanged)
-        view.identities.bound.containsKey(event.subject ?? event.author)
-            ? 'check this with them before paying'
-            : 'anyone with the invite can change it — check with them '
-                  'before paying',
-      // Naming what it is not, because a hex string that looks like a txid is
-      // exactly what a reader assumes of a swap's reference.
-      if (event.reference != null)
-        event.method == 'swap'
-            ? 'swap reference ${event.reference} — not a Zcash transaction'
-            : 'transaction ${event.reference}',
+        'check with them before paying',
     ];
     return lines.isEmpty ? null : lines.join('\n');
   }
