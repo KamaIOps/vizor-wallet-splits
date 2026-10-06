@@ -4316,7 +4316,7 @@ fn gift_card_batch_ledger_limits_orchard_actions() {
 // rather than as a test that quietly stopped covering anything.
 
 const RECIPIENT_A: &str = "u13j3q8q8f9hx2nx0w9l52dqksy4png7fgm0lqjh8ahn9enyvz5z9xnwzdcdjmpf756s2y88rnyr9px4f4k9w03sl6fr4vwsqcvg8ggfjx";
-const RECIPIENT_B: &str = "u16cynw2u6nshm44gjv9vy9dvav6zvvksphexzjs3tjke8mr3p942er0pu8held7zy7wpjxzqgkpdrjzd72h7pwf34df8a0xcv0su3acx7";
+const RECIPIENT_B: &str = "u1nztelxna9h7w0vtpd2xjhxt4lpu8s9cmdl8n8vcr7actf2ny45nd07cy8cyuhuvw3axcp545y0ktq9cezuzx84jyhex8dk4tdvwhu4dl";
 
 #[test]
 fn a_request_naming_two_recipients_builds_two_payments() {
