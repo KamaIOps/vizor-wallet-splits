@@ -74,8 +74,9 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
       builder: (dialog) => AlertDialog(
         title: const Text('Close for settling?'),
         content: const Text(
-          'Everyone can settle up once it is closed. Nobody can add or '
-          'change an expense until you reopen it.',
+          'Everyone can settle up once it is closed, and no expense can be '
+          'added or changed. One written on a phone that had not seen the '
+          'close yet still arrives, and reopens it until you close it again.',
         ),
         actions: [
           TextButton(
@@ -141,7 +142,7 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
     }
 
     final balances = protocol.netBalances(view.bill);
-    final joined = view.bill.participants.any((p) => p.id == controller.me);
+    final joined = view.joinedAsMe(controller.me);
 
     final mine = balances[controller.me] ?? 0;
     final currency = view.bill.currency;
@@ -360,10 +361,19 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
                         'once everything is on it.'
                   : 'An expense changed after $creator closed it. Waiting '
                         'for $creator to close it again.',
+            )
+          // §14.9: Settle up waits on the creator, so whoever cannot press it
+          // is told who they are waiting for.
+          else if (!closed && !iOpenedIt)
+            NoticeCard(
+              key: const Key('splits_bill_open_notice'),
+              message:
+                  'Open for expenses. You can settle up once $creator closes '
+                  'it for settling.',
             ),
           // Until the payee says it arrived, a payment is a claim and the
           // debt stands (§10.5), so the question is put where it is seen.
-          if (awaitingConfirmationBy(view.bill, controller.me).isNotEmpty)
+          if (view.awaitingMyConfirmation(controller.me).isNotEmpty)
             RowCard(
               key: const Key('splits_bill_confirm'),
               onTap: () => Navigator.of(context).push(
@@ -419,9 +429,9 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
                 // it, and withdrawn by them or the bill's creator — not by
                 // whoever paid. One not theirs is shown and not offered,
                 // rather than offered and refused by the fold.
-                canEdit: view.expenseAuthors[e.id] == controller.me,
+                canEdit: view.mayCorrect(e.id, controller.me),
                 canWithdraw:
-                    view.expenseAuthors[e.id] == controller.me ||
+                    view.mayCorrect(e.id, controller.me) ||
                     view.creatorId == controller.me,
               ),
           if (view.bill.payments.isNotEmpty) ...[
@@ -483,7 +493,19 @@ class _JoinPrompt extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       child: Row(
         children: [
-          const Expanded(child: Text('You are not on this bill yet.')),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('You are not on this bill yet.'),
+                Text(
+                  'Joining shares this wallet’s receiving address with '
+                  'everyone on it.',
+                  key: Key('splits_bill_join_shares'),
+                ),
+              ],
+            ),
+          ),
           FilledButton(
             key: const Key('splits_bill_join'),
             onPressed: controller.busy ? null : () => _join(context),
@@ -524,8 +546,17 @@ extension<T> on Iterable<T> {
 /// confirmed the debt is still owed (§10.5), and nothing else on the bill
 /// says so.
 String _activitySummary(BillView view, String me) {
-  final waiting = awaitingConfirmationBy(view.bill, me).length;
+  final awaiting = view.awaitingMyConfirmation(me);
+  final waiting = awaiting.length;
+  // §14.11: some may be payments to somebody this device added, which it
+  // confirms for them rather than for itself.
+  final forOthers = awaiting.any((p) => p.to != me);
   if (waiting > 0) {
+    if (forOthers) {
+      return waiting == 1
+          ? 'a payment waits for you to confirm it'
+          : '$waiting payments wait for you to confirm them';
+    }
     return waiting == 1
         ? 'somebody says they paid you — confirm it'
         : '$waiting people say they paid you — confirm them';

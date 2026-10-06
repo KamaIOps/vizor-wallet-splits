@@ -309,6 +309,79 @@ void main() {
       );
     });
 
+    testWidgets('a return dated before the removal still says joined again', (
+      t,
+    ) async {
+      final wallet = FakeWallet();
+      final c = _controller(wallet);
+      late String id;
+      await t.runAsync(() async {
+        await c.load();
+        id = (await c.createBill(
+          name: 'Trip',
+          currency: 'USD',
+          displayName: 'Ana',
+        ))!;
+        final benWallet = FakeWallet(id: 'ben', payTo: 'u1ben');
+        final ben = WalletBillHost(benWallet);
+        // Ben's first join, then a second one stamped no later: its `at` is
+        // his to choose.
+        final first = entries.joinBill(host: ben, name: 'Ben', payTo: 'u1ben');
+        final back = entries.joinBill(host: ben, name: 'Ben', payTo: 'u1ben2');
+        await c.accept(id, [first]);
+        for (var i = 0; i < 5; i++) {
+          wallet.tick();
+        }
+        final plan = (await c.removalPlan(id, 'ben'))!;
+        await c.removePerson(billId: id, id: 'ben', confirmed: plan);
+        expect(c.bills.single.bill.participant('ben'), isNull);
+        await c.accept(id, [back]);
+      });
+      expect(c.bills.single.bill.participant('ben')?.payTo, 'u1ben2');
+      await t.pumpWidget(_app(c, ActivityScreen(billId: id)));
+      await t.pumpAndSettle();
+      expect(
+        _lines(t),
+        anyElement(startsWith('Ben joined again after being taken off')),
+      );
+    });
+
+    testWidgets('an address change its author undid is not a return', (
+      t,
+    ) async {
+      final wallet = FakeWallet();
+      final c = _controller(wallet);
+      late String id;
+      await t.runAsync(() async {
+        await c.load();
+        id = (await c.createBill(
+          name: 'Trip',
+          currency: 'USD',
+          displayName: 'Ana',
+        ))!;
+        final benWallet = FakeWallet(id: 'ben', payTo: 'u1ben');
+        final ben = WalletBillHost(benWallet);
+        await c.accept(id, [
+          entries.joinBill(host: ben, name: 'Ben', payTo: 'u1ben'),
+        ]);
+        benWallet.tick();
+        final change = entries.joinBill(
+          host: ben,
+          name: 'Ben',
+          payTo: 'u1ben2',
+        );
+        await c.accept(id, [change]);
+        benWallet.tick();
+        await c.accept(id, [
+          entries.voidEntry(host: ben, targetId: change['id'] as String),
+        ]);
+      });
+      expect(c.bills.single.bill.participant('ben')?.payTo, 'u1ben');
+      await t.pumpWidget(_app(c, ActivityScreen(billId: id)));
+      await t.pumpAndSettle();
+      expect(_lines(t), isNot(anyElement(contains('joined again'))));
+    });
+
     testWidgets('names what it withdrew, and who came off by name', (t) async {
       final wallet = FakeWallet();
       final c = _controller(wallet);
@@ -342,9 +415,11 @@ void main() {
       final lines = _lines(t);
       final taxi = formatAmount(3000, 'USD');
       // Restated without Ben in the same write: the Taxi he was on reads as
-      // withdrawn, the one written in its place does not.
+      // replaced, and the one written in its place as a correction taking
+      // him off it, not as a second expense.
       expect(lines, contains('Taxi | Ana paid · withdrawn'));
-      expect(lines, contains('Taxi | Ana paid'));
+      expect(lines, contains('Ana took Ben off the $taxi expense for Taxi'));
+      expect(lines, isNot(contains('Taxi | Ana paid')));
       // The amount stands beside each, on the right.
       expect(find.text(taxi), findsWidgets);
       expect(lines, contains('Ana took Ben off the bill'));
@@ -426,7 +501,8 @@ void main() {
       expect(
         _lines(t),
         contains(
-          'Ana changed the ${formatAmount(3000, 'USD')} expense for Taxi',
+          'Ana changed the ${formatAmount(3000, 'USD')} expense for Taxi '
+          'to ${formatAmount(2500, 'USD')}',
         ),
       );
     });

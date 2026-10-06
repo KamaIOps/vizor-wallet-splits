@@ -184,6 +184,9 @@ void main() {
           );
           final text = label.text.toPlainText();
           expect(full, contains(text), reason: key);
+          // A line cut short lays out no box for the glyphs it drops, so the
+          // boxes below cannot see a truncation: the paragraph says so itself.
+          expect(label.didExceedMaxLines, isFalse, reason: '$key: cut short');
           // Every glyph, the qualifier at the end included, is laid out
           // inside the label, and the label inside its chip.
           final boxes = label.getBoxesForSelection(
