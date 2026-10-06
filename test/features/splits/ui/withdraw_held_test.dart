@@ -109,7 +109,6 @@ void main() {
   for (final (name, held) in [
     ('expired', <String, HeldTransaction>{_txid: HeldTransaction.expired}),
     ('not in this wallet', <String, HeldTransaction>{}),
-    ('history unreadable', null),
   ]) {
     test('a send $name is withdrawn and owed again', () async {
       final (c, id, entry) = await _recorded(_paid(), held);
@@ -118,6 +117,18 @@ void main() {
       expect((await c.obligation(id))!.uri, isNotNull);
     });
   }
+
+  // §14.4: a history that could not be read says nothing about the send, so
+  // the record stays rather than putting a debt that may be paid up again.
+  test(
+    'a send whose history could not be read is refused, and still held',
+    () async {
+      final (c, id, entry) = await _recorded(_paid(), null);
+      await c.withdraw(billId: id, entryId: entry);
+      expect(c.lastError, contains('could not be read'));
+      expect((await c.obligation(id))!.uri, isNull);
+    },
+  );
 
   test('a cash record is withdrawn whatever the history says', () async {
     final c = controllerFor(_paid(), {_txid: HeldTransaction.mined});

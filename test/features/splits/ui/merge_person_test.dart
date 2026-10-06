@@ -71,6 +71,10 @@ void main() {
     });
     await _openPeople(t, c, id);
     expect(find.byKey(Key('splits_person_merge_${c.me}')), findsNothing);
+    // Touched at the 48 a finger needs, though drawn smaller.
+    final target = t.getSize(find.byKey(const Key('splits_person_merge_josh')));
+    expect(target.height, greaterThanOrEqualTo(48));
+    expect(target.width, greaterThanOrEqualTo(48));
 
     await t.tap(find.byKey(const Key('splits_person_merge_josh')));
     await t.pumpAndSettle();
@@ -95,6 +99,64 @@ void main() {
     expect(after['joshua'], before['josh']! + before['joshua']!);
     expect(after[c.me], before[c.me]);
     expect(c.bills.single.folded!.setAside, isEmpty);
+
+    // The history says a merge happened, and what it moved.
+    await t.pumpWidget(
+      SplitsScope(
+        controller: c,
+        child: MaterialApp(home: ActivityScreen(billId: id)),
+      ),
+    );
+    await t.pumpAndSettle();
+    expect(find.textContaining('merged Josh into Joshua'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'moved Josh’s part of the 30.00 USD expense for '
+        'Dinner to Joshua',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('Joshua paid'),
+      findsNothing,
+      reason: 'a restatement is not a second expense',
+    );
+  });
+
+  testWidgets('a corrected amount is in the history', (t) async {
+    final wallet = FakeWallet();
+    final c = _controller(wallet);
+    late String id;
+    await t.runAsync(() async {
+      id = await _joshAndJoshua(c, wallet);
+      wallet.tick();
+      final taxi = c.bills.single.folded!.expenseEntries.entries.firstWhere(
+        (e) =>
+            c.bills.single.bill.expenses
+                .singleWhere((x) => x.id == e.key)
+                .description ==
+            'Taxi',
+      );
+      await c.editExpense(
+        billId: id,
+        entryId: taxi.value,
+        amountMinorUnits: 2500,
+      );
+    });
+    expect(c.lastError, isNull);
+    await t.pumpWidget(
+      SplitsScope(
+        controller: c,
+        child: MaterialApp(home: ActivityScreen(billId: id)),
+      ),
+    );
+    await t.pumpAndSettle();
+    expect(
+      find.textContaining(
+        'changed the 20.00 USD expense for Taxi to 25.00 USD',
+      ),
+      findsOneWidget,
+    );
   });
 
   test(

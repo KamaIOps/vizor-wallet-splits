@@ -319,21 +319,27 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
               },
             ),
             const SectionLabel('Paid by'),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final p in view.bill.participants)
-                  ChoiceChip(
-                    key: Key('splits_paid_by_${p.id}'),
-                    showCheckmark: false,
-                    label: _PersonLabel(
-                      view.bill.displayNameOf(p.id, creatorId: view.creatorId),
+            LayoutBuilder(
+              builder: (context, box) => Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final p in view.bill.participants)
+                    ChoiceChip(
+                      key: Key('splits_paid_by_${p.id}'),
+                      showCheckmark: false,
+                      label: _PersonLabel(
+                        view.bill.displayNameOf(
+                          p.id,
+                          creatorId: view.creatorId,
+                        ),
+                        row: box.maxWidth,
+                      ),
+                      selected: _paidBy == p.id,
+                      onSelected: (_) => setState(() => _paidBy = p.id),
                     ),
-                    selected: _paidBy == p.id,
-                    onSelected: (_) => setState(() => _paidBy = p.id),
-                  ),
-              ],
+                ],
+              ),
             ),
             const SectionLabel('How it splits'),
             // One scrolling row, as tall as its chips: at a large text scale a
@@ -634,13 +640,33 @@ class _Sharer extends StatelessWidget {
 /// so the name wraps instead, and a chip choosing between them never shows
 /// the two the same.
 class _PersonLabel extends StatelessWidget {
-  const _PersonLabel(this.name);
+  const _PersonLabel(this.name, {required this.row});
 
   final String name;
 
+  /// The width of the row of chips this label's chip sits in.
+  final double row;
+
+  /// What a chip takes beside its label: its padding, border and the
+  /// label's own padding, with margin.
+  static const double _chrome = 48;
+
+  /// A chip lays its label out on one line, and the qualifier that tells two
+  /// of one name apart sits at the end of it, so the name wraps instead.
+  ///
+  /// The width is capped below what the chip gives its label: a chip takes
+  /// its height from the label measured at the whole row's width, so a label
+  /// that wraps only inside the chip's narrower box would be clipped.
   @override
-  Widget build(BuildContext context) =>
-      Text(name, softWrap: true, overflow: TextOverflow.visible);
+  Widget build(BuildContext context) => ConstrainedBox(
+    constraints: BoxConstraints(
+      maxWidth: (row - _chrome).clamp(0, double.infinity),
+    ),
+    child: DefaultTextStyle(
+      style: DefaultTextStyle.of(context).style,
+      child: Text(name, softWrap: true, overflow: TextOverflow.visible),
+    ),
+  );
 }
 
 /// The lines of an itemized split (§4.5), and the extra spread over them.
@@ -745,29 +771,36 @@ class _Items extends StatelessWidget {
                       onChanged();
                     },
                   ),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      for (final p in view.bill.participants)
-                        FilterChip(
-                          key: Key('splits_item_${i}_${p.id}'),
-                          label: _PersonLabel(
-                            view.bill.displayNameOf(
-                              p.id,
-                              creatorId: view.creatorId,
+                  LayoutBuilder(
+                    builder: (context, box) => Wrap(
+                      spacing: 8,
+                      children: [
+                        for (final p in view.bill.participants)
+                          FilterChip(
+                            key: Key('splits_item_${i}_${p.id}'),
+                            // Selection shows by colour, as on Paid by: a
+                            // checkmark is as wide as the chip is tall, and a
+                            // name that wraps would push it into the label.
+                            showCheckmark: false,
+                            label: _PersonLabel(
+                              view.bill.displayNameOf(
+                                p.id,
+                                creatorId: view.creatorId,
+                              ),
+                              row: box.maxWidth,
                             ),
+                            selected: draft.items[i].sharedBy.contains(p.id),
+                            onSelected: (on) {
+                              if (on) {
+                                draft.items[i].sharedBy.add(p.id);
+                              } else {
+                                draft.items[i].sharedBy.remove(p.id);
+                              }
+                              onChanged();
+                            },
                           ),
-                          selected: draft.items[i].sharedBy.contains(p.id),
-                          onSelected: (on) {
-                            if (on) {
-                              draft.items[i].sharedBy.add(p.id);
-                            } else {
-                              draft.items[i].sharedBy.remove(p.id);
-                            }
-                            onChanged();
-                          },
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 ],
               ),

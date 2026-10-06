@@ -180,6 +180,58 @@ void main() {
     expect(c.bills.single.bill.expenses, hasLength(before));
   });
 
+  /// Ana's closed bill: a taxi shared with Ben, and Dee who joined and is on
+  /// nothing.
+  Future<(SplitsController, String)> closedWithStray() async {
+    final wallet = FakeWallet();
+    final c = SplitsController(
+      wallet: wallet,
+      store: BillStore(InMemoryBillStorage()),
+      keys: SplitsKeys(store: InMemorySecretStore(), random: Random(3)),
+      relay: const UnconfiguredSplitsRelay(),
+    );
+    await c.load();
+    final id = (await c.createBill(name: 'Trip', currency: 'USD'))!;
+    await c.addPerson(billId: id, id: 'ben', name: 'Ben');
+    await c.accept(id, [
+      entries.joinBill(host: otherHost('dee'), name: 'Dee', payTo: 'u1dee'),
+    ]);
+    wallet.tick();
+    await c.addExpense(
+      billId: id,
+      paidBy: c.me,
+      amountMinorUnits: 3000,
+      among: [c.me, 'ben'],
+      description: 'Taxi',
+    );
+    await c.closeForSettling(id);
+    expect(c.bills.single.folded!.closed, isTrue);
+    return (c, id);
+  }
+
+  test(
+    'somebody on no expense comes off a closed bill, which stays closed',
+    () async {
+      final (c, id) = await closedWithStray();
+      final plan = (await c.removalPlan(id, 'dee'))!;
+      await c.removePerson(billId: id, id: 'dee', confirmed: plan);
+      expect(c.lastError, isNull);
+      expect(c.bills.single.bill.participant('dee'), isNull);
+      expect(c.bills.single.folded!.closed, isTrue);
+      expect(c.bills.single.setAside, isEmpty);
+    },
+  );
+
+  test('somebody on an expense is still refused on a closed bill', () async {
+    final (c, id) = await closedWithStray();
+    await c.removePerson(billId: id, id: 'ben');
+    expect(
+      c.lastError,
+      'The bill is closed for settling. Reopen it to change expenses.',
+    );
+    expect(c.bills.single.bill.participant('ben'), isNotNull);
+  });
+
   testWidgets('off every expense this device wrote, then off the bill', (
     t,
   ) async {
