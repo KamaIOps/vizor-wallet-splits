@@ -108,7 +108,7 @@ void main() {
     await pumpUntil(
       tester,
       () =>
-          tester.any(find.text('You owe nothing on this bill.')) ||
+          tester.any(find.byKey(const Key('splits_settle_owe_nothing'))) ||
           tester.any(find.text('This bill has no price on it yet.')),
       description: 'the settle screen to price the bill or say it cannot',
       timeout: const Duration(minutes: 1),

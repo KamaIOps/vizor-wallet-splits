@@ -20,6 +20,8 @@ import '../view/chrome.dart';
 import '../view/naming.dart';
 import '../view/review_rows.dart';
 import 'activity_screen.dart';
+import '../../../activity/activity_row_mapper.dart'
+    show formatActivityTimestamp;
 import 'payout_changed_notice.dart';
 import 'arrivals_screen.dart' show shortReference;
 import 'price_bill_screen.dart';
@@ -457,7 +459,9 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
               padding: const EdgeInsets.only(bottom: 8),
               child: Text(
                 plan.isEmpty
-                    ? 'Everyone on this bill is square'
+                    ? (view.bill.payments.isEmpty
+                          ? 'Nobody owes anybody on this bill'
+                          : 'How this bill was settled')
                     : plan.length == 1
                     ? 'One payment settles this bill'
                     : '${plan.length} payments settle this bill',
@@ -552,9 +556,45 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
                   if (mounted) setState(() => _closedNotices = closed);
                 },
               ),
+          // Square: every payment that settled it, oldest first, and then
+          // that it is done.
+          if (!_loading && plan.isEmpty) ...[
+            for (final p in [
+              ...view.bill.payments,
+            ]..sort((a, b) => a.at.compareTo(b.at)))
+              RowCard(
+                key: Key('splits_settle_history_${p.id}'),
+                child: CardLine(
+                  title: '${who(p.from)} → ${who(p.to)}',
+                  subtitle: Text(
+                    [
+                      switch (p.method) {
+                        'shieldedZec' => 'ZEC',
+                        'swap' => 'by swap',
+                        'cash' => 'cash',
+                        final other => other,
+                      },
+                      view.bill.confirmedPayments.contains(p.id)
+                          ? 'confirmed'
+                          : 'waiting',
+                      formatActivityTimestamp(DateTime.tryParse(p.at)),
+                    ].join(' · '),
+                  ),
+                  trailing: formatAmount(p.amount, p.currency),
+                ),
+              ),
+            const Padding(
+              key: Key('splits_settle_owe_nothing'),
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text('Everything is settled up.'),
+            ),
+          ],
           if (_owed != null) ...[
-            if (_owed!.settlements.isEmpty && _owed!.awaiting.isEmpty)
+            if (plan.isNotEmpty &&
+                _owed!.settlements.isEmpty &&
+                _owed!.awaiting.isEmpty)
               const Padding(
+                key: Key('splits_settle_owe_nothing'),
                 padding: EdgeInsets.symmetric(vertical: 8),
                 child: Text('You owe nothing on this bill.'),
               ),

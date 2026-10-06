@@ -210,7 +210,7 @@ void main() {
       expect(find.textContaining('no price on it yet'), findsNothing);
       // Ana covered the only expense, so Ana is owed and owes nothing. That is
       // the honest answer rather than an error.
-      expect(find.text('You owe nothing on this bill.'), findsOneWidget);
+      expect(find.byKey(const Key('splits_settle_owe_nothing')), findsOneWidget);
       logE2e('priced at 1000.00 a ZEC; nothing owed by this device');
       await _back(tester);
 
