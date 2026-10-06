@@ -129,6 +129,8 @@ Future<void> _send(WidgetTester tester, SplitsController c) async {
     currency: 'USD',
     minorUnitsPerZec: _minorUnitsPerZec,
   );
+  // §14.9: nothing is paid on a bill its creator has not closed.
+  await c.closeForSettling(id);
   final owed = (await c.obligation(id))!;
   expect(owed.settlements.single.amount, _owed);
   expect(owed.carriedZatoshi, {'ben': _owedZatoshi});
