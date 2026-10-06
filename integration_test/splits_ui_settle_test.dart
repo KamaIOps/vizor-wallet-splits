@@ -240,7 +240,7 @@ Future<void> _payer(WidgetTester tester) async {
       );
       await _tapText(tester, 'Settle up');
     },
-    target: find.text('You owe nothing on this bill.'),
+    target: find.byKey(const Key('splits_settle_owe_nothing')),
     description: "the payee's confirmation, on the settle screen",
     timeout: const Duration(minutes: 20),
   );
