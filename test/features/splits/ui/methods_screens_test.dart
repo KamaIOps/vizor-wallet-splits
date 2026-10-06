@@ -544,7 +544,7 @@ void main() {
 
       // A record is a claim (§10.5). Saying "paid" without this tells a payer
       // a debt is discharged that the payee never agreed was paid.
-      expect(find.textContaining('not confirmed yet'), findsOneWidget);
+      expect(find.text('waiting'), findsOneWidget);
     });
 
     testWidgets('the payer is NOT offered the confirmation', (t) async {
@@ -558,7 +558,7 @@ void main() {
       await t.pumpAndSettle();
 
       expect(find.text('It arrived'), findsNothing);
-      expect(find.textContaining('says they paid you'), findsNothing);
+      expect(find.textContaining('paid you'), findsNothing);
     });
 
     testWidgets('the payee confirms, and the debt stops being outstanding', (
@@ -591,11 +591,8 @@ void main() {
       await t.pumpWidget(app(c, ActivityScreen(billId: id)));
       await t.pumpAndSettle();
 
-      expect(find.textContaining('says they paid you'), findsOneWidget);
-      expect(
-        find.textContaining('nothing verifies this but you'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('paid you'), findsOneWidget);
+      expect(find.text('in cash'), findsOneWidget);
 
       // One tap asks; it does not settle.
       await t.tap(find.byKey(const Key('splits_confirm_arrived_ana:p1')));
@@ -673,7 +670,7 @@ void main() {
       expect(find.byKey(Key('splits_confirm_zec_$paymentId')), findsOneWidget);
       expect(find.text('0.01 ZEC'), findsOneWidget);
       expect(find.byKey(Key('splits_confirm_rate_$paymentId')), findsOneWidget);
-      expect(find.text('transaction $txid'), findsWidgets);
+      expect(find.text('tx $txid'), findsWidgets);
       expect(find.textContaining('not a Zcash transaction'), findsNothing);
 
       await t.tap(find.byKey(Key('splits_confirm_refuse_$paymentId')));
@@ -714,16 +711,14 @@ void main() {
 
       // The ZEC leg leaving is not the asset arriving, and only Ben can say
       // the latter.
-      expect(
-        find.textContaining('check the asset actually arrived'),
-        findsOneWidget,
-      );
+      expect(find.text('by swap — check it arrived'), findsOneWidget);
       expect(
         find.descendant(
           of: find.byKey(const Key('splits_confirm_ana:near-intent-7f3a')),
-          matching: find.textContaining('not a Zcash transaction'),
+          matching: find.text('swap near-intent-7f3a'),
         ),
         findsOneWidget,
+        reason: 'labelled a swap, not a Zcash transaction',
       );
     });
 
