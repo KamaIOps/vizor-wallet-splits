@@ -104,6 +104,9 @@ void main() {
     await _type(tester, 'What is it for', 'Priced');
     await _type(tester, 'Currency', 'KES');
     await _tap(tester, find.byKey(const Key('splits_new_bill_open')));
+    // §14.9: Settle up opens once the creator has closed the bill.
+    await _tap(tester, find.byKey(const Key('splits_bill_close')));
+    await _tap(tester, find.byKey(const Key('splits_bill_close_confirm')));
     await _tap(tester, find.text('Settle up'));
     await pumpUntil(
       tester,
