@@ -557,9 +557,21 @@ String _activitySummary(BillView view, String me) {
           ? 'a payment waits for you to confirm it'
           : '$waiting payments wait for you to confirm them';
     }
-    return waiting == 1
-        ? 'somebody says they paid you — confirm it'
-        : '$waiting people say they paid you — confirm them';
+    // Named, in the order they paid: the person confirming is asked about a
+    // payment from somebody, not from "somebody".
+    final payers = <String>[];
+    for (final p in awaiting) {
+      final name = view.bill.displayNameOf(p.from, creatorId: view.creatorId);
+      if (!payers.contains(name)) payers.add(name);
+    }
+    if (waiting == 1) return '${payers.single} says they paid you — confirm it';
+    return switch (payers.length) {
+      1 => '${payers.single} says they paid you $waiting times — confirm them',
+      2 => '${payers[0]} and ${payers[1]} say they paid you — confirm them',
+      _ =>
+        '${payers[0]} and ${payers.length - 1} others say they paid you — '
+            'confirm them',
+    };
   }
   final refused = view.activity.where((e) => e.refusedCode != null).length;
   if (refused > 0) {
