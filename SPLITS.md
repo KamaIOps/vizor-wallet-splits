@@ -3,7 +3,7 @@
 Friends split a bill in the wallet and settle it in ZEC, in another asset by
 swap, or in cash. It runs on mobile and opens from **Settings → Split bills**
 or from an invite link. The rules behind it are
-[Splitz-Protocol](https://github.com/KamaIOps/Splitz-Protocol); this
+[Splitz-Protocol](https://github.com/splitz-protocol/splitz); this
 repository draws the screens.
 
 ## Features
@@ -23,7 +23,7 @@ repository draws the screens.
 ## Try It
 
 The quickest look is the protocol on its own: see **Try it** in
-[Splitz-Protocol](https://github.com/KamaIOps/Splitz-Protocol).
+[Splitz-Protocol](https://github.com/splitz-protocol/splitz).
 
 To build the app you need [fvm](https://fvm.app) and Rust, then either a Mac
 with Xcode (iOS simulators) or Android Studio with its NDK (Android emulators,
@@ -32,7 +32,7 @@ on Windows, Linux or macOS). Get both repositories side by side:
 ```bash
 mkdir splitz && cd splitz
 git clone https://github.com/KamaIOps/vizor-wallet-splits.git Vizor-Wallet
-git clone https://github.com/KamaIOps/Splitz-Protocol.git
+git clone https://github.com/splitz-protocol/splitz.git Splitz-Protocol
 cd Vizor-Wallet
 fvm install
 ```
