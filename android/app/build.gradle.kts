@@ -46,6 +46,15 @@ require(vizorDegoogledValue == "true" || vizorDegoogledValue == "false") {
 }
 val vizorDegoogled = vizorDegoogledValue == "true"
 
+// A demo build of Split bills installs beside the official app: its own
+// application id and its own name, so it never replaces or poses as Vizor.
+// The Kotlin namespace stays `com.keplr.vizor`; only the installed identity moves.
+val vizorSplitsDemoValue = dartDefines["VIZOR_SPLITS_DEMO"] ?: "false"
+require(vizorSplitsDemoValue == "true" || vizorSplitsDemoValue == "false") {
+    "VIZOR_SPLITS_DEMO must be true or false."
+}
+val vizorSplitsDemo = vizorSplitsDemoValue == "true"
+
 val defaultVizorDeeplinkBaseUrl = "https://link.vizor.cash"
 val vizorDeeplinkBaseUrl = (
     dartDefines["VIZOR_DEEPLINK_BASE_URL"] ?: defaultVizorDeeplinkBaseUrl
@@ -134,7 +143,8 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.keplr.vizor"
+        applicationId =
+            if (vizorSplitsDemo) "io.github.splitz_protocol.vizor" else "com.keplr.vizor"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // Ledger Mobile DMK 0.0.4 publishes an Android AAR with minSdk 30.
@@ -144,6 +154,8 @@ android {
         versionName = flutter.versionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["vizorDeeplinkHost"] = vizorDeeplinkHost
+        manifestPlaceholders["appLabel"] =
+            if (vizorSplitsDemo) "Vizor + Splitz (demo)" else "Vizor"
         buildConfigField("String", "VIZOR_DEEPLINK_HOST", "\"$vizorDeeplinkHost\"")
     }
 
