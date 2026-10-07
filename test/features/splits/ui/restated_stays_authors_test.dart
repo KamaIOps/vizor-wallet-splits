@@ -78,9 +78,9 @@ void main() {
     expect(bo.lastError, isNull);
     expect(bo.bills.single.bill.expenses, isEmpty);
     expect(bo.bills.single.bill.participant('josh'), isNull);
-    // Ana's restatement replaced the entry Bo withdrew, so it has nothing
-    // left to replace (§10.8).
-    expect(bo.bills.single.setAside.map((x) => x.code), ['restatement_stale']);
+    // Ana's restatement replaced the entry Bo withdrew, and goes with it
+    // (§10.8): nothing is listed as not applied.
+    expect(bo.bills.single.setAside, isEmpty);
   });
 
   test('somebody else on the bill may not correct it', () async {
