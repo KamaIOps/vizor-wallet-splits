@@ -48,5 +48,8 @@ void main() {
     expect(c.bills.single.bill.expenses, isEmpty);
     expect(c.bills.single.bill.participant('guest'), isNull);
     expect(c.bills.single.bill.participants, hasLength(1));
+    // Taken off with its first entry, the restatement goes with it: the bill
+    // lists nothing as not applied.
+    expect(c.bills.single.setAside, isEmpty);
   });
 }
