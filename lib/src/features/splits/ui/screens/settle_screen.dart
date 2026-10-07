@@ -70,9 +70,20 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
   /// a feed that has no figure now will not have one on the next rebuild.
   bool _autoPriced = false;
 
+  /// Payouts the payer picked (§14.8), by participant id, for any reason and
+  /// at any time before sending: a payer with no ZEC pays a payee who also
+  /// takes cash in cash. Held as the payout itself so an edit to the payee's
+  /// list cannot redirect the choice.
+  final Map<String, protocol.Payout> _chosen = {};
+
+  /// Every other payout each payee declared that this wallet can pay by
+  /// ([SplitsController.cannotPayBy]), with where it sits in their list.
+  /// Read again on every load.
+  Map<String, List<(int, protocol.Payout)>> _ways = const {};
+
   /// Payouts picked for the payer where a recipient's first one cannot be
   /// paid and a later one can, with why the first cannot. Read again on every
-  /// load.
+  /// load, and never over a choice in [_chosen].
   Map<String, (protocol.Payout, String)> _auto = const {};
 
   /// True from a tap on Pay until the review it opened is closed and what it
@@ -109,7 +120,9 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
           .firstOrNull;
       var via = held == null
           ? const <String, int>{}
-          : SplitsController.payoutIndexes(held.bill, const {});
+          : SplitsController.payoutIndexes(held.bill, _chosen);
+      // A choice the payee no longer declares falls back to their first.
+      _chosen.removeWhere((id, _) => !via.containsKey(id));
       var owed = await controller.obligation(widget.billId, via: via);
       if (!mounted) return;
       // An unpriced bill is priced here from the wallet's live feed, so
@@ -146,7 +159,7 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
       final auto = <String, (protocol.Payout, String)>{};
       if (owed != null && held != null) {
         for (final u in owed.unpayable) {
-          if (u.reason == 'unpriceable') continue;
+          if (_chosen.containsKey(u.id) || u.reason == 'unpriceable') continue;
           final payouts = held.bill.participant(u.id)?.payouts ?? const [];
           if (payouts.length < 2) continue;
           // What this wallet can pay is its own to say; which payout that
@@ -160,12 +173,30 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
         if (auto.isNotEmpty) {
           via = SplitsController.payoutIndexes(held.bill, {
             for (final MapEntry(:key, :value) in auto.entries) key: value.$1,
+            ..._chosen,
           });
           owed = await controller.obligation(widget.billId, via: via);
           if (!mounted) return;
         }
       }
+      final ways = <String, List<(int, protocol.Payout)>>{};
+      if (owed != null && held != null) {
+        for (final id in {
+          for (final s in owed.settlements) s.to,
+          for (final u in owed.unpayable) u.id,
+        }) {
+          final payouts = held.bill.participant(id)?.payouts ?? const [];
+          final inEffect = via[id] ?? 0;
+          ways[id] = [
+            for (final (i, p) in payouts.indexed)
+              if (i != inEffect && await controller.cannotPayBy(p) == null)
+                (i, p),
+          ];
+        }
+        if (!mounted) return;
+      }
       setState(() {
+        _ways = ways;
         _auto = auto;
         _via = via;
         _owed = owed;
@@ -298,6 +329,45 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
     if (!mounted) return;
     setState(() => _settled = settled);
     await _load();
+  }
+
+  /// Offers every other way [id] declared that this payer can pay by: a
+  /// `zec` pick goes into the one request; a swap or cash pick opens that
+  /// lane.
+  Future<void> _otherWay(BillView view, String id, int amount) async {
+    final name = view.bill.displayNameOf(id, creatorId: view.creatorId);
+    final ways = _ways[id] ?? const [];
+    final picked = await showModalBottomSheet<(int, protocol.Payout)>(
+      context: context,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'Pay $name another way',
+                style: Theme.of(sheet).textTheme.titleMedium,
+              ),
+            ),
+            for (final (i, p) in ways)
+              ListTile(
+                key: Key('splits_other_way_${id}_$i'),
+                title: Text(_describePayout(p)),
+                subtitle: Text('Their ${ordinal(i + 1)} choice'),
+                onTap: () => Navigator.of(sheet).pop((i, p)),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    final (_, payout) = picked;
+    _chosen[id] = payout;
+    await _load();
+    if (!mounted || payout.type == 'zec') return;
+    await _openLane(id, amount, payout);
   }
 
   /// Opens the swap or cash lane for [id], paid by [payout] when the payer
@@ -642,6 +712,18 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
                 ),
                 if (_auto[s.to] case (_, final why))
                   _Passed(id: s.to, why: why),
+                _SwitchActions(
+                  id: s.to,
+                  enabled: _canSwitch(controller),
+                  firstChoice:
+                      _chosen.containsKey(s.to) && (_via[s.to] ?? 0) > 0,
+                  otherWay: (_ways[s.to]?.isNotEmpty ?? false),
+                  onFirstChoice: () {
+                    _chosen.remove(s.to);
+                    _load();
+                  },
+                  onOtherWay: () => _otherWay(view, s.to, s.amount),
+                ),
               ],
             for (final a in _owed!.awaiting)
               if (a.othersPaid > 0)
@@ -700,7 +782,7 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
                     ),
                   ),
               ],
-            for (final u in _owed!.unpayable)
+            for (final u in _owed!.unpayable) ...[
               _Unpayable(
                 billId: widget.billId,
                 view: view,
@@ -721,6 +803,20 @@ class _SettleScreenState extends State<SettleScreen> with SplitsActions {
                   if (mounted) await _load();
                 },
               ),
+              if (u.reason != 'unpriceable')
+                _SwitchActions(
+                  id: u.id,
+                  enabled: _canSwitch(controller),
+                  firstChoice:
+                      _chosen.containsKey(u.id) && (_via[u.id] ?? 0) > 0,
+                  otherWay: (_ways[u.id]?.isNotEmpty ?? false),
+                  onFirstChoice: () {
+                    _chosen.remove(u.id);
+                    _load();
+                  },
+                  onOtherWay: () => _otherWay(view, u.id, u.minorUnits),
+                ),
+            ],
             if (_owed!.uri != null) ...[
               const SizedBox(height: 8),
               if (_leftOwed(_owed!, view, _via) case final left?)
@@ -955,6 +1051,61 @@ String _unpayableWords(BillView view, protocol.Unpayable debt, int inEffect) {
           : '${rank}Cash',
   };
 }
+
+/// Changing how one person is paid: back to their first choice, when the
+/// payer picked another, and any other way they declared.
+class _SwitchActions extends StatelessWidget {
+  const _SwitchActions({
+    required this.id,
+    required this.enabled,
+    required this.firstChoice,
+    required this.otherWay,
+    required this.onFirstChoice,
+    required this.onOtherWay,
+  });
+
+  final String id;
+  final bool enabled;
+  final bool firstChoice;
+  final bool otherWay;
+  final VoidCallback onFirstChoice;
+  final VoidCallback onOtherWay;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!firstChoice && !otherWay) return const SizedBox.shrink();
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Wrap(
+        alignment: WrapAlignment.end,
+        children: [
+          if (firstChoice)
+            TextButton(
+              key: Key('splits_settle_first_choice_$id'),
+              onPressed: enabled ? onFirstChoice : null,
+              child: const Text('Use their first choice'),
+            ),
+          if (otherWay)
+            TextButton(
+              key: Key('splits_settle_other_way_$id'),
+              onPressed: enabled ? onOtherWay : null,
+              child: const Text('Pay another way'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One payout as the payer reads it in the other-way sheet.
+String _describePayout(protocol.Payout payout) => switch (payout.type) {
+  'zec' => 'Shielded ZEC',
+  'swap' =>
+    'Pay in ${payout.asset ?? 'another asset'}'
+        '${payout.chain == null ? '' : ' on ${usdcChainName(payout.chain!)}'}',
+  'cash' => 'Cash',
+  _ => payout.type,
+};
 
 /// [id]'s payout at [index] in their declared order, or null.
 protocol.Payout? _payoutAt(BillView view, String id, int index) {
