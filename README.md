@@ -33,7 +33,7 @@ what it does and how to build it.
 
 The wallet itself is [Vizor](https://github.com/chainapsis/vizor-wallet),
 under the Apache License 2.0; the shared-bill screens and their protocol,
-[Splitz-Protocol](https://github.com/KamaIOps/Splitz-Protocol), are added here.
+[Splitz-Protocol](https://github.com/splitz-protocol/splitz), are added here.
 
 ## Build From Source
 
