@@ -29,7 +29,8 @@ Official public releases currently focus on signed and notarized macOS DMGs.
 This build adds shared bills on mobile: friends split expenses and settle in
 ZEC, in another asset by swap, or in cash, each payment confirmed by the person
 paid. Open it from **Settings → Split bills**; [`SPLITS.md`](SPLITS.md) says
-what it does and how to build it.
+what it does and how to build it. To try it on an Android phone, install the
+demo APK from the [latest release](https://github.com/KamaIOps/vizor-wallet-splits/releases/tag/splits-demo-1).
 
 The wallet itself is [Vizor](https://github.com/chainapsis/vizor-wallet),
 under the Apache License 2.0; the shared-bill screens and their protocol,
