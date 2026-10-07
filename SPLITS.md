@@ -22,6 +22,10 @@ repository draws the screens.
 
 ## Try It
 
+On Android 11 or newer, install `vizor-splitz-demo.apk` from the
+[latest release](https://github.com/KamaIOps/vizor-wallet-splits/releases/tag/splits-demo-1). It installs beside Vizor as its own app; open
+**Settings → Split bills**.
+
 The quickest look is the protocol on its own: see **Try it** in
 [Splitz-Protocol](https://github.com/splitz-protocol/splitz).
 
