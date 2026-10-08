@@ -220,6 +220,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen>
             TextFormField(
               key: const Key('splits_record_note'),
               controller: _note,
+              textCapitalization: TextCapitalization.sentences,
               decoration: const InputDecoration(hintText: 'Note (optional)'),
             ),
             const SizedBox(height: 16),

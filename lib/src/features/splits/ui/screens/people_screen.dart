@@ -292,6 +292,7 @@ Future<void> askAndAddPerson(
     context,
     title: 'Add a person',
     hint: 'Their name',
+    capitalization: TextCapitalization.words,
     action: 'Add',
     fieldKey: const Key('splits_people_name'),
     actionKey: const Key('splits_people_name_ok'),

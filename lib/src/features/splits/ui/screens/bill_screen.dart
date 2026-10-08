@@ -361,15 +361,6 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
                         'once everything is on it.'
                   : 'An expense changed after $creator closed it. Waiting '
                         'for $creator to close it again.',
-            )
-          // §14.9: Settle up waits on the creator, so whoever cannot press it
-          // is told who they are waiting for.
-          else if (!closed && !iOpenedIt)
-            NoticeCard(
-              key: const Key('splits_bill_open_notice'),
-              message:
-                  'Open for expenses. You can settle up once $creator closes '
-                  'it for settling.',
             ),
           // Until the payee says it arrived, a payment is a claim and the
           // debt stands (§10.5), so the question is put where it is seen.
@@ -478,6 +469,7 @@ class _JoinPrompt extends StatelessWidget {
       context,
       title: 'Your name',
       hint: 'What others see',
+      capitalization: TextCapitalization.words,
       action: 'Join',
       fieldKey: const Key('splits_bill_join_name'),
       actionKey: const Key('splits_bill_join_ok'),

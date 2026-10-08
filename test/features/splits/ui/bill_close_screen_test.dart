@@ -164,34 +164,19 @@ void main() {
     return (c, id);
   }
 
-  testWidgets('somebody else on an open bill is told who closes it', (t) async {
+  testWidgets('somebody else on an open bill cannot settle up yet', (t) async {
     final (c, id) = await anas(t, closed: false);
     await t.pumpWidget(app(c, BillScreen(billId: id)));
     await t.pumpAndSettle();
     expect(_enabled(t, 'splits_bill_settle'), isFalse);
-    final notice = find.byKey(const Key('splits_bill_open_notice'));
-    expect(notice, findsOneWidget);
-    expect(
-      find.descendant(of: notice, matching: find.textContaining('Ana')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const Key('splits_bill_closed_notice')), findsNothing);
   });
 
-  testWidgets('once closed, the open notice gives way to who closed it', (
-    t,
-  ) async {
+  testWidgets('once closed, the bill says who closed it', (t) async {
     final (c, id) = await anas(t, closed: true);
     await t.pumpWidget(app(c, BillScreen(billId: id)));
     await t.pumpAndSettle();
-    expect(find.byKey(const Key('splits_bill_open_notice')), findsNothing);
     expect(find.byKey(const Key('splits_bill_closed_notice')), findsOneWidget);
-  });
-
-  testWidgets('the creator is not told to wait for themselves', (t) async {
-    final (c, id) = await _bill(t);
-    await t.pumpWidget(app(c, BillScreen(billId: id)));
-    await t.pumpAndSettle();
-    expect(find.byKey(const Key('splits_bill_open_notice')), findsNothing);
   });
 
   testWidgets('joining says it shares this wallet’s address', (t) async {

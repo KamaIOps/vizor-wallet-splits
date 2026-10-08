@@ -89,6 +89,7 @@ class _NewBillScreenState extends State<NewBillScreen> with SplitsActions {
           children: [
             TextFormField(
               controller: _name,
+              textCapitalization: TextCapitalization.sentences,
               decoration: const InputDecoration(
                 labelText: 'What is it for',
                 hintText: 'Dinner',
@@ -135,6 +136,7 @@ class _NewBillScreenState extends State<NewBillScreen> with SplitsActions {
             const SizedBox(height: 8),
             TextFormField(
               controller: _displayName,
+              textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(
                 labelText: 'Your name on this bill',
                 hintText: 'optional',

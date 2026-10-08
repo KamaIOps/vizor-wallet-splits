@@ -22,12 +22,17 @@ class TextEntryScreen extends StatefulWidget {
     this.actionKey,
     this.scannable = false,
     this.fromScan,
+    this.capitalization = TextCapitalization.none,
   });
 
   final String title;
   final String hint;
   final String action;
   final Key? fieldKey;
+
+  /// How the keyboard capitalizes what is typed: words for a name, none for
+  /// an address or a code.
+  final TextCapitalization capitalization;
   final Key? actionKey;
 
   /// Whether to offer the wallet's camera, when it has one.
@@ -94,6 +99,7 @@ class _TextEntryScreenState extends State<TextEntryScreen> {
             key: widget.fieldKey,
             controller: _text,
             autofocus: true,
+            textCapitalization: widget.capitalization,
             textInputAction: TextInputAction.done,
             decoration: InputDecoration(hintText: widget.hint),
             onSubmitted: (_) => _done(),
@@ -114,6 +120,7 @@ Future<String?> askForText(
   Key? actionKey,
   bool scannable = false,
   String Function(String scanned)? fromScan,
+  TextCapitalization capitalization = TextCapitalization.none,
 }) => Navigator.of(context).push<String>(
   MaterialPageRoute<String>(
     builder: (_) => TextEntryScreen(
@@ -124,6 +131,7 @@ Future<String?> askForText(
       actionKey: actionKey,
       scannable: scannable,
       fromScan: fromScan,
+      capitalization: capitalization,
     ),
   ),
 );
