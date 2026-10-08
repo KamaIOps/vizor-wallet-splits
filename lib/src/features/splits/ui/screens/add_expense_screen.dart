@@ -266,6 +266,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen>
             TextFormField(
               key: const Key('splits_description'),
               controller: _description,
+              textCapitalization: TextCapitalization.sentences,
               decoration: const InputDecoration(hintText: 'What was it for?'),
             ),
             const SizedBox(height: 8),
@@ -716,6 +717,7 @@ class _Items extends StatelessWidget {
                         child: TextFormField(
                           key: Key('splits_item_name_$i'),
                           initialValue: draft.items[i].description,
+                          textCapitalization: TextCapitalization.sentences,
                           decoration: const InputDecoration(
                             labelText: 'Item',
                             isDense: true,
