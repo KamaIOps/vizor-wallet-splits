@@ -64,17 +64,23 @@ adb -s <device> shell am start -n com.keplr.vizor/.MainActivity
 Then split a bill between them, with no money needed:
 
 1. Create a wallet on each.
-2. On the first: **Settings → Split bills → New bill**, the share button,
-   **Copy**.
+2. On the first: **Settings → Split bills → Start a bill**, give the bill a
+   name and your name, **Open the bill**, then the share button and **Copy**.
 3. Move the invite to the second. iOS simulators keep separate clipboards:
    `xcrun simctl pbpaste <first> | xcrun simctl pbcopy <second>`. Android
    emulators share the computer's clipboard. On the second: **Split bills →
    Join a bill**, hold the Code field, **Paste**, type a name, **Join**.
-4. Add an expense on each. The creator closes the bill for settling.
-5. Whoever owes opens **Settle up** and records a cash payment; the person paid
-   opens **Activity** and taps **It arrived**.
+   Opening the invite link on the second fills in the code too.
+4. Add an expense on each. The creator closes the bill for settling:
+   **Close for settling → Close it**.
+5. The person owed opens the bill's menu, **How you get paid → Cash → Save**.
+   Whoever owes opens **Settle up**, taps the payment, picks **Cash or
+   offline** and **Record payment**. The person paid opens **Activity** from
+   the menu and taps **It arrived**, then confirms. Both phones then show
+   **All settled**.
 
-Paying in ZEC or by swap needs a little ZEC: the app runs on mainnet.
+To pay in ZEC instead, keep the bill small: the app runs on mainnet, so the
+payer needs a little shielded ZEC, and a swap needs the same.
 
 ## Development
 

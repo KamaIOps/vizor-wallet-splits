@@ -33,8 +33,8 @@ what it does and how to build it. To try it on an Android phone, install the
 demo APK from the [latest release](https://github.com/KamaIOps/vizor-wallet-splits/releases/tag/splits-demo-1).
 
 The wallet itself is [Vizor](https://github.com/chainapsis/vizor-wallet),
-under the Apache License 2.0; the shared-bill screens and their protocol,
-[Splitz-Protocol](https://github.com/splitz-protocol/splitz), are added here.
+under the Apache License 2.0; the shared-bill screens are added here, built on
+[Splitz-Protocol](https://github.com/splitz-protocol/splitz).
 
 ## Build From Source
 
