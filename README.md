@@ -31,6 +31,7 @@ ZEC, in another asset by swap, or in cash, each payment confirmed by the person
 paid. Open it from **Settings → Split bills**; [`SPLITS.md`](SPLITS.md) says
 what it does and how to build it. To try it on an Android phone, install the
 demo APK from the [latest release](https://github.com/KamaIOps/vizor-wallet-splits/releases/tag/splits-demo-1).
+The `preview` tag is a fixed snapshot to try; the branch keeps moving past it.
 
 The wallet itself is [Vizor](https://github.com/chainapsis/vizor-wallet),
 under the Apache License 2.0; the shared-bill screens are added here, built on

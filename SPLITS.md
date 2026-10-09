@@ -31,12 +31,13 @@ The quickest look is the protocol on its own: see **Try it** in
 
 To build the app you need [fvm](https://fvm.app) and Rust, then either a Mac
 with Xcode (iOS simulators) or Android Studio with its NDK (Android emulators,
-on Windows, Linux or macOS). Get both repositories side by side:
+on Windows, Linux or macOS). Get both repositories side by side, at the
+`preview` tag, a fixed snapshot of both; their branches keep moving past it.
 
 ```bash
 mkdir splitz && cd splitz
-git clone https://github.com/KamaIOps/vizor-wallet-splits.git Vizor-Wallet
-git clone https://github.com/splitz-protocol/splitz.git Splitz-Protocol
+git clone --branch preview https://github.com/KamaIOps/vizor-wallet-splits.git Vizor-Wallet
+git clone --branch preview https://github.com/splitz-protocol/splitz.git Splitz-Protocol
 cd Vizor-Wallet
 fvm install
 ```
