@@ -69,9 +69,12 @@ Then split a bill between them, with no money needed:
    name and your name, **Open the bill**, then the share button and **Copy**.
 3. Move the invite to the second. iOS simulators keep separate clipboards:
    `xcrun simctl pbpaste <first> | xcrun simctl pbcopy <second>`. Android
-   emulators share the computer's clipboard. On the second: **Split bills →
-   Join a bill**, hold the Code field, **Paste**, type a name, **Join**.
-   Opening the invite link on the second fills in the code too.
+   emulators usually share the computer's clipboard. On the second: **Split
+   bills → Join a bill**, hold the Code field, **Paste**, type a name,
+   **Join**. If **Paste** does not appear, that emulator did not receive the
+   clipboard; open the invite on it instead, which fills in the code (the
+   inner quotes keep the link whole):
+   `adb -s <second> shell "am start -a android.intent.action.VIEW -d '<invite>'"`
 4. Add an expense on each. The creator closes the bill for settling:
    **Close for settling → Close it**.
 5. The person owed opens the bill's menu, **How you get paid → Cash → Save**.
