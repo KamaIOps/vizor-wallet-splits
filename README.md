@@ -26,6 +26,8 @@ Official public releases currently focus on signed and notarized macOS DMGs.
 
 ## Split bills
 
+![Four phones settle a weekend: expenses arrive on every phone, the bill closes, and three payments settle it](docs/splits/bali-weekend.gif)
+
 This build adds shared bills on mobile: friends split expenses and settle in
 ZEC, in another asset by swap, or in cash, each payment confirmed by the person
 paid. Open it from **Settings → Split bills**; [`SPLITS.md`](SPLITS.md) says

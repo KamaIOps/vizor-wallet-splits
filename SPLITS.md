@@ -6,6 +6,8 @@ or from an invite link. The rules behind it are
 [Splitz-Protocol](https://github.com/splitz-protocol/splitz); this
 repository draws the screens.
 
+![Four phones settle a weekend: expenses arrive on every phone, the bill closes, and three payments settle it](docs/splits/bali-weekend.gif)
+
 ## Features
 
 - Start a bill, or join one by pasting or scanning its code and typing a name.
