@@ -7,6 +7,12 @@
 #   LANE=swap   the payee takes USDC on Base; the payer reaches the swap
 #               screen, which quotes against a provider
 #
+#   SPLITS_NETWORK=main   with LANE=swap only: two fresh mainnet wallets, so
+#               the refund address is one the provider accepts and the screen
+#               shows a real quote. The payer reads the quote and sends
+#               nothing; no wallet is funded. On regtest the provider refuses
+#               the refund address and the screen says so instead.
+#
 #   scripts/e2e/splits-ui-settle.sh
 #
 # Needs two simulators and the relay from the protocol tree.
@@ -19,6 +25,11 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="${VIZOR_ROOT:-$(cd "$here/../.." && pwd)}"
 protocol="${SPLITZ_PROTOCOL:-$HOME/Splitz-Protocol}"
 lane="${LANE:-cash}"
+network="${SPLITS_NETWORK:-regtest}"
+case "$network:$lane" in
+  regtest:*|main:swap) ;;
+  *) echo "SPLITS_NETWORK=$network runs with LANE=swap only" >&2; exit 2 ;;
+esac
 
 . "$here/splits-devices.sh"
 trap splits_release_devices EXIT
@@ -51,7 +62,7 @@ if [ -z "$relay" ]; then
     sleep 0.25
   done
 fi
-echo "relay: $relay  lane: $lane"
+echo "relay: $relay  lane: $lane  network: $network"
 
 work="$(mktemp -d)"
 a_pid=""
@@ -82,8 +93,9 @@ device() {
     (cd "$root" && fvm flutter test integration_test/splits_ui_settle_test.dart \
       -d "$udid" \
       --dart-define=VIZOR_FORM_FACTOR=mobile \
-      --dart-define=ZCASH_DEFAULT_NETWORK=regtest \
-      --dart-define=ZCASH_E2E_NETWORK=regtest \
+      --dart-define=ZCASH_DEFAULT_NETWORK="$network" \
+      --dart-define=ZCASH_E2E_NETWORK="$network" \
+      --dart-define=SPLITS_EXPECT_QUOTE="$([ "$network" = main ] && echo 1)" \
       --dart-define=SPLITS_COORDINATOR="$coordinator" \
       --dart-define=SPLITS_LANE="$lane" \
       --dart-define=SPLITS_RELAY_URL="$relay" \
