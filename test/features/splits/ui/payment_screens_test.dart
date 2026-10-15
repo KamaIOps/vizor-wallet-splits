@@ -45,7 +45,7 @@ class _Swaps implements SwapProvider {
   }) async {
     quotes++;
     return SwapQuote(
-      depositAddress: 'u1provider',
+      depositAddress: 't1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q',
       amountInZatoshi: amountInZatoshi,
       amountOut: '10000000',
       minAmountOut: '9900000',
@@ -186,6 +186,18 @@ const _uaWithTransparent =
     'h23sp7fkf3kt27ve5948mzpfdvckzaect2jtte308mkwlycj2u0eac077wu70vqcetkxf';
 
 void main() {
+  // These screens run longer than the default 800×600 test window, and a
+  // ListView builds only what is on screen: a control below the fold reads
+  // as absent whether it is there or not.
+  setUp(() {
+    final view =
+        TestWidgetsFlutterBinding.ensureInitialized().platformDispatcher.views.first;
+    view.physicalSize = const Size(2400, 7200);
+  });
+  tearDown(() {
+    TestWidgetsFlutterBinding.ensureInitialized().platformDispatcher.views.first
+        .resetPhysicalSize();
+  });
   group('a first Zcash address the wallet cannot send to', () {
     testWidgets('is passed over for their cash, by the reader the request '
         'is held to', (t) async {

@@ -63,16 +63,7 @@ Future<WalletSendOutcome> proposeAndBroadcastSplitsBatch({
       paymentRequestUri: paymentRequestUri,
     ),
   );
-  if (reviewedFee == null) {
-    return sendPaymentRequest(
-      uri: paymentRequestUri,
-      read: read,
-      propose: propose,
-      broadcast: broadcast,
-    );
-  }
-  // §14.2: the fee shown is a ceiling, and the protocol's rule decides it.
-  return sendReviewedPaymentRequest(
+  return sendSplitsRequest<rust_sync.ProposalResult>(
     uri: paymentRequestUri,
     reviewedFee: reviewedFee,
     read: read,
@@ -92,6 +83,56 @@ Future<WalletSendOutcome> proposeAndBroadcastSplitsBatch({
     },
     broadcast: broadcast,
   );
+}
+
+/// Sends [uri] under the fee the review showed, when it showed one (§14.2):
+/// a proposal whose fee exceeds [reviewedFee] is discarded and the send
+/// refused before anything is broadcast. With no reviewed fee — the wallet
+/// could not answer the preview — the request is sent as proposed.
+Future<WalletSendOutcome> sendSplitsRequest<P>({
+  required String uri,
+  required int? reviewedFee,
+  required Future<List<splitz.ProposedOutput>> Function() read,
+  required Future<(P, int)> Function() propose,
+  required Future<void> Function(P proposal) discard,
+  required Future<WalletSendOutcome> Function(P proposal) broadcast,
+}) {
+  if (reviewedFee == null) {
+    return sendPaymentRequest<P>(
+      uri: uri,
+      read: read,
+      propose: () async => (await propose()).$1,
+      broadcast: broadcast,
+    );
+  }
+  return sendReviewedPaymentRequest<P>(
+    uri: uri,
+    reviewedFee: reviewedFee,
+    read: read,
+    propose: propose,
+    discard: discard,
+    broadcast: broadcast,
+  );
+}
+
+/// The fee each request's review showed, by the request's URI: what
+/// [preview] answered is the ceiling a later send of the same URI is held to.
+class SplitsFeeCeilings {
+  final Map<String, int> _fees = {};
+
+  /// [previewer]'s answer for [uri], keeping its fee as that URI's ceiling.
+  Future<SendPreview> preview(
+    String uri,
+    Future<SendPreview> Function(String uri) previewer,
+  ) async {
+    final preview = await previewer(uri);
+    final fee = preview.feeZatoshi;
+    if (fee != null) _fees[uri] = fee;
+    return preview;
+  }
+
+  /// The fee the review showed for [uri], or null when none was shown.
+  int? of(String uri) => _fees[uri];
 }
 
 /// What sending [paymentRequestUri] would take, from a proposal built the way

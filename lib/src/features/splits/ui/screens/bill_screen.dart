@@ -46,10 +46,6 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
     if (identical(controller, _controller)) return;
     _controller = controller;
     _loadClosedNotices(controller);
-    // Sync while the bill is open, and only while it is open: a poll running
-    // behind a closed screen spends a person's battery on a bill nobody is
-    // looking at.
-    controller.pollBill(billId);
   }
 
   /// The changed-address notices closed on this device for this bill.
@@ -58,12 +54,6 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
   Future<void> _loadClosedNotices(SplitsController controller) async {
     final closed = await controller.closedNotices(billId);
     if (mounted) setState(() => _closedNotices = closed);
-  }
-
-  @override
-  void dispose() {
-    _controller?.stopPolling(billId);
-    super.dispose();
   }
 
   /// Closes the bill for settling (§14.9), after saying what that does.
@@ -198,7 +188,7 @@ class _BillScreenState extends State<BillScreen> with SplitsActions {
                 case 'code':
                   screen = ShareBillScreen(billId: billId, wholeBill: true);
                 case 'sync':
-                  act(() => controller.syncBill(billId));
+                  act(controller.syncNow);
                 case 'reopen':
                   act(() => controller.reopen(billId));
                 case 'forget':
@@ -731,6 +721,11 @@ class _SyncNotice extends StatelessWidget {
   String? get _synced {
     // A key that is wrong looks identical to a quiet relay unless the
     // unopenable blobs are counted.
+    if (state.tooNew > 0) {
+      return 'Synced, but ${state.tooNew} '
+          '${state.tooNew == 1 ? 'update needs' : 'updates need'} a newer '
+          'version of this app — update it to see them';
+    }
     if (state.unopenable > 0) {
       return 'Synced, but ${state.unopenable} '
           '${state.unopenable == 1 ? 'message' : 'messages'} would not open '
