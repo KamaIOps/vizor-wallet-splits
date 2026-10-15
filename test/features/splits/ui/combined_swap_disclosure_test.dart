@@ -9,6 +9,9 @@ import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
 import 'support/fake_wallet.dart';
 import 'swap_screens_test.dart' show FakeSwaps, controllerFor;
 
+/// The deposit [FakeSwaps] quotes, as 1Click answers it: transparent.
+const _deposit = 't1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q';
+
 Map<String, dynamic> _usdc(String address) => <String, dynamic>{
   'type': 'swap',
   'asset': 'USDC',
@@ -125,6 +128,9 @@ void main() {
           'payout_not_zec': 'in USDC on Base',
           replacedAddressWords: 'Address recently changed.',
         },
+        // The swap's deposit is an output of the same transaction (§14.10).
+        publicWords: publicPaymentWords,
+        deposits: const [_deposit],
       );
     });
     expect([for (final f in findings) '${f.rule} ${f.fact}'], isEmpty);
@@ -190,5 +196,37 @@ void main() {
       'ben',
       'cai',
     });
+  });
+
+  testWidgets('a transparent swap deposit is said to be public, and the kit '
+      'holds the review to it', (t) async {
+    final (c, _, id) = await _bill(replace: false);
+    final shown = await _openReview(t, c, id);
+    expect(
+      find.byKey(const Key('splits_review_public_swap_deposit')),
+      findsOneWidget,
+    );
+    late List<ReviewFinding> withNote, withoutNote;
+    await t.runAsync(() async {
+      final obligation = (await c.obligation(id))!;
+      List<ReviewFinding> review(List<String> text) => checkPayerReview(
+        obligation: obligation,
+        folded: c.bills.single.folded!,
+        visibleText: text,
+        reasonWords: const {'payout_not_zec': 'in USDC on Base'},
+        publicWords: publicPaymentWords,
+        deposits: const [_deposit],
+      );
+      withNote = review(shown);
+      withoutNote = review([
+        for (final s in shown)
+          if (s != publicPaymentWords) s,
+      ]);
+    });
+    expect([for (final f in withNote) '${f.rule} ${f.fact}'], isEmpty);
+    expect(
+      [for (final f in withoutNote) f.rule],
+      [ReviewRule.publicOutput],
+    );
   });
 }

@@ -314,6 +314,10 @@ class _ScanBillScreenState extends State<ScanBillScreen> {
               'Joined. This build has no bill relay, so the bill itself '
               'comes as a bill code: ask whoever sent the invite to show '
               'theirs.';
+        } else if (state.tooNew > 0) {
+          message =
+              'This bill was written by a newer version of this app. Update '
+              'it, then open the invite again.';
         } else if (state.unopenable > 0) {
           message =
               'This invite’s key doesn’t open what the relay holds for this '

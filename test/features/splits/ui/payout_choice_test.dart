@@ -38,7 +38,7 @@ class _Swaps implements SwapProvider {
   }) async {
     recipients.add(recipient);
     return SwapQuote(
-      depositAddress: 'u1provider',
+      depositAddress: 't1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q',
       amountInZatoshi: amountInZatoshi,
       amountOut: '9500000',
       minAmountOut: '9405000',

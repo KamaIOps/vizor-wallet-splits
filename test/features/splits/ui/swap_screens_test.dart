@@ -61,7 +61,9 @@ class FakeSwaps implements SwapProvider {
   }) async {
     quotes++;
     return SwapQuote(
-      depositAddress: 'u1provider',
+      // The deposit 1Click answered a ZEC quote with, from
+      // tools/contracts/fixtures/quote.json: transparent.
+      depositAddress: 't1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q',
       amountInZatoshi: amountInZatoshi,
       amountOut: '9500000',
       minAmountOut: minAmountOut,
@@ -138,6 +140,18 @@ Future<String> billOwingSwap(
 }
 
 void main() {
+  // These screens run longer than the default 800×600 test window, and a
+  // ListView builds only what is on screen: a control below the fold reads
+  // as absent whether it is there or not.
+  setUp(() {
+    final view =
+        TestWidgetsFlutterBinding.ensureInitialized().platformDispatcher.views.first;
+    view.physicalSize = const Size(2400, 7200);
+  });
+  tearDown(() {
+    TestWidgetsFlutterBinding.ensureInitialized().platformDispatcher.views.first
+        .resetPhysicalSize();
+  });
   testWidgets('the payer sees everything they owe, by how it travels, in one '
       'line', (t) async {
     final c = controllerFor(FakeWallet());
@@ -194,7 +208,12 @@ void main() {
       expect(find.textContaining('USDC on base'), findsOneWidget);
       // The provider's deposit address is where the ZEC goes, and the
       // recipient's payout is named apart, as where the asset arrives.
-      expect(find.text('u1provider'), findsOneWidget);
+      expect(find.text('t1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q'), findsOneWidget);
+      // §14.2: the deposit is transparent, so the payment is public.
+      expect(
+        find.byKey(const Key('splits_swap_public_deposit')),
+        findsOneWidget,
+      );
       expect(find.text('0xben'), findsOneWidget);
       // What Ben is guaranteed is the floor, not the quoted figure.
       expect(
@@ -389,7 +408,7 @@ void main() {
 
       // The ZEC went to the provider's deposit address, for the quoted
       // figure.
-      expect(sent.single, contains('u1provider'));
+      expect(sent.single, contains('t1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q'));
       expect(sent.single, contains('0.01'));
 
       final payment = c.bills
@@ -511,7 +530,7 @@ void main() {
 
       final held = await c.swapsInFlight(id);
       expect(held.single.reference, 'near-intent-7f3a');
-      expect(held.single.depositAddress, 'u1provider');
+      expect(held.single.depositAddress, 't1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q');
 
       // The bill names the swap and nothing about the provider: a deposit
       // address is one provider's routing detail for one swap.
@@ -524,7 +543,7 @@ void main() {
       final encoded = protocol.billToJson(
         c.bills.firstWhere((b) => b.id == id).bill,
       );
-      expect(jsonEncode(encoded), isNot(contains('u1provider')));
+      expect(jsonEncode(encoded), isNot(contains('t1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q')));
     });
 
     testWidgets('the check asks about the deposit address', (t) async {
@@ -541,7 +560,7 @@ void main() {
       );
       await t.pumpAndSettle();
 
-      expect(swaps.asked, ['u1provider']);
+      expect(swaps.asked, ['t1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q']);
       expect(
         find.textContaining('has not seen the whole deposit'),
         findsOneWidget,

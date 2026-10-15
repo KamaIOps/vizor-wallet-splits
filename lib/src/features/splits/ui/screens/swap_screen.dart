@@ -18,6 +18,7 @@ import 'package:splitz_host/splitz_host.dart';
 
 import '../state/splits_controller.dart';
 import '../view/naming.dart';
+import 'settle_screen.dart' show publicPaymentWords;
 import 'splits_scope.dart';
 
 class SwapScreen extends StatefulWidget {
@@ -317,6 +318,16 @@ class _SwapScreenState extends State<SwapScreen> {
                       value: quote.depositAddress,
                       monospace: true,
                     ),
+                    // §14.2: a transparent deposit is public on chain.
+                    if (protocol.isTransparentAddress(quote.depositAddress))
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          publicPaymentWords,
+                          key: const Key('splits_swap_public_deposit'),
+                          style: TextStyle(color: error),
+                        ),
+                      ),
                     if (quote.depositMemo != null)
                       _Line(
                         label: 'Memo',

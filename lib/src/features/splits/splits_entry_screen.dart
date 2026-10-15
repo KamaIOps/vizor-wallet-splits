@@ -6,6 +6,7 @@
 /// broadcast takes a `WidgetRef`, which belongs to a widget.
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -70,6 +71,10 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
 
   /// Held from [initState], because `ref` may not be read in [dispose].
   late final SplitsInviteIntake _intake;
+
+  /// Pushes what was written when the app leaves the foreground, where a
+  /// tick may not run again before it is closed (SPEC §15.5).
+  AppLifecycleListener? _lifecycle;
 
   @override
   void initState() {
@@ -196,7 +201,7 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
 
     // The fee each request's review showed, by request: the send refuses a
     // proposal whose fee came out higher.
-    final reviewedFees = <String, int>{};
+    final reviewedFees = SplitsFeeCeilings();
     final wallet = VizorSplitsWallet(
       accountUuid: accountUuid,
       identitySecret: identitySecret,
@@ -209,7 +214,7 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
           // retry of this send rather than a new one.
           sendFlowId: 'splits-${DateTime.now().microsecondsSinceEpoch}',
           paymentRequestUri: uri,
-          reviewedFee: reviewedFees[uri],
+          reviewedFee: reviewedFees.of(uri),
         ),
       ),
     );
@@ -258,19 +263,24 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
       readsAddress: (address) => splitsReadsAddress(ref, address),
       // The fee, or that the account is short, before the review asks for a
       // confirmation: built like the send and discarded, never broadcast.
-      previewSend: (uri) async {
-        final preview = await previewSplitsBatch(
+      previewSend: (uri) => reviewedFees.preview(
+        uri,
+        (uri) => previewSplitsBatch(
           ref: ref,
           accountUuid: accountUuid,
           paymentRequestUri: uri,
-        );
-        final fee = preview.feeZatoshi;
-        if (fee != null) reviewedFees[uri] = fee;
-        return preview;
-      },
+        ),
+      ),
     );
     await controller.load();
-    if (!mounted) return;
+    if (!mounted) {
+      controller.dispose();
+      return;
+    }
+    controller.startSyncing();
+    _lifecycle = AppLifecycleListener(
+      onHide: () => unawaited(controller.flush()),
+    );
     setState(() {
       _controller = controller;
       _openingInvite = ref.read(splitsInviteIntakeProvider.notifier).take();
@@ -287,6 +297,7 @@ class _SplitsEntryScreenState extends ConsumerState<SplitsEntryScreen> {
   @override
   void dispose() {
     _intake.screenClosed();
+    _lifecycle?.dispose();
     _controller?.dispose();
     super.dispose();
   }

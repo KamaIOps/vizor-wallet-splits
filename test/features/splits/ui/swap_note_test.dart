@@ -31,6 +31,18 @@ List<String> textsUnder(Finder root) => find
     .toList();
 
 void main() {
+  // These screens run longer than the default 800×600 test window, and a
+  // ListView builds only what is on screen: a control below the fold reads
+  // as absent whether it is there or not.
+  setUp(() {
+    final view =
+        TestWidgetsFlutterBinding.ensureInitialized().platformDispatcher.views.first;
+    view.physicalSize = const Size(2400, 7200);
+  });
+  tearDown(() {
+    TestWidgetsFlutterBinding.ensureInitialized().platformDispatcher.views.first
+        .resetPhysicalSize();
+  });
   testWidgets('the payee is shown the floor the payer recorded', (t) async {
     // 1. Payer: the real SwapScreen -> _recordSwap path writes the note.
     final wallet = FakeWallet(

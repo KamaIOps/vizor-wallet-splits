@@ -118,7 +118,7 @@ Future<void> _run(WidgetTester t, {required bool deeFallback}) async {
   await t.tap(find.byKey(const Key('splits_review_send')));
   await t.pumpAndSettle();
   final sent = wallet.sender.sent.single;
-  final swapInSend = sent.contains('u1provider');
+  final swapInSend = sent.contains('t1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q');
   expect(swapInSend, !deeFallback);
   expect(label.contains('by swap'), swapInSend);
 }
