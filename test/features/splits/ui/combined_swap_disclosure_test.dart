@@ -224,9 +224,6 @@ void main() {
       ]);
     });
     expect([for (final f in withNote) '${f.rule} ${f.fact}'], isEmpty);
-    expect(
-      [for (final f in withoutNote) f.rule],
-      [ReviewRule.publicOutput],
-    );
+    expect([for (final f in withoutNote) f.rule], [ReviewRule.publicOutput]);
   });
 }

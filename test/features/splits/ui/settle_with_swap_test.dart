@@ -184,7 +184,10 @@ void main() {
     await _send(t);
     expect(wallet.sender.sent, hasLength(1));
     expect(wallet.sender.sent.single, contains('u1benpayable0000000001'));
-    expect(wallet.sender.sent.single, contains('t1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q'));
+    expect(
+      wallet.sender.sent.single,
+      contains('t1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q'),
+    );
     final to = c.bills.single.bill.payments.map((p) => p.to).toSet();
     expect(to, {'ben', 'cai'});
   });
@@ -217,7 +220,10 @@ void main() {
 
     await _send(t);
     expect(wallet.sender.sent, hasLength(1));
-    expect(wallet.sender.sent.single, contains('t1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q'));
+    expect(
+      wallet.sender.sent.single,
+      contains('t1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q'),
+    );
     expect(c.bills.single.bill.payments.map((p) => p.to).toSet(), {
       'ben',
       'cai',
@@ -244,7 +250,10 @@ void main() {
 
     await _send(t);
     expect(wallet.sender.sent, hasLength(1));
-    expect(wallet.sender.sent.single, isNot(contains('t1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q')));
+    expect(
+      wallet.sender.sent.single,
+      isNot(contains('t1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q')),
+    );
     expect(c.bills.single.bill.payments.map((p) => p.to), ['ben']);
   });
 

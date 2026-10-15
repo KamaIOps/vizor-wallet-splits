@@ -144,8 +144,10 @@ void main() {
   // ListView builds only what is on screen: a control below the fold reads
   // as absent whether it is there or not.
   setUp(() {
-    final view =
-        TestWidgetsFlutterBinding.ensureInitialized().platformDispatcher.views.first;
+    final view = TestWidgetsFlutterBinding.ensureInitialized()
+        .platformDispatcher
+        .views
+        .first;
     view.physicalSize = const Size(2400, 7200);
   });
   tearDown(() {
@@ -543,7 +545,10 @@ void main() {
       final encoded = protocol.billToJson(
         c.bills.firstWhere((b) => b.id == id).bill,
       );
-      expect(jsonEncode(encoded), isNot(contains('t1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q')));
+      expect(
+        jsonEncode(encoded),
+        isNot(contains('t1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q')),
+      );
     });
 
     testWidgets('the check asks about the deposit address', (t) async {

@@ -587,19 +587,22 @@ void main() {
       expect(find.textContaining('paid you'), findsNothing);
     });
 
-    testWidgets('the creator IS offered the confirmation of a payment they made '
-        'to somebody they added', (t) async {
-      // §14.11: Ben holds no key, so nobody else can ever confirm it, and
-      // without it the bill never settles.
-      final c = controllerFor(FakeWallet());
-      final id = await billOwing(c, other: 'ben');
-      await c.recordCash(billId: id, to: 'ben', amountMinorUnits: 1000);
+    testWidgets(
+      'the creator IS offered the confirmation of a payment they made '
+      'to somebody they added',
+      (t) async {
+        // §14.11: Ben holds no key, so nobody else can ever confirm it, and
+        // without it the bill never settles.
+        final c = controllerFor(FakeWallet());
+        final id = await billOwing(c, other: 'ben');
+        await c.recordCash(billId: id, to: 'ben', amountMinorUnits: 1000);
 
-      await t.pumpWidget(app(c, ActivityScreen(billId: id)));
-      await t.pumpAndSettle();
+        await t.pumpWidget(app(c, ActivityScreen(billId: id)));
+        await t.pumpAndSettle();
 
-      expect(find.text('It arrived'), findsOneWidget);
-    });
+        expect(find.text('It arrived'), findsOneWidget);
+      },
+    );
 
     testWidgets('the payee confirms, and the debt stops being outstanding', (
       t,
