@@ -35,8 +35,10 @@ void main() {
   // ListView builds only what is on screen: a control below the fold reads
   // as absent whether it is there or not.
   setUp(() {
-    final view =
-        TestWidgetsFlutterBinding.ensureInitialized().platformDispatcher.views.first;
+    final view = TestWidgetsFlutterBinding.ensureInitialized()
+        .platformDispatcher
+        .views
+        .first;
     view.physicalSize = const Size(2400, 7200);
   });
   tearDown(() {

@@ -17,9 +17,10 @@
 # private, which `GITHUB_TOKEN` cannot reach: it is scoped to this repository
 # alone. `SPLITS_REPOS_TOKEN` is a personal access token with read access to it.
 #
-# `dart format` is deliberately absent. This tree does not currently satisfy
-# either formatter, so the check would fail on arrival and say nothing about
-# the change that triggered it.
+# `dart format` checks the splits paths only: the feature, its tests and its
+# integration lanes. The rest of the tree is the upstream wallet's and does not
+# satisfy the formatter, so a check over it would fail on arrival and say
+# nothing about the change that triggered it.
 name: ci
 
 on:
@@ -78,6 +79,13 @@ jobs:
       # protocol's public surface fails here
       # rather than on a device twenty minutes later.
       - run: flutter analyze
+        working-directory: Vizor-Wallet
+
+      - run: >-
+          git ls-files 'lib/src/features/splits/*.dart'
+          'test/features/splits/*.dart' 'integration_test/splits*.dart'
+          'integration_test/support/splits*.dart'
+          | xargs dart format --output=none --set-exit-if-changed
         working-directory: Vizor-Wallet
 
       - run: >-
