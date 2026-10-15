@@ -17,7 +17,103 @@ Future<NetworkHttpResponse> _answer(int status, String body) async =>
       bodyBytes: Uint8List.fromList(utf8.encode(body)),
     );
 
+/// A Tor route that answers as the relay does and records what it carried.
+class _TorRoute implements TorHttpBridge {
+  final calls = <String>[];
+
+  @override
+  Future<NetworkHttpResponse> get(
+    Uri uri, {
+    required Map<String, String> headers,
+    required Duration? timeout,
+    Future<void>? cancelSignal,
+  }) {
+    calls.add('GET ${uri.path}');
+    return _answer(200, '{"blobs":[]}');
+  }
+
+  @override
+  Future<NetworkHttpResponse> post(
+    Uri uri, {
+    required Map<String, String> headers,
+    required List<int> bodyBytes,
+    required Duration? timeout,
+    Future<void>? cancelSignal,
+  }) {
+    final push = jsonDecode(utf8.decode(bodyBytes)) as Map<String, dynamic>;
+    final blobs = (push['blobs'] as List).cast<String>();
+    final stamped = relayWorkHolds(
+      uri.pathSegments.last,
+      blobs,
+      push['work'] as String,
+      relayWorkBase,
+    );
+    calls.add('POST ${uri.path} stamped=$stamped');
+    return _answer(200, '{"ok":true}');
+  }
+
+  @override
+  Future<NetworkHttpResponse> download(
+    Uri uri, {
+    required Map<String, String> headers,
+    required String destinationPath,
+  }) => throw UnimplementedError();
+}
+
 void main() {
+  group('relay traffic takes the wallet\'s route (SPEC §15.5)', () {
+    final channel = 'c' * 64;
+
+    test('with Tor on, a push and a fetch go over Tor, stamped', () async {
+      final tor = _TorRoute();
+      final relay = splitsRelay(
+        origin: 'https://relay.test',
+        http: NetworkHttpClient(
+          torDesired: () => true,
+          torBootstrapping: () => false,
+          torBridge: tor,
+        ),
+      );
+      await relay.push(channel, ['x']);
+      expect(await relay.fetch(channel), isEmpty);
+      expect(tor.calls, ['POST /c/$channel stamped=true', 'GET /c/$channel']);
+    });
+
+    test('with Tor off, nothing is handed to Tor', () async {
+      final tor = _TorRoute();
+      final relay = splitsRelay(
+        // Nothing listens here; the direct route is what is being told apart.
+        origin: 'http://127.0.0.1:9',
+        http: NetworkHttpClient(
+          torDesired: () => false,
+          torBootstrapping: () => false,
+          torBridge: tor,
+        ),
+      );
+      await expectLater(
+        relay.fetch(channel),
+        throwsA(isA<SplitsRelayException>()),
+      );
+      expect(tor.calls, isEmpty);
+    });
+
+    test('with Tor starting, the request waits on Tor, not direct', () async {
+      // The bridge holds a request until Tor is up; nothing listens at this
+      // origin, so an answer at all means the direct route was not taken.
+      final tor = _TorRoute();
+      final relay = splitsRelay(
+        origin: 'http://127.0.0.1:9',
+        http: NetworkHttpClient(
+          torDesired: () => true,
+          torBootstrapping: () => true,
+          torBridge: tor,
+        ),
+      );
+      expect(await relay.fetch(channel), isEmpty);
+      expect(tor.calls, ['GET /c/$channel']);
+    });
+  });
+
   group('the relay a build gets', () {
     test('no SPLITS_RELAY_URL means the hosted relay', () {
       // A build compiled without the define syncs through the hosted relay,

@@ -1115,17 +1115,15 @@ protocol.Payout? _payoutAt(BillView view, String id, int index) {
 
 /// How a ZEC payment to [address] travels, by the kind §8.6 reads it as.
 ///
-/// Shielded when §8.6 says a memo can reach the recipient — a Sapling address,
-/// or a Unified Address, which §8.6 admits only with a Sapling or Orchard
-/// receiver; transparent for P2PKH, P2SH and TEX, whose payments are public on
-/// the chain. An address §8.6 refuses is said as plain ZEC: nothing is claimed
+/// Transparent for P2PKH, P2SH and TEX, whose payments are public on the
+/// chain, as the protocol's `isTransparentAddress` decides (§9.1); shielded
+/// for a Sapling or Unified Address. An address §8.6 refuses is said as plain ZEC: nothing is claimed
 /// about it.
-String zecLane(String? address) =>
-    switch (address == null ? null : _parsed(address)?.canReceiveMemo) {
-      true => 'Shielded ZEC',
-      false => 'Transparent ZEC',
-      null => 'ZEC',
-    };
+String zecLane(String? address) => address == null || _parsed(address) == null
+    ? 'ZEC'
+    : protocol.isTransparentAddress(address)
+    ? 'Transparent ZEC'
+    : 'Shielded ZEC';
 
 /// [address] as §8.6 reads it, or null when it refuses it.
 protocol.ParsedAddress? _parsed(String address) {
@@ -1284,6 +1282,11 @@ splitz.SettleLane _laneAt(BillView view, String id, int index) {
     _ => splitz.SettleLane.none,
   };
 }
+
+/// The words a payment to a transparent address is shown with on the review
+/// (§14.2): its amount and both addresses are public on chain.
+const publicPaymentWords =
+    'This payment is public: anyone can see its amount and address.';
 
 /// The words a part of a payment no debt explains is shown with: the
 /// beginning of every such sentence that warns.
@@ -1651,6 +1654,13 @@ class _ReviewSendState extends State<_ReviewSend> {
                       ReviewNote(
                         'Address recently changed.',
                         textKey: Key('splits_review_replaced_${toOf(i)}'),
+                      ),
+                    // §14.2: a payment to a transparent address is public on
+                    // chain, said once for each such output.
+                    if (protocol.isTransparentAddress(p.address))
+                      ReviewNote(
+                        publicPaymentWords,
+                        textKey: Key('splits_review_public_${toOf(i)}'),
                       ),
                     // §14.2: any part of what they are paid that no debt
                     // explains, in the settle screen's words.

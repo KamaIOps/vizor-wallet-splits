@@ -15,6 +15,13 @@ import 'splits_scope.dart';
 import 'text_entry_screen.dart' show zcashAddressIn;
 import 'usdc_chains.dart';
 
+/// What a person is told under a transparent Zcash address they are about to
+/// declare for somebody (§9.1): it is a fallback after any shielded one, and
+/// what it is paid is public.
+const publicAddressWords =
+    'Payments to this address are public: anyone can see their amount. '
+    'A private (shielded) address they have is still tried first.';
+
 enum _Way { zec, usdc, cash }
 
 class PayoutForScreen extends StatefulWidget {
@@ -180,10 +187,9 @@ class _PayoutForScreenState extends State<PayoutForScreen> with SplitsActions {
       key: Key(key),
       controller: field,
       enabled: !_saving,
-      // A refusal goes once the field it asked about is typed into.
-      onChanged: (_) {
-        if (_unsaved != null) setState(() => _unsaved = null);
-      },
+      // A refusal goes once the field it asked about is typed into, and the
+      // note under a Zcash address follows what is typed.
+      onChanged: (_) => setState(() => _unsaved = null),
       autocorrect: false,
       decoration: InputDecoration(
         hintText: hint,
@@ -271,14 +277,26 @@ class _PayoutForScreenState extends State<PayoutForScreen> with SplitsActions {
               ),
             ),
             const SizedBox(height: 8),
-            if (_way == _Way.zec)
+            if (_way == _Way.zec) ...[
               _addressField(
                 key: 'splits_address_field',
                 field: _zec,
                 hint: 'Zcash address',
                 zec: true,
-              )
-            else if (_way == _Way.usdc) ...[
+              ),
+              // §9.1: a transparent address is opted into, never assumed.
+              if (splitz.isTransparentAddress(zcashAddressIn(_zec.text.trim())))
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    publicAddressWords,
+                    key: const Key('splits_payout_for_public'),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+            ] else if (_way == _Way.usdc) ...[
               UsdcChainPicker(
                 picked: chain,
                 enabled: !_saving,

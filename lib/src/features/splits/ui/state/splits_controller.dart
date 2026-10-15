@@ -1203,7 +1203,9 @@ class SplitsController extends ChangeNotifier {
   /// address is theirs to set and this refuses.
   ///
   /// The address becomes their first payout, in place of any Zcash one they
-  /// had; every other way they are paid stays after it, in their order.
+  /// had; every other way they are paid stays after it, in their order. A
+  /// transparent address takes the place only of a transparent one, and goes
+  /// after a shielded one they have (§9.1).
   Future<void> setAddressFor({
     required String billId,
     required String id,
@@ -1224,21 +1226,20 @@ class SplitsController extends ChangeNotifier {
       }
       final seed = await _requireIdentity();
       final host = _host(seed);
-      final rest = rankedPayouts(
+      // §9.1: a transparent address goes after a shielded one they have,
+      // never ahead of it, so the list is written as the protocol ranks it.
+      final ranked = rankedPayouts(
         who,
         splitz.Payout(type: 'zec', address: trimmed),
-      ).skip(1).toList();
+      );
       final entry = splitz.joinBill(
         host: HostAs(host, id),
         name: who.name,
-        payTo: trimmed,
+        payTo: ranked.firstWhere((p) => p.type == 'zec').address,
         // An address alone is written as one, as it always was.
-        payouts: rest.isEmpty
+        payouts: ranked.length == 1
             ? null
-            : [
-                _payoutJson(splitz.Payout(type: 'zec', address: trimmed)),
-                for (final p in rest) _payoutJson(p),
-              ],
+            : [for (final p in ranked) _payoutJson(p)],
       );
       await _mergeChecked(billId, entry);
     });
@@ -1671,48 +1672,63 @@ class SplitsController extends ChangeNotifier {
     return result;
   }
 
-  Timer? _poller;
+  Timer? _ticker;
+  bool _ticking = false;
 
-  /// Syncs [billId] every [every] until [stopPolling].
+  /// Asks for [billId] to be kept in sync while a screen shows it or waits
+  /// for it to arrive.
   ///
-  /// One timer, whichever bill is open: two would race on one relay and each
-  /// would refresh over the other's answer.
-  void pollBill(String billId, {Duration every = const Duration(seconds: 5)}) {
-    _polled.add((billId, every));
-    _pollTop();
+  /// Nothing is synced faster for it, and nothing at once: every bill this
+  /// device holds, and every bill a screen waits on, is synced together once
+  /// each [relaySyncSeconds] (SPEC §15.5). A relay sees when a channel is read
+  /// and written, and a poll of the open bill alone would tell it which bill
+  /// is being looked at.
+  void pollBill(String billId) {
+    _polled.add(billId);
+    _startTicker();
   }
 
-  /// Stops the poll [pollBill] started for [billId], and polls the bill a
-  /// screen still open beneath it asked for. Stops every poll when [billId]
-  /// is null.
-  ///
-  /// One timer serves the screen on top. A screen closing stops only its own
-  /// request: stopping whatever was running would leave a bill still on
-  /// screen unpolled while its notice says it is up to date.
+  /// Withdraws one [pollBill] request for [billId], or every request when
+  /// [billId] is null. The tick stops when none is left, and a bill still on
+  /// a screen beneath keeps its own request.
   void stopPolling([String? billId]) {
     if (billId == null) {
       _polled.clear();
     } else {
-      final at = _polled.lastIndexWhere((p) => p.$1 == billId);
+      final at = _polled.lastIndexWhere((id) => id == billId);
       if (at >= 0) _polled.removeAt(at);
     }
-    _pollTop();
+    if (_polled.isEmpty) {
+      _ticker?.cancel();
+      _ticker = null;
+    }
   }
 
-  /// The bills screens asked to poll, oldest first; the last is polled.
-  final List<(String, Duration)> _polled = [];
+  /// The bills screens asked to keep in sync, oldest first.
+  final List<String> _polled = [];
 
-  void _pollTop() {
-    _poller?.cancel();
-    _poller = null;
-    if (_polled.isEmpty || !hasRelay) return;
-    final (billId, every) = _polled.last;
-    // Out of the current turn: a screen starts this from
-    // `didChangeDependencies`, which runs during build, and notifying
-    // listeners there marks a widget dirty while the framework is building
-    // it.
-    unawaited(Future<void>.microtask(() => syncBill(billId)));
-    _poller = Timer.periodic(every, (_) => unawaited(syncBill(billId)));
+  void _startTicker() {
+    if (_ticker != null || !hasRelay) return;
+    _ticker = Timer.periodic(
+      const Duration(seconds: relaySyncSeconds),
+      (_) => unawaited(_tick()),
+    );
+  }
+
+  /// One sync of every held bill and every awaited one, in the order of
+  /// their ids: the same requests whichever is on screen. A tick still
+  /// running when the next is due is not overlapped.
+  Future<void> _tick() async {
+    if (_ticking) return;
+    _ticking = true;
+    try {
+      final ids = {for (final b in _bills) b.id, ..._polled}.toList()..sort();
+      for (final id in ids) {
+        await syncBill(id);
+      }
+    } finally {
+      _ticking = false;
+    }
   }
 
   @override

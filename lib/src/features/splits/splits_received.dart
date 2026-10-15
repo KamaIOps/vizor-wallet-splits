@@ -3,7 +3,12 @@ library;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:splitz_core/host.dart'
-    show IncomingTransaction, txidInSendOrder;
+    show
+        HistoryTransaction,
+        IncomingTransaction,
+        isReceived,
+        receivedTransactions,
+        txidInSendOrder;
 import 'package:splitz_core/splitz_core.dart' show canonicalInstant;
 import 'package:splitz_host/splitz_host.dart' show OwnTransaction;
 
@@ -12,16 +17,19 @@ import '../../providers/rpc_endpoint_provider.dart';
 import '../../rust/api/sync.dart' as rust_sync;
 import 'ui/state/splits_controller.dart' show HeldTransaction;
 
-/// Every mined transaction that left this account with more than it had,
-/// with what it brought.
-///
-/// A transaction still in the mempool, or one that expired unmined, is left
-/// out: it may never land, and a confirmation written on it would settle a
-/// debt nothing settled (§14.7). What it brought is the account's balance
-/// change: §14.7 asks for the transaction's outputs to this account, and a
-/// payment from somebody else spends none of this account's notes, so the
-/// two are one figure. A transaction that also spent from this account is
-/// one of its own, never a payer's.
+/// [tx] as §14.7 reads a wallet's history row.
+HistoryTransaction splitsHistoryRow(rust_sync.TransactionInfo tx) =>
+    HistoryTransaction(
+      txid: txidForDisplay(tx.txidHex),
+      minedHeight: tx.minedHeight.toInt(),
+      expiredUnmined: tx.expiredUnmined,
+      balanceDelta: tx.accountBalanceDelta,
+    );
+
+/// Every transaction this account received, with what it brought, as the
+/// protocol's `receivedTransactions` decides it from this wallet's own
+/// scanned history (§14.7): mined, not expired unmined, and raising the
+/// account's balance. Nothing is asked of a server.
 Future<List<IncomingTransaction>> splitsReceived({
   required WidgetRef ref,
   required String accountUuid,
@@ -31,16 +39,7 @@ Future<List<IncomingTransaction>> splitsReceived({
     network: ref.read(rpcEndpointProvider).networkName,
     accountUuid: accountUuid,
   );
-  return [
-    for (final tx in history)
-      if (tx.minedHeight > BigInt.zero &&
-          !tx.expiredUnmined &&
-          tx.accountBalanceDelta > 0)
-        IncomingTransaction(
-          txidForDisplay(tx.txidHex),
-          tx.accountBalanceDelta.toInt(),
-        ),
-  ];
+  return receivedTransactions([for (final tx in history) splitsHistoryRow(tx)]);
 }
 
 /// When each mined transaction that brought this account money was mined, by
@@ -56,10 +55,7 @@ Future<Map<String, DateTime>> splitsReceivedTimes({
   );
   return {
     for (final tx in history)
-      if (tx.minedHeight > BigInt.zero &&
-          !tx.expiredUnmined &&
-          tx.accountBalanceDelta > 0 &&
-          tx.blockTime > BigInt.zero)
+      if (isReceived(splitsHistoryRow(tx)) && tx.blockTime > BigInt.zero)
         txidForDisplay(tx.txidHex): DateTime.fromMillisecondsSinceEpoch(
           tx.blockTime.toInt() * 1000,
           isUtc: true,
