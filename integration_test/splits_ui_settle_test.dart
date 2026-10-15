@@ -44,6 +44,10 @@ const _phaseDefine = String.fromEnvironment('SPLITS_PHASE');
 const _inviteDefine = String.fromEnvironment('SPLITS_INVITE');
 const _lane = String.fromEnvironment('SPLITS_LANE', defaultValue: 'cash');
 
+/// Set by the runner on mainnet, where the provider quotes: the swap screen
+/// must then offer the leg and say the deposit is public.
+const _expectQuote = String.fromEnvironment('SPLITS_EXPECT_QUOTE') == '1';
+
 /// How the settle screen names the withheld payee's lane.
 const _withheldLabel = _lane == 'swap' ? 'Pay in USDC' : 'Cash';
 
@@ -212,6 +216,32 @@ Future<void> _payer(WidgetTester tester) async {
       logE2e('swap screen reported: $said');
     } else {
       logE2e('swap screen quoted, and offers the ZEC leg to send');
+    }
+    if (_expectQuote) {
+      expect(
+        tester.any(sendable),
+        isTrue,
+        reason: 'on mainnet the provider quotes, and the screen offers the leg',
+      );
+      // §14.2: the provider's deposit address for this pair is transparent,
+      // and the screen says the payment is public before anything is sent.
+      final public = find.byKey(const Key('splits_swap_public_deposit'));
+      final scrollables = find.byType(Scrollable);
+      for (var i = 0; i < tester.widgetList(scrollables).length; i++) {
+        if (tester.any(public)) break;
+        try {
+          await tester.scrollUntilVisible(
+            public,
+            120,
+            scrollable: scrollables.at(i),
+            maxScrolls: 30,
+          );
+        } on Object {
+          // Not in that one.
+        }
+      }
+      expect(public, findsOneWidget, reason: 'a public deposit is named');
+      logE2e('swap screen says: ${tester.widget<Text>(public).data}');
     }
     await publish('done', 'the payer has read the bill');
     return;
