@@ -15,8 +15,9 @@ Future<List<ReviewFinding>> _review(
   SplitsController c,
   FakeWallet wallet,
   BillStorage storage,
-  String id,
-) async {
+  String id, {
+  List<String> publicWords = const [publicPaymentWords],
+}) async {
   await t.pumpWidget(app(c, SettleScreen(billId: id)));
   await t.pumpAndSettle();
   await t.tap(find.byKey(const Key('splits_settle_send')));
@@ -37,7 +38,7 @@ Future<List<ReviewFinding>> _review(
     ))
       w.data ?? w.textSpan?.toPlainText() ?? '',
   ];
-  late List<ReviewFinding> findings;
+  final findings = <ReviewFinding>[];
   await t.runAsync(() async {
     final obligation = (await c.obligation(id))!;
     final folded = await foldVerified(
@@ -45,12 +46,18 @@ Future<List<ReviewFinding>> _review(
       await BillStore(storage).read(id),
       billId: id,
     );
-    findings = checkPayerReview(
-      obligation: obligation,
-      folded: folded,
-      visibleText: shown,
-      reasonWords: const {},
-    );
+    // Each set of words checked against the one screen, in turn.
+    for (final words in publicWords) {
+      findings.addAll(
+        checkPayerReview(
+          obligation: obligation,
+          folded: folded,
+          visibleText: shown,
+          reasonWords: const {},
+          publicWords: words,
+        ),
+      );
+    }
   });
   return findings;
 }
@@ -62,6 +69,43 @@ const _longAddress =
     '00000000000000000000000000000000000000000000000000000000000000000001';
 
 void main() {
+  testWidgets('a payment to a transparent address is said to be public '
+      '(§14.2)', (t) async {
+    const transparent = 't1Hsc1LR8yKnbbe3twRp88p6vFfC5t7DLbs';
+    final wallet = FakeWallet();
+    final storage = InMemoryBillStorage();
+    final c = controllerFor(wallet, storage);
+    await c.load();
+    final id = (await c.createBill(name: 'Dinner', currency: 'USD'))!;
+    final ben = otherHost('ben');
+    await c.accept(id, [
+      entries.joinBill(host: ben, name: 'ben', payTo: transparent),
+      entries.addExpense(
+        host: ben,
+        expenseId: 'x1',
+        paidBy: 'ben',
+        amount: 2000,
+        split: <String, dynamic>{
+          'type': 'equal',
+          'among': ['ben', c.me]..sort(),
+        },
+      ),
+    ]);
+    await c.setRate(billId: id, currency: 'USD', minorUnitsPerZec: 100000);
+    // The screen with the wallet's words passes; the same screen, checked as
+    // if the wallet had no words for it, is missing exactly that.
+    final findings = await _review(
+      t,
+      c,
+      wallet,
+      storage,
+      id,
+      publicWords: const [publicPaymentWords, ''],
+    );
+    expect([for (final f in findings) f.rule], [ReviewRule.publicOutput]);
+    expect(find.byKey(const Key('splits_review_public_ben')), findsOneWidget);
+  });
+
   testWidgets('a shortened address still counts as shown (§14.2)', (t) async {
     final wallet = FakeWallet();
     final storage = InMemoryBillStorage();

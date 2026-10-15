@@ -592,7 +592,12 @@ void main() {
       expect(find.byType(BillScreen), findsNothing);
 
       await ana.syncBill(id);
+      // SPEC §15.5: looked for on the one tick every bill shares, never
+      // faster for the bill on screen.
       await t.pump(const Duration(seconds: 6));
+      await t.pumpAndSettle();
+      expect(find.byType(BillScreen), findsNothing);
+      await t.pump(const Duration(seconds: relaySyncSeconds));
       await t.pumpAndSettle();
       expect(find.byType(BillScreen), findsOneWidget);
       expect(ben.bills.single.id, id);

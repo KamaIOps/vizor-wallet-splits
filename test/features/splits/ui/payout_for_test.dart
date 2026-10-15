@@ -56,6 +56,55 @@ Future<void> _save(WidgetTester t) async {
 }
 
 void main() {
+  testWidgets('a transparent address is said to be public, and kept after '
+      'the address Ben already has (§9.1)', (t) async {
+    const transparent = 't1Hsc1LR8yKnbbe3twRp88p6vFfC5t7DLbs';
+    const unified =
+        'u1l8xunezsvhq8fgzfl7404m450nwnd76zshscn6nfys7vyz2ywyh4cc5daaq0c7q2su'
+        '5lqfh23sp7fkf3kt27ve5948mzpfdvckzaect2jtte308mkwlycj2u0eac077wu70vq'
+        'cetkxf';
+    late SplitsController c;
+    late String id;
+    final wallet = FakeWallet();
+    await t.runAsync(() async {
+      c = SplitsController(
+        wallet: wallet,
+        store: BillStore(InMemoryBillStorage()),
+        keys: SplitsKeys(store: InMemorySecretStore(), random: Random(3)),
+        relay: const UnconfiguredSplitsRelay(),
+        swaps: FakeSwaps(assets: _chains),
+      );
+      id = await unpricedBill(c, 'USD');
+    });
+    wallet.tick();
+    await t.pumpWidget(
+      app(c, PayoutForScreen(billId: id, id: 'ben', name: 'Ben')),
+    );
+    await t.pumpAndSettle();
+    expect(find.byKey(const Key('splits_payout_for_public')), findsNothing);
+
+    await t.enterText(
+      find.byKey(const Key('splits_address_field')),
+      transparent,
+    );
+    await t.pump();
+    expect(find.byKey(const Key('splits_payout_for_public')), findsOneWidget);
+    await _save(t);
+    final ben = c.bills.single.bill.participant('ben')!;
+    expect([for (final p in ben.payouts) p.address], ['u1ben', transparent]);
+    expect(ben.payTo, 'u1ben');
+
+    // A shielded address set afterwards takes the place of the shielded
+    // one, ahead of the transparent one.
+    wallet.tick();
+    await t.runAsync(
+      () => c.setAddressFor(billId: id, id: 'ben', address: unified),
+    );
+    final after = c.bills.single.bill.participant('ben')!;
+    expect([for (final p in after.payouts) p.address], [unified, transparent]);
+    expect(after.payTo, unified);
+  });
+
   testWidgets('Ben can be paid in USDC on a chain, his Zcash address kept '
       'as the way after it', (t) async {
     final (c, id) = await _open(t);

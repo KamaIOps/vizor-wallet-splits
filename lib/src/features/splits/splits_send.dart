@@ -9,7 +9,7 @@ import 'package:splitz_host/splitz_host.dart';
 import '../../core/storage/wallet_paths.dart';
 import 'splits_request_summary.dart';
 import 'ui/state/splits_controller.dart' show SendPreview;
-import 'ui/view/naming.dart' show formatZec, sendShortfall;
+import 'ui/view/naming.dart' show sendShortfall;
 import '../../rust/api/sync.dart' as rust_sync;
 import '../send/services/send_flow.dart';
 import '../../providers/sync_provider.dart';
@@ -28,9 +28,8 @@ import '../../providers/rpc_endpoint_provider.dart';
 /// it.
 ///
 /// [reviewedFee] is the fee the person was shown, in zatoshi. A proposal whose
-/// fee is higher is discarded and the send refused, with nothing built: notes
-/// can change between the preview and the send, and a person confirms the
-/// figure they saw, not one chosen after.
+/// fee is higher is discarded and the send refused before anything is
+/// broadcast, by the protocol's `sendReviewedPaymentRequest` (§14.2).
 Future<WalletSendOutcome> proposeAndBroadcastSplitsBatch({
   required WidgetRef ref,
   required String accountUuid,
@@ -39,62 +38,60 @@ Future<WalletSendOutcome> proposeAndBroadcastSplitsBatch({
   int? reviewedFee,
 }) async {
   final syncNotifier = ref.read(syncProvider.notifier);
-  return sendPaymentRequest(
-    uri: paymentRequestUri,
-    read: () async => splitsReading(
-      await rust_sync.paymentUriOutputs(paymentUri: paymentRequestUri),
-    ),
-    propose: () => syncNotifier.runWithAuthoritativeSpendable(
-      accountUuid: accountUuid,
-      operation: () async {
-        final dbPath = await getWalletDbPath();
-        final endpoint = ref.read(rpcEndpointProvider);
-        final proposal = await rust_sync.proposeSendMulti(
-          dbPath: dbPath,
-          network: endpoint.networkName,
+  Future<rust_sync.ProposalResult> propose() =>
+      syncNotifier.runWithAuthoritativeSpendable(
+        accountUuid: accountUuid,
+        operation: () async => rust_sync.proposeSendMulti(
+          dbPath: await getWalletDbPath(),
+          network: ref.read(rpcEndpointProvider).networkName,
           accountUuid: accountUuid,
           sendFlowId: sendFlowId,
           paymentUri: paymentRequestUri,
-        );
-        final fee = proposal.feeZatoshi.toInt();
-        if (reviewedFee != null && fee > reviewedFee) {
-          try {
-            await rust_sync.discardProposal(
-              proposalId: proposal.proposalId,
-              sendFlowId: sendFlowId,
-            );
-          } on Object catch (error) {
-            debugPrint('splits: raised-fee proposal not discarded: $error');
-          }
-          throw FeeRaised(reviewed: reviewedFee, now: fee);
-        }
-        return proposal;
-      },
-    ),
-    broadcast: (proposal) async => splitsSendOutcome(
-      await _broadcast(
-        ref: ref,
-        proposal: proposal,
-        accountUuid: accountUuid,
-        sendFlowId: sendFlowId,
-        paymentRequestUri: paymentRequestUri,
-      ),
+        ),
+      );
+  Future<List<splitz.ProposedOutput>> read() async => splitsReading(
+    await rust_sync.paymentUriOutputs(paymentUri: paymentRequestUri),
+  );
+  Future<WalletSendOutcome> broadcast(
+    rust_sync.ProposalResult proposal,
+  ) async => splitsSendOutcome(
+    await _broadcast(
+      ref: ref,
+      proposal: proposal,
+      accountUuid: accountUuid,
+      sendFlowId: sendFlowId,
+      paymentRequestUri: paymentRequestUri,
     ),
   );
-}
-
-/// A send refused before anything was built because its fee came out above
-/// the one the person reviewed.
-class FeeRaised implements Exception {
-  const FeeRaised({required this.reviewed, required this.now});
-
-  final int reviewed;
-  final int now;
-
-  @override
-  String toString() =>
-      'The fee went up from ${formatZec(reviewed)} to ${formatZec(now)} since '
-      'you reviewed this payment. Nothing was sent; review it again.';
+  if (reviewedFee == null) {
+    return sendPaymentRequest(
+      uri: paymentRequestUri,
+      read: read,
+      propose: propose,
+      broadcast: broadcast,
+    );
+  }
+  // §14.2: the fee shown is a ceiling, and the protocol's rule decides it.
+  return sendReviewedPaymentRequest(
+    uri: paymentRequestUri,
+    reviewedFee: reviewedFee,
+    read: read,
+    propose: () async {
+      final proposal = await propose();
+      return (proposal, proposal.feeZatoshi.toInt());
+    },
+    discard: (proposal) async {
+      try {
+        await rust_sync.discardProposal(
+          proposalId: proposal.proposalId,
+          sendFlowId: sendFlowId,
+        );
+      } on Object catch (error) {
+        debugPrint('splits: raised-fee proposal not discarded: $error');
+      }
+    },
+    broadcast: broadcast,
+  );
 }
 
 /// What sending [paymentRequestUri] would take, from a proposal built the way
