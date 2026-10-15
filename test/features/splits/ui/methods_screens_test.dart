@@ -550,9 +550,47 @@ void main() {
       expect(find.text('waiting'), findsOneWidget);
     });
 
-    testWidgets('the payer is NOT offered the confirmation', (t) async {
+    testWidgets('the payer is NOT offered the confirmation of a payment to '
+        'somebody who holds a key', (t) async {
       // Confirming your own payment settles a debt by asserting twice that
-      // you paid it.
+      // you paid it; Ben, on his own device, confirms it.
+      final c = controllerFor(FakeWallet());
+      late String id, ben;
+      await t.runAsync(() async {
+        await c.load();
+        id = (await c.createBill(name: 'Dinner', currency: 'USD'))!;
+        final peer = await SignedPeer.named('ben');
+        ben = peer.id;
+        await c.accept(id, [
+          await peer.join(id, name: 'ben', payTo: 'u1ben'),
+          await peer.sign(
+            entries.addExpense(
+              host: peer.host,
+              expenseId: 'x1',
+              paidBy: peer.id,
+              amount: 2000,
+              split: <String, dynamic>{
+                'type': 'equal',
+                'among': [c.me, peer.id]..sort(),
+              },
+            ),
+            id,
+          ),
+        ]);
+        await c.recordCash(billId: id, to: ben, amountMinorUnits: 1000);
+      });
+
+      await t.pumpWidget(app(c, ActivityScreen(billId: id)));
+      await t.pumpAndSettle();
+
+      expect(find.text('It arrived'), findsNothing);
+      expect(find.textContaining('paid you'), findsNothing);
+    });
+
+    testWidgets('the creator IS offered the confirmation of a payment they made '
+        'to somebody they added', (t) async {
+      // §14.11: Ben holds no key, so nobody else can ever confirm it, and
+      // without it the bill never settles.
       final c = controllerFor(FakeWallet());
       final id = await billOwing(c, other: 'ben');
       await c.recordCash(billId: id, to: 'ben', amountMinorUnits: 1000);
@@ -560,8 +598,7 @@ void main() {
       await t.pumpWidget(app(c, ActivityScreen(billId: id)));
       await t.pumpAndSettle();
 
-      expect(find.text('It arrived'), findsNothing);
-      expect(find.textContaining('paid you'), findsNothing);
+      expect(find.text('It arrived'), findsOneWidget);
     });
 
     testWidgets('the payee confirms, and the debt stops being outstanding', (

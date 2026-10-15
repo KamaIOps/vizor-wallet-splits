@@ -291,6 +291,7 @@ class SplitsSyncState {
     this.at,
     this.received = 0,
     this.unopenable = 0,
+    this.tooNew = 0,
     this.detail,
   });
 
@@ -308,6 +309,10 @@ class SplitsSyncState {
   /// A channel where every blob is unopenable is a key that is wrong, which
   /// looks identical to a quiet relay unless it is counted.
   final int unopenable;
+
+  /// Blobs on the channel written by a newer app than this one (§11.3,
+  /// `sealed_future_version`): not a wrong key, an update to install.
+  final int tooNew;
 
   /// What to put in front of a person when [phase] is
   /// [SplitsSyncPhase.failed].
@@ -1066,6 +1071,7 @@ class SplitsController extends ChangeNotifier {
     required String entryId,
   }) async {
     await _guard(() async {
+      await _pullBefore(billId, orRefuse: true);
       final folded = await _storedFold(billId);
       // §14.9: an expense is taken off only while the bill is open. A
       // payment record, or the close itself, may be withdrawn whenever.
@@ -1627,6 +1633,15 @@ class SplitsController extends ChangeNotifier {
       notifyListeners();
       return null;
     }
+    return _syncReported(billId, () => _sync.sync(billId));
+  }
+
+  /// Runs [run] for [billId] — a sync, or a tick's pull — and keeps
+  /// [syncStateOf] saying how it went. Never throws.
+  Future<SyncResult?> _syncReported(
+    String billId,
+    Future<SyncResult> Function() run,
+  ) async {
     _syncStates[billId] = const SplitsSyncState(phase: SplitsSyncPhase.syncing);
     notifyListeners();
 
@@ -1638,7 +1653,7 @@ class SplitsController extends ChangeNotifier {
 
     SyncResult? result;
     try {
-      result = await _sync.sync(billId);
+      result = await run();
       await _refresh();
       final after =
           _bills.where((b) => b.id == billId).firstOrNull?.entryCount ?? 0;
@@ -1649,6 +1664,7 @@ class SplitsController extends ChangeNotifier {
         // A channel where every blob is unopenable is a key that is wrong,
         // and that looks identical to a quiet relay unless it is said.
         unopenable: result.unopenable,
+        tooNew: result.tooNew,
       );
       notifyListeners();
     } on Object catch (e) {
@@ -1673,24 +1689,40 @@ class SplitsController extends ChangeNotifier {
   }
 
   Timer? _ticker;
-  bool _ticking = false;
 
-  /// Asks for [billId] to be kept in sync while a screen shows it or waits
-  /// for it to arrive.
+  /// Whether a tick's pulls, and its pushes, are under way. Apart, so a push
+  /// still working its stamp never holds back the next tick's pulls.
+  bool _pulling = false;
+  bool _pushing = false;
+
+  /// Whether [startSyncing] asked for the tick to run for as long as this
+  /// controller lives.
+  bool _scheduled = false;
+
+  bool _disposed = false;
+
+  /// Syncs every bill this device holds on one fixed interval, each
+  /// [relaySyncSeconds], until [dispose] (SPEC §15.5), whatever is on screen.
   ///
-  /// Nothing is synced faster for it, and nothing at once: every bill this
-  /// device holds, and every bill a screen waits on, is synced together once
-  /// each [relaySyncSeconds] (SPEC §15.5). A relay sees when a channel is read
-  /// and written, and a poll of the open bill alone would tell it which bill
-  /// is being looked at.
+  /// A relay sees when a channel is read and written. A tick that ran only
+  /// while a bill's screen was open would tell it when somebody looks at a
+  /// bill, and a write made just before leaving that screen would wait for a
+  /// tick that never came.
+  void startSyncing() {
+    _scheduled = true;
+    _startTicker();
+  }
+
+  /// Asks for [billId] — a bill a screen waits on, not yet held — to be
+  /// pulled with every held bill at each tick.
   void pollBill(String billId) {
     _polled.add(billId);
     _startTicker();
   }
 
   /// Withdraws one [pollBill] request for [billId], or every request when
-  /// [billId] is null. The tick stops when none is left, and a bill still on
-  /// a screen beneath keeps its own request.
+  /// [billId] is null. Without [startSyncing], the tick stops when none is
+  /// left.
   void stopPolling([String? billId]) {
     if (billId == null) {
       _polled.clear();
@@ -1698,7 +1730,7 @@ class SplitsController extends ChangeNotifier {
       final at = _polled.lastIndexWhere((id) => id == billId);
       if (at >= 0) _polled.removeAt(at);
     }
-    if (_polled.isEmpty) {
+    if (_polled.isEmpty && !_scheduled) {
       _ticker?.cancel();
       _ticker = null;
     }
@@ -1708,32 +1740,119 @@ class SplitsController extends ChangeNotifier {
   final List<String> _polled = [];
 
   void _startTicker() {
-    if (_ticker != null || !hasRelay) return;
+    if (_ticker != null || !hasRelay || _disposed) return;
     _ticker = Timer.periodic(
       const Duration(seconds: relaySyncSeconds),
       (_) => unawaited(_tick()),
     );
   }
 
-  /// One sync of every held bill and every awaited one, in the order of
-  /// their ids: the same requests whichever is on screen. A tick still
-  /// running when the next is due is not overlapped.
+  /// One tick now, as the interval would run it: every channel, never the
+  /// one on screen alone, so asking does not tell the relay which bill is
+  /// open.
+  Future<void> syncNow() async {
+    if (!hasRelay) {
+      _report('This build has no bill relay. Share by code.');
+      notifyListeners();
+      return;
+    }
+    await _tick();
+  }
+
+  /// [syncNow], for a person leaving: what they wrote since the last tick is
+  /// pushed now rather than waiting for one that may not come before the app
+  /// is closed.
+  Future<void> flush() async {
+    if (!hasRelay || _disposed) return;
+    await _tick();
+  }
+
+  /// Pulls every held bill and every awaited one, in the order of their
+  /// ids, then pushes what each channel lacks. Every pull of a tick is done
+  /// before any push begins; a tick due while the last one is still pulling
+  /// is not overlapped, and pushes a running push pass has not reached wait
+  /// for the next tick.
   Future<void> _tick() async {
-    if (_ticking) return;
-    _ticking = true;
+    if (_pulling) return;
+    _pulling = true;
+    final channels = <String, Set<String>>{};
     try {
       final ids = {for (final b in _bills) b.id, ..._polled}.toList()..sort();
       for (final id in ids) {
-        await syncBill(id);
+        if (_disposed && !_scheduled) return;
+        final result = await _syncReported(id, () => _sync.pull(id));
+        if (result != null) channels[id] = result.channel;
       }
     } finally {
-      _ticking = false;
+      _pulling = false;
     }
+    await _pushAll(channels);
+  }
+
+  /// Pushes each bill in [channels], sending only blobs its channel lacks.
+  Future<void> _pushAll(Map<String, Set<String>> channels) async {
+    if (_pushing) return;
+    _pushing = true;
+    try {
+      for (final MapEntry(key: id, value: held) in channels.entries) {
+        try {
+          await _sync.push(id, held: held);
+        } on Object catch (e) {
+          // The pull merged; what failed is telling the others.
+          _syncStates[id] = SplitsSyncState(
+            phase: SplitsSyncPhase.failed,
+            at: _wallet.now(),
+            detail: _describe(e),
+          );
+          notifyListeners();
+        }
+      }
+    } finally {
+      _pushing = false;
+    }
+  }
+
+  /// Fetches [billId]'s channel before a write that moves money, so the write
+  /// is decided on what the others have already said rather than on a view up
+  /// to a tick old (§15.5): a payee's confirmation on the relay but not yet
+  /// pulled would otherwise let its payment be withdrawn and asked for again.
+  ///
+  /// With [orRefuse], a channel that could not be read refuses the write; a
+  /// send goes ahead, since the chain, not the relay, is what it needs.
+  Future<void> _pullBefore(String billId, {required bool orRefuse}) async {
+    if (!hasRelay) return;
+    try {
+      await _sync.pull(billId);
+    } on SplitsSyncException catch (e) {
+      // A bill with no key has no channel to read.
+      if (e.kind == SyncFailure.noKey) return;
+      if (orRefuse) throw const SplitsRefusal(_unchecked);
+      return;
+    } on Object {
+      if (orRefuse) throw const SplitsRefusal(_unchecked);
+      return;
+    }
+    await _refresh();
+  }
+
+  static const _unchecked =
+      'Could not check the bill for anything new, so nothing was changed. '
+      'Try again when you’re online.';
+
+  @override
+  void notifyListeners() {
+    // A push started by [dispose] finishes after the screens are gone.
+    if (!_disposed) super.notifyListeners();
   }
 
   @override
   void dispose() {
-    stopPolling();
+    _disposed = true;
+    _ticker?.cancel();
+    _ticker = null;
+    _polled.clear();
+    // What was written since the last tick still reaches the others.
+    if (_scheduled && hasRelay) unawaited(_tick());
     super.dispose();
   }
 
@@ -1870,6 +1989,7 @@ class SplitsController extends ChangeNotifier {
           'An earlier send isn’t resolved. Check your wallet.',
         );
       }
+      await _pullBefore(billId, orRefuse: false);
       // §14.9, after the note: a send that may still land is the first thing
       // a payer has to hear about.
       await _refuseUnlessClosed(billId);
@@ -1982,6 +2102,7 @@ class SplitsController extends ChangeNotifier {
         'An earlier send isn’t resolved. Check your wallet.',
       );
     }
+    await _pullBefore(billId, orRefuse: false);
     await _refuseUnlessClosed(billId);
     final now = await obligation(billId);
     if (now == null || now.uri != owed.uri) {
@@ -2607,6 +2728,7 @@ class SplitsController extends ChangeNotifier {
     SwapQuote quote,
     protocol.Payout? chosen,
   ) async {
+    await _pullBefore(billId, orRefuse: false);
     await _refuseUnlessClosed(billId);
     {
       // Every check reads the bill the store holds now: a merge not yet

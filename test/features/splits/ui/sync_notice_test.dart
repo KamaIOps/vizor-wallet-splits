@@ -6,6 +6,7 @@
 /// broken, and a bill that travels by code is not broken.
 library;
 
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -209,9 +210,36 @@ void main() {
     expect(stranger.syncStateOf(id).unopenable, greaterThan(0));
   });
 
-  testWidgets('the poll stops when the bill screen closes', (t) async {
-    // A poll running behind a closed screen spends a person's battery on a
-    // bill nobody is looking at.
+  testWidgets('an update from a newer app says to update, not that a key '
+      'is wrong', (t) async {
+    final relay = InMemorySplitsRelay();
+    final c = controllerFor(FakeWallet(), relay: relay);
+    late String id;
+    await t.runAsync(() async {
+      await c.load();
+      id = (await c.createBill(name: 'Dinner', currency: 'USD'))!;
+      await c.syncBill(id);
+      final channel = SplitsChannel.forBill(id);
+      final bytes = base64Url.decode(
+        base64Url.normalize((await relay.fetch(channel)).first),
+      );
+      bytes[0] = 3;
+      await relay.push(channel, [base64Url.encode(bytes).replaceAll('=', '')]);
+      await c.syncBill(id);
+    });
+    expect((c.syncStateOf(id).tooNew, c.syncStateOf(id).unopenable), (1, 0));
+    await t.pumpWidget(app(c, BillScreen(billId: id)));
+    await t.pump();
+    expect(
+      find.textContaining('1 update needs a newer version of this app'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('different key'), findsNothing);
+  });
+
+  testWidgets('the bill screen starts no timer of its own', (t) async {
+    // Every held bill syncs on the controller's one tick (§15.5); a screen
+    // that polled its own bill would tell the relay which bill is open.
     final relay = InMemorySplitsRelay();
     final c = controllerFor(FakeWallet(), relay: relay);
     await c.load();

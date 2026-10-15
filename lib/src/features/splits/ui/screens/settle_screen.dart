@@ -1115,14 +1115,15 @@ protocol.Payout? _payoutAt(BillView view, String id, int index) {
 
 /// How a ZEC payment to [address] travels, by the kind §8.6 reads it as.
 ///
-/// Transparent for P2PKH, P2SH and TEX, whose payments are public on the
-/// chain, as the protocol's `isTransparentAddress` decides (§9.1); shielded
-/// for a Sapling or Unified Address. An address §8.6 refuses is said as plain ZEC: nothing is claimed
-/// about it.
-String zecLane(String? address) => address == null || _parsed(address) == null
+/// Transparent whenever the protocol's `isTransparentAddress` says a payment
+/// to it is public (§9.1); shielded for a Sapling or Unified Address §8.6
+/// decodes. Anything else is said as plain ZEC: nothing is claimed about it.
+String zecLane(String? address) => address == null
     ? 'ZEC'
     : protocol.isTransparentAddress(address)
     ? 'Transparent ZEC'
+    : _parsed(address) == null
+    ? 'ZEC'
     : 'Shielded ZEC';
 
 /// [address] as §8.6 reads it, or null when it refuses it.
@@ -1489,6 +1490,13 @@ class _ReviewSendState extends State<_ReviewSend> {
           warning: false,
           textKey: const Key('splits_review_swap_floor'),
         ),
+        // §14.2: the deposit is an output of this transaction like any
+        // other, and a transparent one is public on chain.
+        if (protocol.isTransparentAddress(quote.depositAddress))
+          ReviewNote(
+            publicPaymentWords,
+            textKey: const Key('splits_review_public_swap_deposit'),
+          ),
         // §14.2: the payout this swap delivers to, as the bill states it —
         // what the payer checks with the payee.
         if (quote.recipient case final recipient?)

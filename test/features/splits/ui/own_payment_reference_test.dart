@@ -1,5 +1,6 @@
 // A payer's own payments say what carried them, shortly; nobody else's list
 // carries a reference.
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:splitz_core/host.dart' as entries;
 import 'package:zcash_wallet/src/features/splits/ui/splits_ui.dart';
@@ -27,7 +28,18 @@ void main() {
 
     await t.pumpWidget(app(c, ActivityScreen(billId: id)));
     await t.pumpAndSettle();
-    expect(find.textContaining('tx ${_txid.substring(0, 14)}…'), findsOne);
+    // In the list row. Ben holds no key, so the card that asks the creator
+    // to confirm for him shows it too (§14.11).
+    expect(
+      find.byWidgetPredicate(
+        (w) =>
+            w is Text &&
+            w.key is ValueKey<String> &&
+            (w.key! as ValueKey<String>).value.endsWith('_subtitle') &&
+            (w.data ?? '').contains('tx ${_txid.substring(0, 14)}…'),
+      ),
+      findsOne,
+    );
     expect(find.textContaining(_txid), findsNothing, reason: 'shortened');
   });
 

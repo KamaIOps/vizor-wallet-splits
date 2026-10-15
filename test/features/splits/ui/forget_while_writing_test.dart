@@ -32,7 +32,7 @@ class GatedSwaps implements SwapProvider {
     required String recipient,
     required String refundTo,
   }) async => SwapQuote(
-    depositAddress: 'u1provider',
+    depositAddress: 't1eEvd4gkYDW8vUSbDxTe9VtarYFNdoB49q',
     amountInZatoshi: amountInZatoshi,
     amountOut: '9500000',
     minAmountOut: '9405000',
