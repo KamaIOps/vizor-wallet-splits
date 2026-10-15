@@ -25,13 +25,19 @@ const String splitsRelayUrl = String.fromEnvironment(
 /// The relay this project hosts: tools/relay/cloudflare in the protocol tree.
 const String hostedSplitsRelay = 'https://splitz-relay.splitz.workers.dev';
 
-SplitsRelay splitsRelay() {
-  if (splitsRelayUrl.isEmpty) return const UnconfiguredSplitsRelay();
-  final http = NetworkHttpClient();
+/// [http] is the wallet's own route — over Tor while the wallet's Tor is on,
+/// direct while it is off — so bill sync never leaves the device any other
+/// way than the wallet's own traffic does (SPEC §15.5).
+SplitsRelay splitsRelay({
+  NetworkHttpClient? http,
+  String origin = splitsRelayUrl,
+}) {
+  if (origin.isEmpty) return const UnconfiguredSplitsRelay();
+  final route = http ?? NetworkHttpClient();
   return HttpSplitsRelay(
-    origin: Uri.parse(splitsRelayUrl),
+    origin: Uri.parse(origin),
     post: (url, body) async {
-      final response = await http.request(
+      final response = await route.request(
         'POST',
         url,
         headers: const {'content-type': 'application/json'},
@@ -41,7 +47,7 @@ SplitsRelay splitsRelay() {
       return utf8.decode(response.bodyBytes);
     },
     get: (url) async {
-      final response = await http.request(
+      final response = await route.request(
         'GET',
         url,
         timeout: const Duration(seconds: 20),
