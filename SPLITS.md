@@ -120,7 +120,8 @@ The app runs on mainnet. The lanes use `ZCASH_DEFAULT_NETWORK=regtest`, a
 local chain that funds itself. The public testnet is `test`, spelled exactly
 so; any other value, `testnet` included, falls back to mainnet.
 
-Bills sync through the hosted relay, `https://splitz-relay.splitz.workers.dev`,
-with nothing to set up. `--dart-define=SPLITS_RELAY_URL=<origin>` points a
-build at another relay; an empty value turns sync off, and bills then move
-only as scanned codes. The relay holds only encrypted entries.
+Bills sync through the relay a build names with
+`--dart-define=SPLITS_RELAY_URL=<origin>`, for example
+`python3 tools/relay/server.py` from the protocol tree. A build that names none
+has sync off, and bills then move only as scanned codes. The relay holds only
+encrypted entries.
