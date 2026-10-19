@@ -12,18 +12,14 @@ import '../../core/network/network_http_client.dart';
 
 /// The relay this build syncs bills through, or none.
 ///
-/// The hosted relay unless a build names another: phones on different
+/// None unless a build names one with `--dart-define=SPLITS_RELAY_URL=<origin>`.
+/// Without a relay, bills move only by scanned code. Phones on different
 /// networks reach each other's bills only through one, and it holds only
-/// sealed blobs under channel digests (SPEC §15.5). A build given
-/// `--dart-define=SPLITS_RELAY_URL=` (empty) has none, and bills move only by
-/// scanned code.
-const String splitsRelayUrl = String.fromEnvironment(
-  'SPLITS_RELAY_URL',
-  defaultValue: hostedSplitsRelay,
-);
-
-/// The relay this project hosts: tools/relay/cloudflare in the protocol tree.
-const String hostedSplitsRelay = 'https://splitz-relay.splitz.workers.dev';
+/// sealed blobs under channel digests (SPEC §15.5).
+///
+/// No default: this build writes sealed frames v2 and works for each push, and
+/// a relay that serves v1 readers must not receive them.
+const String splitsRelayUrl = String.fromEnvironment('SPLITS_RELAY_URL');
 
 /// [http] is the wallet's own route — over Tor while the wallet's Tor is on,
 /// direct while it is off — so bill sync never leaves the device any other
