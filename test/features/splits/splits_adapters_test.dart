@@ -115,12 +115,18 @@ void main() {
   });
 
   group('the relay a build gets', () {
-    test('no SPLITS_RELAY_URL means the hosted relay', () {
-      // A build compiled without the define syncs through the hosted relay,
-      // over https, at the origin the protocol tree deploys.
-      expect(splitsRelayUrl, hostedSplitsRelay);
-      expect(Uri.parse(hostedSplitsRelay).scheme, 'https');
-      expect(splitsRelay(), isA<HttpSplitsRelay>());
+    test('no SPLITS_RELAY_URL means no relay', () {
+      // A build compiled without the define syncs nowhere: bills move by
+      // scanned code until a relay is named.
+      expect(splitsRelayUrl, isEmpty);
+      expect(splitsRelay(), isA<UnconfiguredSplitsRelay>());
+    });
+
+    test('a named origin is the relay a build gets', () {
+      expect(
+        splitsRelay(origin: 'https://relay.example'),
+        isA<HttpSplitsRelay>(),
+      );
     });
   });
 
